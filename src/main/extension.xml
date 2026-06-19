@@ -1,0 +1,7 @@
+<extensions>
+  <extension type="WorkspaceAccess"
+             class="com.example.termmgmt.TermManagementWorkspaceAccessExtension"/>
+  <extension type="OptionPage"
+             processorType="oxygen"
+             class="com.example.termmgmt.TermManagementOptionPageExtension"/>
+</extensions>

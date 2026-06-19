@@ -1,0 +1,11 @@
+source,target,note,domain
+人工智能,AI,Artificial Intelligence,Technology
+机器学习,Machine Learning,,AI/ML
+深度学习,Deep Learning,Subset of ML,Neural Networks
+自然语言处理,NLP,Processing human language,NLP
+神经网络,Neural Network,Computing model,Bio-inspired
+强化学习,Reinforcement Learning,RL paradigm,AI/ML
+卷积神经网络,CNN,Convolutional Neural Network,CV
+生成对抗网络,GAN,Generative Adversarial Network,Generative Models
+Transformer,Transformer Architecture,Attention-based model,Deep Learning
+大语言模型,LLM,Large Language Model,Generative AI

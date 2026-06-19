@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<martif type="TBX" xml:lang="en-US">
+  <martifHeader>
+    <fileDesc>
+      <sourceDesc>
+        <p>Sample Terminology</p>
+      </sourceDesc>
+    </fileDesc>
+  </martifHeader>
+  <text>
+    <body>
+      <termEntry id="tid1">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>云计算</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Cloud Computing</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid2">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>微服务</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Microservices</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid3">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>容器化</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Containerization</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid4">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>DevOps</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>DevOps</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid5">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>持续集成</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Continuous Integration</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid6">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>持续部署</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Continuous Deployment</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid7">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>编排</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Orchestration</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid8">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>服务网格</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Service Mesh</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid9">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>边缘计算</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Edge Computing</term>
+          </tig>
+        </langSet>
+      </termEntry>
+      <termEntry id="tid10">
+        <langSet xml:lang="zh-CN">
+          <tig>
+            <term>Serverless</term>
+          </tig>
+        </langSet>
+        <langSet xml:lang="en-US">
+          <tig>
+            <term>Serverless</term>
+          </tig>
+        </langSet>
+      </termEntry>
+    </body>
+  </text>
+</martif>

@@ -1,0 +1,35 @@
+# Maven build output
+target/
+output/
+build/
+dependency-reduced-pom.xml
+
+# IDE files
+*.iml
+.idea/
+*.ipr
+*.iws
+.settings/
+.classpath
+.project
+.vscode/
+*.swp
+*.swo
+
+# Compiled classes
+*.class
+
+# OS files
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Reference samples (not part of the plugin source)
+reference/
+
+# Logs
+*.log
+
+# Temp
+tmp/
+temp/
