@@ -15,6 +15,7 @@ dependency-reduced-pom.xml
 .vscode/
 *.swp
 *.swo
+*.opencode/
 
 # Compiled classes
 *.class
