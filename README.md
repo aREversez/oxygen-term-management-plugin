@@ -1,5 +1,10 @@
 # Term Management
 
+<p align="right">
+  <a href="./README.md">English</a> |
+  <a href="./README.zh.md">中文</a>
+</p>
+
 Oxygen XML Editor plugin for terminology management and translation assistance.
 
 ## Screenshots
