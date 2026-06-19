@@ -1,0 +1,8 @@
+<extensions>
+
+  <!-- 1: OptionPage - Preferences > Plugins > Term Management -->
+  <extension type="OptionPage"
+             processorType="oxygen"
+             class="com.example.termmgmt.prefs.TermManagementPreferencePage"/>
+
+</extensions>
