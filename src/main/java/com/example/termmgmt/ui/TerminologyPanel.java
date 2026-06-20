@@ -3,6 +3,7 @@ package com.example.termmgmt.ui;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
+import com.example.termmgmt.util.IconUtils;
 
 import ro.sync.exml.workspace.api.PluginWorkspace;
 import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
@@ -19,7 +20,6 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -116,31 +116,31 @@ public class TerminologyPanel extends JPanel {
         // Create button panel with icon buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 5));
 
-        JButton reloadButton = new JButton(createIcon("reload"));
+        JButton reloadButton = new JButton(IconUtils.loadIcon("reload", 20));
         reloadButton.setToolTipText("Reload termbase from disk");
         reloadButton.setPreferredSize(new Dimension(28, 28));
         reloadButton.addActionListener(e -> reloadTermbase());
         buttonPanel.add(reloadButton);
 
-        JButton addButton = new JButton(createIcon("add"));
+        JButton addButton = new JButton(IconUtils.loadIcon("add", 20));
         addButton.setToolTipText("Add new term");
         addButton.setPreferredSize(new Dimension(28, 28));
         addButton.addActionListener(e -> addNewTerm());
         buttonPanel.add(addButton);
 
-        JButton quickAddButton = new JButton(createIcon("quickadd"));
+        JButton quickAddButton = new JButton(IconUtils.loadIcon("quick_add", 20));
         quickAddButton.setToolTipText("Quick add term from editor selection");
         quickAddButton.setPreferredSize(new Dimension(28, 28));
         quickAddButton.addActionListener(e -> quickAddNewTerm());
         buttonPanel.add(quickAddButton);
 
-        JButton editButton = new JButton(createIcon("edit"));
+        JButton editButton = new JButton(IconUtils.loadIcon("edit", 20));
         editButton.setToolTipText("Edit selected term");
         editButton.setPreferredSize(new Dimension(28, 28));
         editButton.addActionListener(e -> editTerm());
         buttonPanel.add(editButton);
 
-        JButton deleteButton = new JButton(createIcon("delete"));
+        JButton deleteButton = new JButton(IconUtils.loadIcon("delete", 20));
         deleteButton.setToolTipText("Delete selected term(s)");
         deleteButton.setPreferredSize(new Dimension(28, 28));
         deleteButton.addActionListener(e -> deleteTerms());
@@ -179,58 +179,6 @@ public class TerminologyPanel extends JPanel {
                 popup.show(termTable, e.getX(), e.getY());
             }
         });
-    }
-
-    private static ImageIcon createIcon(String type) {
-        BufferedImage img = new BufferedImage(20, 20, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-        g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g.setColor(new Color(0x505050));
-        int cx = 10, cy = 10;
-        switch (type) {
-            case "reload": {
-                // Circular arrow (refresh)
-                g.drawArc(3, 3, 14, 14, 60, -300);
-                int ax = (int)(10 + 7 * Math.cos(Math.toRadians(60)));
-                int ay = (int)(10 + 7 * Math.sin(Math.toRadians(60)));
-                g.drawLine(ax, ay, ax + 3, ay - 2);
-                g.drawLine(ax, ay, ax - 1, ay - 4);
-                break;
-            }
-            case "add":
-                g.drawLine(cx, 3, cx, 17);
-                g.drawLine(3, cy, 17, cy);
-                break;
-            case "quickadd": {
-                // Plus with a star/sparkle accent
-                g.drawLine(cx, 4, cx, 16);
-                g.drawLine(4, cy, 16, cy);
-                g.setStroke(new BasicStroke(1.4f));
-                // Small asterisk in top-right quadrant
-                g.drawLine(14, 2, 14, 6);
-                g.drawLine(12, 4, 16, 4);
-                g.drawLine(13, 3, 15, 5);
-                break;
-            }
-            case "edit": {
-                // Pencil icon
-                g.drawLine(4, 16, 13, 7);
-                g.drawLine(13, 7, 16, 10);
-                g.drawLine(16, 10, 7, 17);
-                g.drawLine(5, 15, 3, 17);
-                break;
-            }
-            case "delete":
-                g.drawRoundRect(5, 8, 10, 10, 2, 2);
-                g.drawLine(6, 6, 14, 6);
-                g.drawLine(8, 9, 8, 16);
-                g.drawLine(12, 9, 12, 16);
-                break;
-        }
-        g.dispose();
-        return new ImageIcon(img);
     }
 
     private static final String LAST_TB_KEY = "com.example.termmgmt.last-termbase-terminology";

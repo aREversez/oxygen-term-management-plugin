@@ -2,9 +2,11 @@ package com.example.termmgmt.ui;
 
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.util.I18N;
+import com.example.termmgmt.util.IconUtils;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.image.BufferedImage;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 
 public class TermEntryDialog extends JDialog {
 
@@ -27,7 +29,10 @@ public class TermEntryDialog extends JDialog {
     }
 
     private void initComponents() {
-        setIconImage(createDialogIcon());
+        ImageIcon logoIcon = IconUtils.loadLogo(16);
+        if (logoIcon != null) {
+            setIconImage(logoIcon.getImage());
+        }
 
         JPanel content = new JPanel(new BorderLayout());
         content.setBorder(BorderFactory.createEmptyBorder(12, 12, 8, 12));
@@ -64,23 +69,17 @@ public class TermEntryDialog extends JDialog {
         pack();
         setMinimumSize(new Dimension(380, 160));
         setLocationRelativeTo(null);
-    }
 
-    private static Image createDialogIcon() {
-        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(new Color(0x2B579A));
-        g.fillRoundRect(1, 1, 14, 14, 4, 4);
-        g.setColor(Color.WHITE);
-        g.setFont(new Font("SansSerif", Font.BOLD, 12));
-        FontMetrics fm = g.getFontMetrics();
-        String letter = "T";
-        int x = (16 - fm.stringWidth(letter)) / 2;
-        int y = (16 - fm.getHeight()) / 2 + fm.getAscent();
-        g.drawString(letter, x, y);
-        g.dispose();
-        return img;
+        // Enter → confirm, ESC → cancel
+        getRootPane().setDefaultButton(okButton);
+        getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+            .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "cancel");
+        getRootPane().getActionMap().put("cancel", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                dispose();
+            }
+        });
     }
 
     private void confirm() {
