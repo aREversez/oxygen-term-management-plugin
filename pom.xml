@@ -42,6 +42,13 @@
             <artifactId>opencsv</artifactId>
             <version>5.7.1</version>
         </dependency>
+
+        <!-- SVG Salamander for SVG icon rendering -->
+        <dependency>
+            <groupId>io.github.blackears</groupId>
+            <artifactId>svg-salamander</artifactId>
+            <version>1.1.5.5</version>
+        </dependency>
     </dependencies>
 
     <build>
