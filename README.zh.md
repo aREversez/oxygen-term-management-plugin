@@ -42,9 +42,14 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 
 ## 构建
 
-```bash
-mvn clean package
-```
+1. 从您的 Oxygen XML Editor 安装目录复制 `oxygen.jar` 到 `libs/`：
+   ```bash
+   cp <OXYGEN_HOME>/lib/oxygen.jar libs/
+   ```
+2. 构建插件：
+   ```bash
+   mvn clean package
+   ```
 
 构建产物位于 `output/term-management/`。
 
@@ -148,9 +153,14 @@ term-management/
 - Oxygen XML Editor 27+（用于 SDK JAR 和测试）
 
 ### 构建
-```bash
-mvn clean package
-```
+1. 从您的 Oxygen XML Editor 安装目录复制 `oxygen.jar` 到 `libs/`：
+   ```bash
+   cp <OXYGEN_HOME>/lib/oxygen.jar libs/
+   ```
+2. 构建插件：
+   ```bash
+   mvn clean package
+   ```
 
 ### IntelliJ IDEA 设置
 1. 打开项目目录。

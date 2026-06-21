@@ -47,9 +47,14 @@ Oxygen XML Editor plugin for terminology management and translation assistance.
 
 ## Build
 
-```bash
-mvn clean package
-```
+1. Copy `oxygen.jar` from your Oxygen XML Editor installation directory (`lib/oxygen.jar`) to `libs/`:
+   ```bash
+   cp <OXYGEN_HOME>/lib/oxygen.jar libs/
+   ```
+2. Build the plugin:
+   ```bash
+   mvn clean package
+   ```
 
 The deployable plugin package will be available at `output/term-management/`.
 
@@ -152,9 +157,14 @@ term-management/
 - Oxygen XML Editor 27+ (for SDK JARs and testing)
 
 ### Building
-```bash
-mvn clean package
-```
+1. Copy `oxygen.jar` from your Oxygen XML Editor installation directory (`lib/oxygen.jar`) to `libs/`:
+   ```bash
+   cp <OXYGEN_HOME>/lib/oxygen.jar libs/
+   ```
+2. Build the plugin:
+   ```bash
+   mvn clean package
+   ```
 
 ### IntelliJ IDEA Setup
 1. Open the project directory.
