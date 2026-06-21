@@ -9,15 +9,20 @@ Oxygen XML Editor plugin for terminology management and translation assistance.
 
 ## Screenshots
 
-![Screenshot](./assets/plugin_screenshot.png)
+![Plugin Overview](./assets/plugin_screenshot.png)
+![Highlight Feature](./assets/toggle_highlight_feature.png)
+![CJK Support](./assets/highlight_cjk.png)
 
 ## Features
 
 ### Term Recognition
 - Scan the current editor document for terms from enabled termbases
 - Supports both Author and Text editing modes
+- **Author-mode term highlighting** — toggle highlight on/off with a single button; highlighted terms are visually marked in the document with a yellow background
+- **CJK support** — correctly recognizes Chinese, Japanese, and Korean text without requiring whitespace delimiters
 - Double-click a matched term to locate it in the document
 - Auto-scan on tab switch and editor change
+- **Theme-aware SVG icons** — icons adapt to dark/light Oxygen theme automatically
 
 ### Terminology Management
 - Add, edit, delete terms in individual termbases (TBX / XLSX / CSV)
@@ -72,6 +77,7 @@ The deployable plugin package will be available at `output/term-management/`.
 2. In the **Term Recognition** tab, select a termbase from the dropdown.
 3. Click **Scan** (or switch tabs to auto-scan).
 4. Matched terms appear in the table. **Double-click** any row to jump to that term in the editor.
+5. **Toggle Highlight** — enable/disable Author-mode highlighting to visually mark matched terms in the document. The toggle state is per-document.
 
 ### Terminology Management
 1. Switch to the **Terminology** tab.
@@ -90,11 +96,15 @@ The deployable plugin package will be available at `output/term-management/`.
 
 ## Supported Formats
 
+## Language Identification
+
+Language tags follow the **BCP 47** standard (e.g., `en-US`, `zh-CN`, `ja-JP`). A reference table is available at [`language-tags-BCP-47.md`](./language-tags-BCP-47.md).
+
 | Format | Library | Notes |
 |--------|---------|-------|
 | CSV | OpenCSV | UTF-8, first row header, BCP 47 language tags |
 | XLSX | Apache POI | First sheet, first row header |
-| TBX (ISO 30042) | JDK DOM | xml:lang attributes for language detection |
+| TBX (ISO 30042) | JDK DOM | `xml:lang` attributes for language detection |
 
 ## Project Structure
 
