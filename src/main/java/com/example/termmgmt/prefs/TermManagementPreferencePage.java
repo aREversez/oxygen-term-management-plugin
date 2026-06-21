@@ -8,6 +8,8 @@ import com.example.termmgmt.util.I18N;
 
 import ro.sync.exml.plugin.option.OptionPagePluginExtension;
 import ro.sync.exml.workspace.api.PluginWorkspace;
+import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
+import ro.sync.exml.workspace.api.options.WSOptionsStorage;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -28,6 +30,8 @@ import java.util.List;
  *   - getTitle() returns String
  */
 public class TermManagementPreferencePage extends OptionPagePluginExtension {
+
+    private static final String LAST_TERMBASE_DIR_KEY = "com.example.termmgmt.last-termbase-dir";
 
     private JPanel ui;
     private JTable termbaseTable;
@@ -140,27 +144,110 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     }
 
     private void addTermbase() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle("Select Termbase File");
-        fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-            "TBX / XLSX / CSV files (*.tbx, *.xlsx, *.csv)", "tbx", "xlsx", "csv"));
-        
-        int result = fileChooser.showOpenDialog(ui);
-        if (result == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
+        // Use AWT FileDialog for native Windows dialog with rubber-band multi-select
+        Window owner = SwingUtilities.getWindowAncestor(ui);
+        FileDialog dialog;
+        if (owner instanceof Frame) {
+            dialog = new FileDialog((Frame) owner, "Select Termbase File(s)", FileDialog.LOAD);
+        } else if (owner instanceof Dialog) {
+            dialog = new FileDialog((Dialog) owner, "Select Termbase File(s)", FileDialog.LOAD);
+        } else {
+            dialog = new FileDialog((Frame) null, "Select Termbase File(s)", FileDialog.LOAD);
+        }
+        dialog.setMultipleMode(true);
+        dialog.setFilenameFilter((dir, name) -> {
+            String lower = name.toLowerCase();
+            return lower.endsWith(".tbx") || lower.endsWith(".xlsx") || lower.endsWith(".csv");
+        });
+
+        String lastDir = loadLastTermbaseDir();
+        if (lastDir != null) {
+            dialog.setDirectory(lastDir);
+        }
+
+        dialog.setVisible(true);
+
+        File[] files = dialog.getFiles();
+        if (files.length == 0) return;
+
+        // Save last used directory
+        saveLastTermbaseDir(files[0].getParent());
+
+        // Build a set of existing file paths for duplicate detection
+        List<TermbaseConfig> configs = registry.getConfigs();
+        java.util.Set<String> existingPaths = new java.util.HashSet<>();
+        for (TermbaseConfig c : configs) {
+            existingPaths.add(new File(c.getFilePath()).getAbsolutePath());
+        }
+
+        int added = 0;
+        int skipped = 0;
+        int duplicates = 0;
+
+        for (File file : files) {
             String filePath = file.getAbsolutePath();
-            
-            // Detect format from file extension
-            TermbaseConfig.Format format = TermbaseLoader.detectFormat(filePath);
-            
-            // Add to registry
+
+            // Check duplicate
+            if (existingPaths.contains(filePath)) {
+                duplicates++;
+                continue;
+            }
+
+            // Validate format
+            TermbaseConfig.Format format;
+            try {
+                format = TermbaseLoader.detectFormat(filePath);
+            } catch (IllegalArgumentException e) {
+                skipped++;
+                continue;
+            }
+
             TermbaseConfig config = new TermbaseConfig(filePath, format, true);
-            List<TermbaseConfig> configs = registry.getConfigs();
             configs.add(config);
-            registry.setConfigs(configs);
-            
-            // Reload table
-            reloadSettings();
+            existingPaths.add(filePath);
+            added++;
+        }
+
+        registry.setConfigs(configs);
+        reloadSettings();
+
+        // Build summary message
+        StringBuilder msg = new StringBuilder();
+        if (added > 0) {
+            msg.append(added).append(" termbase(s) added.\n");
+        }
+        if (duplicates > 0) {
+            msg.append(duplicates).append(" file(s) already exist in the list.\n");
+        }
+        if (skipped > 0) {
+            msg.append(skipped).append(" file(s) skipped (unsupported format).\n");
+        }
+
+        if (msg.length() > 0) {
+            msg.append("\nSupported formats: TBX (.tbx), XLSX (.xlsx), CSV (.csv)");
+            JOptionPane.showMessageDialog(ui, msg.toString(), "Add Termbase",
+                added > 0 ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private String loadLastTermbaseDir() {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return null;
+            WSOptionsStorage os = w.getOptionsStorage();
+            return os.getOption(LAST_TERMBASE_DIR_KEY, null);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void saveLastTermbaseDir(String dir) {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return;
+            WSOptionsStorage os = w.getOptionsStorage();
+            os.setOption(LAST_TERMBASE_DIR_KEY, dir != null ? dir : "");
+        } catch (Exception e) {
         }
     }
 
