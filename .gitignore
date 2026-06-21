@@ -34,3 +34,6 @@ reference/
 # Temp
 tmp/
 temp/
+
+# sdk
+libs/oxygen.jar
