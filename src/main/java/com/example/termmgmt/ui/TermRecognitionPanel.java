@@ -317,7 +317,10 @@ public class TermRecognitionPanel extends JPanel {
 
             String matchTerm = isTextMode ? escapeXmlEntities(sourceTerm) : sourceTerm;
             String escaped = Pattern.quote(matchTerm);
-            Pattern pattern = Pattern.compile("(?<![\\p{L}])" + escaped + "(?![\\p{L}])",
+            String regex = isNonDelimitedScript(matchTerm)
+                ? escaped
+                : "(?<![\\p{L}])" + escaped + "(?![\\p{L}])";
+            Pattern pattern = Pattern.compile(regex,
                 Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
             Matcher matcher = pattern.matcher(documentText);
 
@@ -404,6 +407,16 @@ public class TermRecognitionPanel extends JPanel {
             }
         } catch (Exception e) {
         }
+    }
+
+    private static boolean isNonDelimitedScript(String text) {
+        return text.codePoints().anyMatch(cp -> {
+            Character.UnicodeScript script = Character.UnicodeScript.of(cp);
+            return script == Character.UnicodeScript.HAN
+                || script == Character.UnicodeScript.HIRAGANA
+                || script == Character.UnicodeScript.KATAKANA
+                || script == Character.UnicodeScript.HANGUL;
+        });
     }
 
     private static String escapeXmlEntities(String text) {
