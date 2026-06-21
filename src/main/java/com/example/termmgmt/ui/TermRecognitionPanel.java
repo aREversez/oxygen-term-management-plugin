@@ -101,12 +101,12 @@ public class TermRecognitionPanel extends JPanel {
         });
         actionRow.add(termbaseCombo);
 
-        JButton scanButton = new JButton(IconUtils.loadIcon("scan", 20));
+        JButton scanButton = new JButton(IconUtils.loadIcon("scan", 16));
         scanButton.setToolTipText("Scan for terms in current document");
         scanButton.addActionListener(e -> scanDocument());
         actionRow.add(scanButton);
 
-        highlightToggle = new JToggleButton(IconUtils.loadIcon("toggle_highlight", 20));
+        highlightToggle = new JToggleButton(IconUtils.loadIcon("toggle_highlight", 16));
         highlightToggle.setToolTipText("Toggle term highlighting in Author mode");
         highlightToggle.addActionListener(e -> {
             String url = getCurrentEditorUrl();

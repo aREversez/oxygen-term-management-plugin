@@ -116,33 +116,33 @@ public class TerminologyPanel extends JPanel {
         // Create button panel with icon buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 5));
 
-        JButton reloadButton = new JButton(IconUtils.loadIcon("reload", 20));
+        JButton reloadButton = new JButton(IconUtils.loadIcon("reload", 16));
         reloadButton.setToolTipText("Reload termbase from disk");
         reloadButton.setPreferredSize(new Dimension(28, 28));
         reloadButton.addActionListener(e -> reloadTermbase());
         buttonPanel.add(reloadButton);
 
-        JButton addButton = new JButton(IconUtils.loadIcon("add", 20));
+        JButton addButton = new JButton(IconUtils.loadIcon("add", 16));
         addButton.setToolTipText("Add new term");
-        addButton.setPreferredSize(new Dimension(28, 28));
+        addButton.setPreferredSize(new Dimension(24, 24));
         addButton.addActionListener(e -> addNewTerm());
         buttonPanel.add(addButton);
 
-        JButton quickAddButton = new JButton(IconUtils.loadIcon("quick_add", 20));
+        JButton quickAddButton = new JButton(IconUtils.loadIcon("quick_add", 16));
         quickAddButton.setToolTipText("Quick add term from editor selection");
-        quickAddButton.setPreferredSize(new Dimension(28, 28));
+        quickAddButton.setPreferredSize(new Dimension(24, 24));
         quickAddButton.addActionListener(e -> quickAddNewTerm());
         buttonPanel.add(quickAddButton);
 
-        JButton editButton = new JButton(IconUtils.loadIcon("edit", 20));
+        JButton editButton = new JButton(IconUtils.loadIcon("edit", 16));
         editButton.setToolTipText("Edit selected term");
-        editButton.setPreferredSize(new Dimension(28, 28));
+        editButton.setPreferredSize(new Dimension(24, 24));
         editButton.addActionListener(e -> editTerm());
         buttonPanel.add(editButton);
 
-        JButton deleteButton = new JButton(IconUtils.loadIcon("delete", 20));
+        JButton deleteButton = new JButton(IconUtils.loadIcon("delete", 16));
         deleteButton.setToolTipText("Delete selected term(s)");
-        deleteButton.setPreferredSize(new Dimension(28, 28));
+        deleteButton.setPreferredSize(new Dimension(24, 24));
         deleteButton.addActionListener(e -> deleteTerms());
         buttonPanel.add(deleteButton);
 

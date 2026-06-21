@@ -60,31 +60,24 @@ public final class IconUtils {
             double dh = diagram.getHeight();
             if (dw <= 0 || dh <= 0) return null;
 
-            int nativeW = (int) Math.ceil(dw);
-            int nativeH = (int) Math.ceil(dh);
+            // Render SVG directly at target size with high-quality settings
+            double scale = Math.min((double) targetSize / dw, (double) targetSize / dh);
+            int renderW = (int) Math.round(dw * scale);
+            int renderH = (int) Math.round(dh * scale);
 
-            // Step 1: render at native SVG size (no transform interference)
-            BufferedImage nativeImg = new BufferedImage(nativeW, nativeH, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D ng = nativeImg.createGraphics();
-            ng.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            diagram.render(ng);
-            ng.dispose();
-
-            // Step 2: scale to target size
             BufferedImage result = new BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D rg = result.createGraphics();
-            rg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            rg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Graphics2D g = result.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
 
-            double scale = Math.min((double) targetSize / nativeW, (double) targetSize / nativeH);
-            int drawW = (int) Math.round(nativeW * scale);
-            int drawH = (int) Math.round(nativeH * scale);
-            int x = (targetSize - drawW) / 2;
-            int y = (targetSize - drawH) / 2;
-
-            rg.drawImage(nativeImg, x, y, drawW, drawH, null);
-            rg.dispose();
+            int x = (targetSize - renderW) / 2;
+            int y = (targetSize - renderH) / 2;
+            g.translate(x, y);
+            g.scale(scale, scale);
+            diagram.render(g);
+            g.dispose();
 
             return new ImageIcon(result);
         } catch (SVGException e) {
