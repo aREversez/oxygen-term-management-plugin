@@ -4,15 +4,20 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 
 ## 截图
 
-![Screenshot](./assets/plugin_screenshot.png)
+![插件概览](./assets/plugin_screenshot.png)
+![高亮功能](./assets/toggle_highlight_feature.png)
+![CJK 支持](./assets/highlight_cjk.png)
 
 ## 功能特性
 
 ### 术语识别
 - 扫描当前编辑器文档，匹配已启用的术语库中的术语
 - 支持 Author 和 Text 两种编辑模式
+- **Author 模式高亮** — 一键开关高亮，匹配的术语在文档中以黄色背景标记
+- **CJK 支持** — 正确识别中文、日文、韩文文本，无需依赖空格分隔
 - 双击匹配的术语行即可跳转到文档中对应位置
 - 切换标签页或编辑器时自动扫描
+- **主题感知 SVG 图标** — 图标自动适配 Oxygen 深色/浅色主题
 
 ### 术语管理
 - 在单个术语库（TBX / XLSX / CSV）中添加、编辑、删除术语
@@ -67,6 +72,7 @@ mvn clean package
 2. 在 **术语识别** 标签页中，从下拉框选择一个术语库。
 3. 点击 **Scan**（或切换标签页以自动扫描）。
 4. 匹配的术语显示在表格中。**双击**任意行即可在编辑器中跳转至该术语。
+5. **高亮开关** — 在 Author 模式下开关术语高亮，匹配的术语在文档中可见标记。每个文档独立记忆开关状态。
 
 ### 术语管理
 1. 切换到 **术语管理** 标签页。
@@ -85,11 +91,15 @@ mvn clean package
 
 ## 支持的格式
 
+## 语言标识
+
+语言标签遵循 **BCP 47** 标准（例如 `en-US`、`zh-CN`、`ja-JP`）。参考表见 [`language-tags-BCP-47.md`](./language-tags-BCP-47.md)。
+
 | 格式 | 库 | 备注 |
 |------|----|------|
 | CSV | OpenCSV | UTF-8 编码，首行为表头，BCP 47 语言标签 |
 | XLSX | Apache POI | 第一个工作表，首行为表头 |
-| TBX（ISO 30042） | JDK DOM | 使用 xml:lang 属性检测语言 |
+| TBX（ISO 30042） | JDK DOM | 使用 `xml:lang` 属性检测语言 |
 
 ## 项目结构
 
