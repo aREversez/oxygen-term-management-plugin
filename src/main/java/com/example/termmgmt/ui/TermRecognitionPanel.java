@@ -3,7 +3,14 @@ package com.example.termmgmt.ui;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
+import com.example.termmgmt.util.IconUtils;
 
+import ro.sync.ecss.extensions.api.AuthorDocumentController;
+import ro.sync.ecss.extensions.api.content.TextContentIterator;
+import ro.sync.ecss.extensions.api.content.TextContext;
+import ro.sync.ecss.extensions.api.highlights.AuthorHighlighter;
+import ro.sync.ecss.extensions.api.highlights.ColorHighlightPainter;
+import ro.sync.exml.view.graphics.Color;
 import ro.sync.exml.workspace.api.PluginWorkspace;
 import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
 import ro.sync.exml.workspace.api.editor.WSEditor;
@@ -11,9 +18,6 @@ import ro.sync.exml.workspace.api.editor.page.WSEditorPage;
 import ro.sync.exml.workspace.api.editor.page.author.WSAuthorEditorPage;
 import ro.sync.exml.workspace.api.editor.page.text.WSTextEditorPage;
 import ro.sync.exml.workspace.api.options.WSOptionsStorage;
-import ro.sync.ecss.extensions.api.AuthorDocumentController;
-import ro.sync.ecss.extensions.api.content.TextContentIterator;
-import ro.sync.ecss.extensions.api.content.TextContext;
 
 import javax.swing.*;
 import javax.swing.event.PopupMenuEvent;
@@ -22,48 +26,54 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Tab 1: Term Recognition panel.
- *
- * Analyzes the current editor document and identifies terms from enabled termbases.
- *
- * Integration with Oxygen:
- * - In the real Oxygen plugin, uses AuthorAccess or TextContentIterator to get document text
- * - For standalone testing, uses a mock document text
- */
 public class TermRecognitionPanel extends JPanel {
 
     private TermbaseRegistry registry;
     private JComboBox<TermbaseConfig> termbaseCombo;
     private JTable resultTable;
     private DefaultTableModel tableModel;
+    private JToggleButton highlightToggle;
+    private final Map<String, Boolean> highlightEnabledMap = new HashMap<>();
+    private List<TermMatch> currentMatches = new ArrayList<>();
+
+    private static class TermMatch {
+        final String sourceTerm;
+        final String targetTerm;
+        final int startOffset;
+        final int endOffset;
+        TermMatch(String source, String target, int start, int end) {
+            this.sourceTerm = source;
+            this.targetTerm = target;
+            this.startOffset = start;
+            this.endOffset = end;
+        }
+    }
 
     public TermRecognitionPanel(TermbaseRegistry registry) {
         this.registry = registry;
         initComponents();
     }
 
-    /**
-     * Initialize the UI components.
-     */
     private void initComponents() {
         setLayout(new BorderLayout());
 
-        // Header text
         JPanel headerWrap = new JPanel(new BorderLayout());
         JLabel headerLabel = new JLabel("Scan current document for known terms.");
         headerLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         headerWrap.add(headerLabel, BorderLayout.CENTER);
 
-        // Dropdown + Scan button row
-        JPanel actionRow = new JPanel(new BorderLayout(6, 0));
+        JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         actionRow.setBorder(BorderFactory.createEmptyBorder(0, 5, 5, 5));
 
         termbaseCombo = new JComboBox<>();
-        termbaseCombo.setPreferredSize(new Dimension(200, termbaseCombo.getPreferredSize().height));
+        termbaseCombo.setPreferredSize(new Dimension(150, termbaseCombo.getPreferredSize().height));
         termbaseCombo.setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value,
@@ -89,20 +99,41 @@ public class TermRecognitionPanel extends JPanel {
             @Override
             public void popupMenuCanceled(PopupMenuEvent e) {}
         });
-        actionRow.add(termbaseCombo, BorderLayout.WEST);
+        actionRow.add(termbaseCombo);
 
-        JButton scanButton = new JButton("Scan");
+        JButton scanButton = new JButton(IconUtils.loadIcon("scan", 20));
+        scanButton.setToolTipText("Scan for terms in current document");
         scanButton.addActionListener(e -> scanDocument());
-        actionRow.add(scanButton, BorderLayout.EAST);
+        actionRow.add(scanButton);
 
-        // Stack header and action row
+        highlightToggle = new JToggleButton(IconUtils.loadIcon("toggle_highlight", 20));
+        highlightToggle.setToolTipText("Toggle term highlighting in Author mode");
+        highlightToggle.addActionListener(e -> {
+            String url = getCurrentEditorUrl();
+            boolean sel = highlightToggle.isSelected();
+            if (url != null) highlightEnabledMap.put(url, sel);
+            if (sel) {
+                applyHighlights();
+            } else {
+                clearHighlights();
+            }
+        });
+        actionRow.add(highlightToggle);
+
+        actionRow.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                Container parent = actionRow.getParent();
+                if (parent != null) parent.revalidate();
+            }
+        });
+
         JPanel northPanel = new JPanel();
         northPanel.setLayout(new BoxLayout(northPanel, BoxLayout.Y_AXIS));
         northPanel.add(headerWrap);
         northPanel.add(actionRow);
         add(northPanel, BorderLayout.NORTH);
 
-        // Create result table
         tableModel = new DefaultTableModel(
             new String[]{"Source", "Target"}, 0
         );
@@ -121,14 +152,12 @@ public class TermRecognitionPanel extends JPanel {
         });
         add(new JScrollPane(resultTable), BorderLayout.CENTER);
 
-        // Hint label
         JLabel hintLabel = new JLabel("Double-click to locate term.");
         hintLabel.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
         hintLabel.setFont(hintLabel.getFont().deriveFont(Font.ITALIC));
-        hintLabel.setForeground(Color.GRAY);
+        hintLabel.setForeground(java.awt.Color.GRAY);
         add(hintLabel, BorderLayout.SOUTH);
 
-        // Load termbases
         loadTermbaseList();
     }
 
@@ -176,7 +205,6 @@ public class TermRecognitionPanel extends JPanel {
             WSOptionsStorage os = w.getOptionsStorage();
             os.setOption(LAST_TB_KEY, path != null ? path : "");
         } catch (Exception e) {
-            // Silently ignore in standalone testing
         }
     }
 
@@ -184,9 +212,6 @@ public class TermRecognitionPanel extends JPanel {
         loadTermbaseList();
     }
 
-    /**
-     * Scan the current document for terms (shows warning only on failure).
-     */
     public void scanDocument() {
         int count = doScan();
         if (count < 0) {
@@ -199,51 +224,186 @@ public class TermRecognitionPanel extends JPanel {
         }
     }
 
-    /**
-     * Auto-scan without showing any dialogs (for tab-switch / document-change events).
-     */
     public void autoScan() {
+        updateHighlightToggleState();
         doScan();
     }
 
-    /**
-     * Internal scan logic. Returns match count, or -1 if cannot scan.
-     */
+    private String getCurrentEditorUrl() {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return null;
+            WSEditor editor = w.getCurrentEditorAccess(PluginWorkspace.MAIN_EDITING_AREA);
+            if (editor == null) return null;
+            java.net.URL url = editor.getEditorLocation();
+            return url != null ? url.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void updateHighlightToggleState() {
+        String url = getCurrentEditorUrl();
+        if (url != null && highlightEnabledMap.containsKey(url)) {
+            boolean enabled = highlightEnabledMap.get(url);
+            if (highlightToggle.isSelected() != enabled) {
+                highlightToggle.setSelected(enabled);
+            }
+        } else {
+            if (highlightToggle.isSelected()) {
+                highlightToggle.setSelected(false);
+            }
+        }
+    }
+
     private int doScan() {
         String documentText = getDocumentText();
         if (documentText == null || documentText.isEmpty()) {
             tableModel.setRowCount(0);
+            currentMatches.clear();
+            clearHighlights();
             return -1;
         }
 
         TermbaseConfig config = (TermbaseConfig) termbaseCombo.getSelectedItem();
         if (config == null) {
             tableModel.setRowCount(0);
+            currentMatches.clear();
+            clearHighlights();
             return -1;
         }
 
         boolean isTextMode = isTextEditorPage();
 
-        tableModel.setRowCount(0);
+        // Build segments for mapping string offsets to Author offsets
+        List<int[]> segments = new ArrayList<>();
+        if (!isTextMode) {
+            try {
+                PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+                if (w != null) {
+                    WSEditor editor = w.getCurrentEditorAccess(PluginWorkspace.MAIN_EDITING_AREA);
+                    if (editor != null && editor.getCurrentPage() instanceof WSAuthorEditorPage) {
+                        AuthorDocumentController ctrl =
+                            ((WSAuthorEditorPage) editor.getCurrentPage()).getDocumentController();
+                        int contentLen = ctrl.getTextContentLength();
+                        TextContentIterator it = ctrl.getTextContentIterator(0, contentLen);
+                        int strPos = 0;
+                        while (it.hasNext()) {
+                            TextContext ctx = it.next();
+                            CharSequence text = ctx.getText();
+                            if (text != null && text.length() > 0) {
+                                segments.add(new int[]{ctx.getTextStartOffset(), strPos, text.length()});
+                                strPos += text.length();
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+            }
+        }
 
+        tableModel.setRowCount(0);
+        currentMatches.clear();
+        clearHighlights();
+
+        List<TermMatch> allMatches = new ArrayList<>();
         int matchCount = 0;
         List<TermEntry> terms = registry.getTerms(config);
+        Map<String, String> seenTerms = new HashMap<>();
+
         for (TermEntry term : terms) {
             String sourceTerm = term.getSourceTerm();
-            if (sourceTerm != null && sourceTerm.length() > 0) {
-                String matchTerm = isTextMode ? escapeXmlEntities(sourceTerm) : sourceTerm;
-                String escaped = Pattern.quote(matchTerm);
-                Pattern pattern = Pattern.compile("(?<![\\p{L}])" + escaped + "(?![\\p{L}])", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-                if (pattern.matcher(documentText).find()) {
-                    tableModel.addRow(new Object[]{
-                        sourceTerm,
-                        term.getTargetTerm()
-                    });
+            if (sourceTerm == null || sourceTerm.isEmpty()) continue;
+
+            String matchTerm = isTextMode ? escapeXmlEntities(sourceTerm) : sourceTerm;
+            String escaped = Pattern.quote(matchTerm);
+            Pattern pattern = Pattern.compile("(?<![\\p{L}])" + escaped + "(?![\\p{L}])",
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+            Matcher matcher = pattern.matcher(documentText);
+
+            boolean firstMatch = true;
+            while (matcher.find()) {
+                int strStart = matcher.start();
+                int strEnd = strStart + matchTerm.length();
+
+                if (isTextMode) {
+                    allMatches.add(new TermMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd));
+                } else {
+                    int authStart = -1, authEnd = -1;
+                    for (int[] seg : segments) {
+                        int segAuth = seg[0];
+                        int segStr = seg[1];
+                        int segLen = seg[2];
+                        if (strStart >= segStr && strStart < segStr + segLen) {
+                            authStart = segAuth + (strStart - segStr);
+                        }
+                        if (strEnd >= segStr && strEnd <= segStr + segLen) {
+                            authEnd = segAuth + (strEnd - segStr);
+                        }
+                    }
+                    if (authStart >= 0 && authEnd >= 0) {
+                        allMatches.add(new TermMatch(sourceTerm, term.getTargetTerm(), authStart, authEnd));
+                    }
+                }
+
+                if (firstMatch) {
+                    seenTerms.put(sourceTerm, term.getTargetTerm());
+                    firstMatch = false;
                     matchCount++;
                 }
             }
         }
+
+        for (Map.Entry<String, String> e : seenTerms.entrySet()) {
+            tableModel.addRow(new Object[]{e.getKey(), e.getValue()});
+        }
+
+        currentMatches = allMatches;
+
+        if (highlightToggle.isSelected() && !isTextMode) {
+            applyHighlights();
+        }
+
         return matchCount;
+    }
+
+    private void applyHighlights() {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return;
+            WSEditor editor = w.getCurrentEditorAccess(PluginWorkspace.MAIN_EDITING_AREA);
+            if (editor == null) return;
+            WSEditorPage page = editor.getCurrentPage();
+            if (!(page instanceof WSAuthorEditorPage)) return;
+
+            AuthorHighlighter highlighter = ((WSAuthorEditorPage) page).getHighlighter();
+            if (highlighter == null) return;
+
+            ColorHighlightPainter painter = new ColorHighlightPainter();
+            painter.setBgColor(new Color(255, 230, 0, 80));
+
+            for (TermMatch match : currentMatches) {
+                highlighter.addHighlight(match.startOffset, match.endOffset - 1, painter, null);
+            }
+        } catch (Exception e) {
+        }
+    }
+
+    private void clearHighlights() {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return;
+            WSEditor editor = w.getCurrentEditorAccess(PluginWorkspace.MAIN_EDITING_AREA);
+            if (editor == null) return;
+            WSEditorPage page = editor.getCurrentPage();
+            if (!(page instanceof WSAuthorEditorPage)) return;
+
+            AuthorHighlighter highlighter = ((WSAuthorEditorPage) page).getHighlighter();
+            if (highlighter != null) {
+                highlighter.removeAllHighlights();
+            }
+        } catch (Exception e) {
+        }
     }
 
     private static String escapeXmlEntities(String text) {
@@ -266,13 +426,38 @@ public class TermRecognitionPanel extends JPanel {
         }
     }
 
-    /**
-     * Double-click handler: jump to the matched term in the editor.
-     */
     private void jumpToTerm(int row) {
         String sourceTerm = (String) tableModel.getValueAt(row, 0);
         if (sourceTerm == null || sourceTerm.isEmpty()) return;
 
+        // Use pre-computed offsets from the scan
+        for (TermMatch match : currentMatches) {
+            if (match.sourceTerm.equals(sourceTerm)) {
+                try {
+                    PluginWorkspace workspace = PluginWorkspaceProvider.getPluginWorkspace();
+                    if (workspace == null) return;
+                    WSEditor editor = workspace.getCurrentEditorAccess(PluginWorkspace.MAIN_EDITING_AREA);
+                    if (editor == null) return;
+
+                    WSEditorPage page = editor.getCurrentPage();
+
+                    if (page instanceof WSTextEditorPage) {
+                        Object textComp = ((WSTextEditorPage) page).getTextComponent();
+                        if (textComp instanceof javax.swing.text.JTextComponent) {
+                            javax.swing.text.JTextComponent jtc = (javax.swing.text.JTextComponent) textComp;
+                            jtc.select(match.startOffset, match.endOffset);
+                            jtc.requestFocus();
+                        }
+                    } else if (page instanceof WSAuthorEditorPage) {
+                        ((WSAuthorEditorPage) page).select(match.startOffset, match.endOffset);
+                    }
+                    return;
+                } catch (Exception ex) {
+                }
+            }
+        }
+
+        // Fallback: try fresh search if offsets are stale
         try {
             PluginWorkspace workspace = PluginWorkspaceProvider.getPluginWorkspace();
             if (workspace == null) return;
@@ -282,50 +467,31 @@ public class TermRecognitionPanel extends JPanel {
             WSEditorPage page = editor.getCurrentPage();
 
             if (page instanceof WSTextEditorPage) {
-                jumpToTermInTextPage((WSTextEditorPage) page, sourceTerm);
+                String docText = getDocumentText();
+                if (docText == null) return;
+                String searchTerm = escapeXmlEntities(sourceTerm);
+                int offset = docText.toLowerCase().indexOf(searchTerm.toLowerCase());
+                if (offset < 0) return;
+                Object textComp = ((WSTextEditorPage) page).getTextComponent();
+                if (textComp instanceof javax.swing.text.JTextComponent) {
+                    javax.swing.text.JTextComponent jtc = (javax.swing.text.JTextComponent) textComp;
+                    jtc.select(offset, offset + searchTerm.length());
+                    jtc.requestFocus();
+                }
             } else if (page instanceof WSAuthorEditorPage) {
                 WSAuthorEditorPage authorPage = (WSAuthorEditorPage) page;
                 AuthorDocumentController ctrl = authorPage.getDocumentController();
                 jumpToTermInAuthorPage(authorPage, ctrl, sourceTerm);
             }
         } catch (Exception ex) {
-            // Best-effort feature; silently ignore failures
         }
     }
 
-    /**
-     * Jump to term in Text mode using indexOf on the raw XML text.
-     */
-    private void jumpToTermInTextPage(WSTextEditorPage textPage, String sourceTerm) {
-        try {
-            String docText = getDocumentText();
-            if (docText == null) return;
-
-            String searchTerm = escapeXmlEntities(sourceTerm);
-            int offset = docText.toLowerCase().indexOf(searchTerm.toLowerCase());
-            if (offset < 0) return;
-
-            Object textComp = textPage.getTextComponent();
-            if (textComp instanceof javax.swing.text.JTextComponent) {
-                javax.swing.text.JTextComponent jtc = (javax.swing.text.JTextComponent) textComp;
-                jtc.select(offset, offset + searchTerm.length());
-                jtc.requestFocus();
-            }
-        } catch (Exception e) {
-            // Silently ignore
-        }
-    }
-
-    /**
-     * Jump to term in Author mode using TextContentIterator for precise offsets.
-     */
     private void jumpToTermInAuthorPage(WSAuthorEditorPage authorPage,
             AuthorDocumentController ctrl, String sourceTerm) {
         try {
-            // Build the full text from text contexts to match exactly what Author
-            // rendering uses (proper whitespace normalization, no hidden markers).
             StringBuilder fullText = new StringBuilder();
-            java.util.List<int[]> segments = new java.util.ArrayList<>();
+            java.util.ArrayList<int[]> segments = new java.util.ArrayList<>();
             int contentLen = ctrl.getTextContentLength();
             TextContentIterator it = ctrl.getTextContentIterator(0, contentLen);
             while (it.hasNext()) {
@@ -342,7 +508,6 @@ public class TermRecognitionPanel extends JPanel {
             int strOffset = fullText.toString().toLowerCase().indexOf(sourceTerm.toLowerCase());
             if (strOffset < 0) return;
 
-            // Map the string offset back to Author offset
             for (int[] seg : segments) {
                 int authStart = seg[0];
                 int strStart = seg[1];
@@ -354,16 +519,9 @@ public class TermRecognitionPanel extends JPanel {
                 }
             }
         } catch (Exception e) {
-            // Silently ignore
         }
     }
 
-    /**
-     * Get the current editor document text via Oxygen API.
-     * Falls back to mock text if not running inside Oxygen.
-     *
-     * @return the document text, or null if no document is open
-     */
     private String getDocumentText() {
         try {
             PluginWorkspace workspace = PluginWorkspaceProvider.getPluginWorkspace();
@@ -377,8 +535,6 @@ public class TermRecognitionPanel extends JPanel {
 
             if (page instanceof WSAuthorEditorPage) {
                 AuthorDocumentController ctrl = ((WSAuthorEditorPage) page).getDocumentController();
-                // Use TextContentIterator to get the text exactly as Author
-                // rendering uses (proper whitespace normalization).
                 StringBuilder sb = new StringBuilder();
                 TextContentIterator it = ctrl.getTextContentIterator(0, ctrl.getTextContentLength());
                 while (it.hasNext()) {
@@ -394,7 +550,6 @@ public class TermRecognitionPanel extends JPanel {
                 return doc.getText(0, doc.getLength());
             }
         } catch (Exception e) {
-            // Fall through to mock text for testing
         }
         return null;
     }
