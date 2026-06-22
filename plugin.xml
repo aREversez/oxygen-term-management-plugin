@@ -6,13 +6,13 @@
   id="com.example.termmgmt"
   name="Term Management"
   description="Terminology management and translation assistance plugin"
-  version="1.0.4"
+  version="1.0.5"
   vendor="aREversez"
   class="com.example.termmgmt.TermManagementPlugin"
   classLoaderType="preferReferencedResources">
 
   <runtime>
-    <library name="lib/term-management-1.0.4-jar-with-dependencies.jar"/>
+    <library name="lib/term-management-1.0.5-jar-with-dependencies.jar"/>
   </runtime>
 
   <extension type="WorkspaceAccess"
