@@ -35,52 +35,62 @@ public final class IconUtils {
         isDark = null;
     }
 
-    public static ImageIcon loadIcon(String name, int size) {
+    public static Icon loadIcon(String name, int size) {
         String svg = readResource("/icons/" + name + ".svg");
         if (svg == null) return null;
         String hex = colorHex(isDarkTheme() ? DARK_ICON : LIGHT_ICON);
         svg = svg.replace("currentColor", hex);
-        return render(svg, name, size);
+        SVGDiagram diagram = loadDiagram(svg, "icon_" + name);
+        if (diagram == null) return null;
+        return new SvgIcon(diagram, size, size);
     }
 
     public static ImageIcon loadLogo(int size) {
         String svg = readResource("/icons/logo.svg");
         if (svg == null) return null;
-        return render(svg, "logo", size);
-    }
 
-    private static ImageIcon render(String svgContent, String name, int targetSize) {
         try {
-            SVGUniverse universe = new SVGUniverse();
-            URI uri = universe.loadSVG(new StringReader(svgContent), "icon_" + name);
-            SVGDiagram diagram = universe.getDiagram(uri);
+            SVGDiagram diagram = loadDiagram(svg, "logo");
             if (diagram == null) return null;
 
             double dw = diagram.getWidth();
             double dh = diagram.getHeight();
             if (dw <= 0 || dh <= 0) return null;
 
-            // Render SVG directly at target size with high-quality settings
-            double scale = Math.min((double) targetSize / dw, (double) targetSize / dh);
+            double scale = Math.min((double) size / dw, (double) size / dh);
             int renderW = (int) Math.round(dw * scale);
             int renderH = (int) Math.round(dh * scale);
 
-            BufferedImage result = new BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g = result.createGraphics();
+            BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            g.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
 
-            int x = (targetSize - renderW) / 2;
-            int y = (targetSize - renderH) / 2;
+            int x = (size - renderW) / 2;
+            int y = (size - renderH) / 2;
             g.translate(x, y);
             g.scale(scale, scale);
             diagram.render(g);
             g.dispose();
 
-            return new ImageIcon(result);
-        } catch (SVGException e) {
+            return new ImageIcon(img);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private static SVGDiagram loadDiagram(String svgContent, String name) {
+        try {
+            SVGUniverse universe = new SVGUniverse();
+            URI uri = universe.loadSVG(new StringReader(svgContent), name);
+            SVGDiagram diagram = universe.getDiagram(uri);
+            if (diagram == null || diagram.getWidth() <= 0 || diagram.getHeight() <= 0) {
+                return null;
+            }
+            return diagram;
+        } catch (Exception e) {
             e.printStackTrace();
             return null;
         }
