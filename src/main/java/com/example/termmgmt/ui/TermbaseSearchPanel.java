@@ -70,7 +70,12 @@ public class TermbaseSearchPanel extends JPanel {
         // Create result table
         tableModel = new DefaultTableModel(
             new String[]{"Source", "Target", "Termbase"}, 0
-        );
+        ) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
         resultTable = new JTable(tableModel);
         add(new JScrollPane(resultTable), BorderLayout.CENTER);
     }
