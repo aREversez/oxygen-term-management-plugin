@@ -23,6 +23,7 @@ import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -42,6 +43,8 @@ public class TerminologyPanel extends JPanel {
     private JComboBox<TermbaseConfig> termbaseComboBox;
     private JTable termTable;
     private DefaultTableModel tableModel;
+    private List<TermEntry> currentTerms = new ArrayList<>();
+    private TermbaseConfig currentConfig;
 
     public TerminologyPanel(TermbaseRegistry registry) {
         this.registry = registry;
@@ -104,10 +107,28 @@ public class TerminologyPanel extends JPanel {
         northPanel.add(selectionPanel);
         add(northPanel, BorderLayout.NORTH);
 
-        // Create term table
+        // Create term table with in-place editing backed by TermEntry list
         tableModel = new DefaultTableModel(
             new String[]{"Source Term", "Target Term"}, 0
-        );
+        ) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return true;
+            }
+
+            @Override
+            public void setValueAt(Object value, int row, int column) {
+                super.setValueAt(value, row, column);
+                if (currentConfig == null || row >= currentTerms.size()) return;
+                TermEntry entry = currentTerms.get(row);
+                if (column == 0) {
+                    entry.setSourceTerm((String) value);
+                } else if (column == 1) {
+                    entry.setTargetTerm((String) value);
+                }
+                registry.saveTerms(currentConfig, currentTerms);
+            }
+        };
         termTable = new JTable(tableModel);
         termTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         addTableContextMenu();
@@ -243,14 +264,16 @@ public class TerminologyPanel extends JPanel {
      * Load terms for the selected termbase.
      */
     private void loadTermbaseTerms() {
-        TermbaseConfig config = (TermbaseConfig) termbaseComboBox.getSelectedItem();
-        if (config == null) {
+        currentConfig = (TermbaseConfig) termbaseComboBox.getSelectedItem();
+        if (currentConfig == null) {
+            currentTerms = new ArrayList<>();
+            tableModel.setRowCount(0);
             return;
         }
 
+        currentTerms = new ArrayList<>(registry.getTerms(currentConfig));
         tableModel.setRowCount(0);
-        List<TermEntry> terms = registry.getTerms(config);
-        for (TermEntry term : terms) {
+        for (TermEntry term : currentTerms) {
             tableModel.addRow(new Object[]{
                 term.getSourceTerm() != null ? term.getSourceTerm() : "",
                 term.getTargetTerm() != null ? term.getTargetTerm() : ""
