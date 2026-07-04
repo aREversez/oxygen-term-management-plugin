@@ -13,26 +13,53 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 ### 术语识别
 - 扫描当前编辑器文档，匹配已启用的术语库中的术语
 - 支持 Author 和 Text 两种编辑模式
-- **Author 模式高亮** — 一键开关高亮，匹配的术语在文档中以黄色背景标记
-- **CJK 支持** — 正确识别中文、日文、韩文文本，无需依赖空格分隔
-- 双击匹配的术语行即可跳转到文档中对应位置
+- Text 模式下自动转义 XML 实体（`&`、`<`、`>`、`"`、`'`）后再匹配
+- **Author 模式高亮** — 一键开关高亮，匹配的术语在文档中以黄色背景标记；开关状态按文档独立记忆（会话有效）
+- **CJK 支持** — 正确识别中文、日文、韩文文本，无需依赖空格分隔；非 CJK 词使用词边界正则（`(?<![\\p{L}])TERM(?![\\p{L}])`）
+- 双击匹配的术语行可跳转到**术语管理**标签页进行编辑
+- **< 上一个** / **下一个 >** 按钮导航术语出现位置，附带位置标签（如 `3/12`）
+- 统计标签显示 `Matched n terms (m unique entries)`
 - 切换标签页或编辑器时自动扫描
 - **主题感知 SVG 图标** — 图标自动适配 Oxygen 深色/浅色主题
 
 ### 术语管理
 - 在单个术语库（TBX / XLSX / CSV）中添加、编辑、删除术语
-- 快速添加：从当前编辑器选区创建术语
-- 批量删除（带确认提示）
+- **快速添加** — 从当前编辑器选区创建术语，光标自动定位到目标语输入框
+- **内联编辑** — 直接双击单元格修改，修改即时保存
+- **撤销删除** — 支持一步撤销上次删除操作
+- **重置排序** — 恢复原始行顺序并清除筛选条件
+- **筛选术语** — 实时不区分大小写的正则筛选输入框
+- **右键菜单** — 编辑术语 / 删除术语
+- **中文排序** — 使用 `Collator.getInstance(Locale.CHINESE)` 进行列排序
+- **重复检测** — 添加术语时检测源术语是否已存在（相同或不同译法均提示）
+- **文件锁定检测** — 写入前检查文件是否被其他程序占用，对 XLSX 显示特定提示
+- 批量删除带确认：`从 Y 中删除 X 个术语？`
 
 ### 术语库搜索
-- 在所有已启用的术语库中模糊搜索
+- 在所有已启用的术语库中模糊匹配（不区分大小写的子串匹配）
 - 同时搜索源语和目标语术语
+- 双击结果跳转到**术语管理**标签页进行编辑
 
 ### 术语库配置（首选项）
-- 通过文件选择器添加/移除术语库
-- 启用/禁用术语库（无需移除）
-- 编辑操作用系统默认应用打开术语库文件
-- 从磁盘重新加载术语库
+- 表格列：文件名、路径、格式、**状态**（`Enabled` / `Disabled` / `! Missing`）、**术语计数**
+- **添加**术语库 — 原生文件对话框（支持多选、橡皮筋框选）
+  - 重复路径检测（自动跳过）
+  - 格式校验（不支持的文件格式自动跳过）
+  - 加载错误处理 — 对话框可选**跳过**文件或**中止**全部操作
+  - 空文件警告 — `"文件不包含任何术语。仍然添加吗？"`
+  - 翻译冲突检测 — 添加前扫描已有术语库是否有源术语重叠
+  - 添加后汇总信息（添加数 / 重复数 / 跳过数）
+  - 上次使用的目录跨会话记忆
+- **移除**术语库（不删除文件本身）
+- **启用 / 禁用**术语库（无需移除）
+- **重新加载**术语库（支持多选）
+- **编辑**操作用系统默认应用打开术语库文件
+- 配置通过 Oxygen 的 `WSOptionsStorage` 以 JSON 格式持久化
+
+### 术语条目对话框
+- 源语（必填）和目标语输入框
+- **Enter** 确认，**ESC** 取消
+- 校验：源语不能为空
 
 ## 环境要求
 
@@ -61,7 +88,7 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
    cp -r output/term-management/ <OXYGEN_HOME>/plugins/term-management/
    ```
 3. 重启 Oxygen XML Editor。
-4. 通过 `Window > Show View > Term Management` 打开 **术语管理** 视图。
+4. 通过 `Window > Show View > Term Management` 打开**术语管理**视图。
 5. 在 `Preferences > Plugins > Term Management` 中配置术语库。
 
 ## 使用指南
@@ -74,25 +101,33 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 
 ### 术语识别
 1. 在 Author 或 Text 模式下打开 XML 文档。
-2. 在 **术语识别** 标签页中，从下拉框选择一个术语库。
+2. 在**术语识别**标签页中，从下拉框选择一个术语库。
 3. 点击 **Scan**（或切换标签页以自动扫描）。
-4. 匹配的术语显示在表格中。**双击**任意行即可在编辑器中跳转至该术语。
-5. **高亮开关** — 在 Author 模式下开关术语高亮，匹配的术语在文档中可见标记。每个文档独立记忆开关状态。
+4. 匹配的术语显示在表格中，附带命中统计标签。
+5. 使用 **< 上一个** / **下一个 >** 按钮在文档中导航术语出现位置。
+6. **双击**任意行跳转到**术语管理**标签页进行编辑。
+7. **高亮开关** — 在 Author 模式下开关术语高亮。
 
 ### 术语管理
-1. 切换到 **术语管理** 标签页。
+1. 切换到**术语管理**标签页。
 2. 从下拉框选择一个术语库。
 3. 使用工具栏按钮管理术语：
    - **Reload** — 从磁盘重新读取术语库
    - **Add** — 手动添加新术语
-   - **Quick Add** — 使用当前编辑器选区作为源语快速添加术语
+   - **Quick Add** — 使用当前编辑器选区作为源语快速添加术语，光标自动定位到目标语输入框
    - **Edit** — 修改选中的术语（仅支持单选）
    - **Delete** — 删除选中的术语（支持多选）
+   - **Undo** — 恢复上次删除的术语
+   - **Reset Sort** — 恢复原始行顺序并清除筛选
+4. 使用表格上方的输入框**实时筛选**术语。
+5. **内联编辑** — 直接点击单元格修改，即时保存。
+6. **右键**点击行弹出编辑/删除菜单。
 
 ### 术语库搜索
-1. 切换到 **术语库搜索** 标签页。
+1. 切换到**术语库搜索**标签页。
 2. 输入搜索词，点击 **Search**（或按回车键）。
 3. 结果来自所有已启用的术语库。
+4. **双击**结果跳转到**术语管理**标签页进行编辑。
 
 ## 支持的格式
 
@@ -102,9 +137,9 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 
 | 格式 | 库 | 备注 |
 |------|----|------|
-| CSV | OpenCSV | UTF-8 编码，首行为表头，BCP 47 语言标签 |
+| CSV | OpenCSV | UTF-8 带 BOM 编码，首行为表头，BCP 47 语言标签 |
 | XLSX | Apache POI | 第一个工作表，首行为表头 |
-| TBX（ISO 30042） | JDK DOM | 使用 `xml:lang` 属性检测语言 |
+| TBX（ISO 30042） | JDK DOM | 使用 `xml:lang` 属性检测语言；支持 `<tig>` 和 `<ntig>` / `<termGrp>` 结构 |
 
 ## 项目结构
 
@@ -116,33 +151,49 @@ term-management/
 ├── LICENSE
 ├── README.md
 ├── README.zh.md
-├── i18n/                      # 国际化资源
+├── assets/                    # README 截图
+├── i18n/                      # 国际化资源（部署副本）
 │   ├── messages_en.properties
 │   └── messages_zh.properties
 ├── licenses/                  # 第三方许可文件
 ├── libs/                      # Oxygen SDK 及其他本地 JAR
-├── src/main/java/com/example/termmgmt/
-│   ├── TermManagementPlugin.java
-│   ├── TermManagementWorkspaceAccessExtension.java
-│   ├── model/
-│   │   ├── TermEntry.java
-│   │   └── TermbaseConfig.java
-│   ├── service/
-│   │   ├── TermbaseLoader.java
-│   │   ├── CsvTermbaseHandler.java
-│   │   ├── XlsxTermbaseHandler.java
-│   │   ├── TbxTermbaseHandler.java
-│   │   └── TermbaseRegistry.java
-│   ├── prefs/
-│   │   └── TermManagementPreferencePage.java
-│   └── ui/
-│       ├── TermManagementView.java
-│       ├── TermRecognitionPanel.java
-│       ├── TermbaseSearchPanel.java
-│       ├── TerminologyPanel.java
-│       └── TermEntryDialog.java
-└── output/                    # 构建输出（不提交）
-    └── term-management/
+├── src/main/
+│   ├── java/com/example/termmgmt/
+│   │   ├── TermManagementPlugin.java
+│   │   ├── TermManagementWorkspaceAccessExtension.java
+│   │   ├── model/
+│   │   │   ├── TermEntry.java
+│   │   │   └── TermbaseConfig.java
+│   │   ├── service/
+│   │   │   ├── TermbaseLoader.java
+│   │   │   ├── CsvTermbaseHandler.java
+│   │   │   ├── XlsxTermbaseHandler.java
+│   │   │   ├── TbxTermbaseHandler.java
+│   │   │   └── TermbaseRegistry.java
+│   │   ├── prefs/
+│   │   │   └── TermManagementPreferencePage.java
+│   │   └── ui/
+│   │       ├── TermManagementView.java
+│   │       ├── TermRecognitionPanel.java
+│   │       ├── TermbaseSearchPanel.java
+│   │       ├── TerminologyPanel.java
+│   │       └── TermEntryDialog.java
+│   └── resources/
+│       ├── i18n/              # 实际起效的 i18n 资源文件
+│       │   ├── messages_en.properties
+│       │   └── messages_zh.properties
+│       └── icons/             # SVG 图标（8 个文件）
+│           ├── logo.svg
+│           ├── scan.svg
+│           ├── toggle_highlight.svg
+│           ├── reload.svg
+│           ├── add.svg
+│           ├── quick_add.svg
+│           ├── edit.svg
+│           └── delete.svg
+├── output/                    # 构建输出（不提交）
+│   └── term-management/
+└── reference/                 # 参考资料
 ```
 
 ## 开发
