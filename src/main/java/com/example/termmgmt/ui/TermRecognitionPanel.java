@@ -139,12 +139,16 @@ public class TermRecognitionPanel extends JPanel {
 
         JPanel northPanel = new JPanel();
         northPanel.setLayout(new BoxLayout(northPanel, BoxLayout.Y_AXIS));
+        headerWrap.setAlignmentX(Component.LEFT_ALIGNMENT);
         northPanel.add(headerWrap);
+        actionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         northPanel.add(actionRow);
 
         statsLabel = new JLabel(" ");
         statsLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
         statsLabel.setFont(statsLabel.getFont().deriveFont(Font.BOLD));
+        statsLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        statsLabel.setHorizontalAlignment(SwingConstants.LEFT);
         northPanel.add(statsLabel);
 
         add(northPanel, BorderLayout.NORTH);
@@ -174,8 +178,15 @@ public class TermRecognitionPanel extends JPanel {
         });
         add(new JScrollPane(resultTable), BorderLayout.CENTER);
 
-        // Bottom panel: nav buttons + hint
-        JPanel southPanel = new JPanel(new BorderLayout());
+        // Bottom panel: hint + nav buttons
+        JPanel southPanel = new JPanel();
+        southPanel.setLayout(new BoxLayout(southPanel, BoxLayout.Y_AXIS));
+
+        JLabel hintLabel = new JLabel("Double-click to locate in Terminology.");
+        hintLabel.setBorder(BorderFactory.createEmptyBorder(4, 5, 0, 5));
+        hintLabel.setForeground(java.awt.Color.GRAY);
+        hintLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        southPanel.add(hintLabel);
 
         JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         prevButton = new JButton("< Prev");
@@ -200,12 +211,8 @@ public class TermRecognitionPanel extends JPanel {
             updateNavState();
         });
 
-        southPanel.add(navPanel, BorderLayout.WEST);
-
-        JLabel hintLabel = new JLabel("Double-click to locate in Terminology.");
-        hintLabel.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
-        hintLabel.setForeground(java.awt.Color.GRAY);
-        southPanel.add(hintLabel, BorderLayout.EAST);
+        navPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        southPanel.add(navPanel);
 
         add(southPanel, BorderLayout.SOUTH);
 
@@ -423,7 +430,7 @@ public class TermRecognitionPanel extends JPanel {
         if (uniqueTerms == 0) {
             statsLabel.setText("No terms matched.");
         } else {
-            statsLabel.setText("共命中 " + totalHits + " 个术语，覆盖 " + uniqueTerms + " 个不同词条");
+            statsLabel.setText("Matched " + totalHits + " terms (" + uniqueTerms + " unique entries)");
         }
 
         if (highlightToggle.isSelected() && !isTextMode) {

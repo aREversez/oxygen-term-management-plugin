@@ -109,6 +109,7 @@ public class TermbaseSearchPanel extends JPanel {
         // Hint label at bottom
         JLabel hintLabel = new JLabel("Double-click to locate in Terminology.");
         hintLabel.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
+        hintLabel.setForeground(java.awt.Color.GRAY);
         add(hintLabel, BorderLayout.SOUTH);
     }
 
