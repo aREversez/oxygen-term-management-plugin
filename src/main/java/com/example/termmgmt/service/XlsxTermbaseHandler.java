@@ -39,8 +39,10 @@ public class XlsxTermbaseHandler {
                 if (row == null) continue;
 
                 TermEntry entry = new TermEntry();
-                entry.setSourceTerm(getCellStringValue(row.getCell(0)));
-                entry.setTargetTerm(getCellStringValue(row.getCell(1)));
+                String src = getCellStringValue(row.getCell(0));
+                String tgt = getCellStringValue(row.getCell(1));
+                entry.setSourceTerm(src != null ? src.trim() : null);
+                entry.setTargetTerm(tgt != null ? tgt.trim() : null);
                 terms.add(entry);
             }
         } catch (Exception e) {

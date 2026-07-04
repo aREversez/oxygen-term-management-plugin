@@ -8,12 +8,15 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.List;
 
 /**
  * Tab 2: Termbase Search panel.
  *
  * Searches across all enabled termbases for terms.
+ * Double-click a result to jump to Terminology tab for editing.
  *
  * Search logic:
  * - Case-insensitive fuzzy match
@@ -25,9 +28,11 @@ public class TermbaseSearchPanel extends JPanel {
     private JTable resultTable;
     private DefaultTableModel tableModel;
     private TermbaseRegistry registry;
+    private TermManagementView parentView;
 
-    public TermbaseSearchPanel(TermbaseRegistry registry) {
+    public TermbaseSearchPanel(TermbaseRegistry registry, TermManagementView parentView) {
         this.registry = registry;
+        this.parentView = parentView;
         initComponents();
     }
 
@@ -77,7 +82,34 @@ public class TermbaseSearchPanel extends JPanel {
             }
         };
         resultTable = new JTable(tableModel);
+        resultTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && parentView != null) {
+                    int row = resultTable.rowAtPoint(e.getPoint());
+                    if (row >= 0) {
+                        String source = (String) tableModel.getValueAt(row, 0);
+                        String target = (String) tableModel.getValueAt(row, 1);
+                        String tbFile = (String) tableModel.getValueAt(row, 2);
+                        if (source != null && tbFile != null) {
+                            // Find file path from file name
+                            for (TermbaseConfig config : registry.getEnabledConfigs()) {
+                                if (config.getFileName().equals(tbFile)) {
+                                    parentView.switchToTerminology(config.getFilePath(), source, target);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
         add(new JScrollPane(resultTable), BorderLayout.CENTER);
+
+        // Hint label at bottom
+        JLabel hintLabel = new JLabel("Double-click to locate in Terminology.");
+        hintLabel.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
+        add(hintLabel, BorderLayout.SOUTH);
     }
 
     /**

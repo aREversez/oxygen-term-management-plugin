@@ -24,7 +24,7 @@ public class TermEntryDialog extends JDialog {
     public TermEntryDialog(String title, String editorSelection) {
         super((Frame) null, title, true);
         this.termEntry = new TermEntry();
-        this.termEntry.setSourceTerm(editorSelection);
+        this.termEntry.setTargetTerm(editorSelection);
         initComponents();
     }
 
