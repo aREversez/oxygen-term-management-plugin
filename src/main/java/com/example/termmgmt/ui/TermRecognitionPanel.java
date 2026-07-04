@@ -56,8 +56,17 @@ public class TermRecognitionPanel extends JPanel {
         }
     }
 
-    public TermRecognitionPanel(TermbaseRegistry registry) {
+    private JLabel statsLabel;
+    private TermManagementView parentView;
+
+    private JButton prevButton;
+    private JButton nextButton;
+    private JLabel posLabel;
+    private final Map<String, Integer> navIndices = new HashMap<>();
+
+    public TermRecognitionPanel(TermbaseRegistry registry, TermManagementView parentView) {
         this.registry = registry;
+        this.parentView = parentView;
         initComponents();
     }
 
@@ -132,6 +141,12 @@ public class TermRecognitionPanel extends JPanel {
         northPanel.setLayout(new BoxLayout(northPanel, BoxLayout.Y_AXIS));
         northPanel.add(headerWrap);
         northPanel.add(actionRow);
+
+        statsLabel = new JLabel(" ");
+        statsLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
+        statsLabel.setFont(statsLabel.getFont().deriveFont(Font.BOLD));
+        northPanel.add(statsLabel);
+
         add(northPanel, BorderLayout.NORTH);
 
         tableModel = new DefaultTableModel(
@@ -145,18 +160,54 @@ public class TermRecognitionPanel extends JPanel {
                 if (e.getClickCount() == 2) {
                     int row = resultTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
-                        jumpToTerm(row);
+                        String source = (String) tableModel.getValueAt(row, 0);
+                        String target = (String) tableModel.getValueAt(row, 1);
+                        if (source != null && source.length() > 0) {
+                            TermbaseConfig config = (TermbaseConfig) termbaseCombo.getSelectedItem();
+                            if (config != null && parentView != null) {
+                                parentView.switchToTerminology(config.getFilePath(), source, target);
+                            }
+                        }
                     }
                 }
             }
         });
         add(new JScrollPane(resultTable), BorderLayout.CENTER);
 
-        JLabel hintLabel = new JLabel("Double-click to locate term.");
+        // Bottom panel: nav buttons + hint
+        JPanel southPanel = new JPanel(new BorderLayout());
+
+        JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        prevButton = new JButton("< Prev");
+        prevButton.setToolTipText("Previous occurrence in document");
+        prevButton.setEnabled(false);
+        prevButton.addActionListener(e -> navigatePrev());
+        navPanel.add(prevButton);
+
+        posLabel = new JLabel("0/0");
+        posLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
+        navPanel.add(posLabel);
+
+        nextButton = new JButton("Next >");
+        nextButton.setToolTipText("Next occurrence in document");
+        nextButton.setEnabled(false);
+        nextButton.addActionListener(e -> navigateNext());
+        navPanel.add(nextButton);
+
+        // Update nav state on row selection
+        resultTable.getSelectionModel().addListSelectionListener(ev -> {
+            if (ev.getValueIsAdjusting()) return;
+            updateNavState();
+        });
+
+        southPanel.add(navPanel, BorderLayout.WEST);
+
+        JLabel hintLabel = new JLabel("Double-click to locate in Terminology.");
         hintLabel.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
-        hintLabel.setFont(hintLabel.getFont().deriveFont(Font.ITALIC));
         hintLabel.setForeground(java.awt.Color.GRAY);
-        add(hintLabel, BorderLayout.SOUTH);
+        southPanel.add(hintLabel, BorderLayout.EAST);
+
+        add(southPanel, BorderLayout.SOUTH);
 
         loadTermbaseList();
     }
@@ -205,9 +256,10 @@ public class TermRecognitionPanel extends JPanel {
             WSOptionsStorage os = w.getOptionsStorage();
             os.setOption(LAST_TB_KEY, path != null ? path : "");
         } catch (Exception e) {
+            System.err.println("Failed to save last termbase path: " + e.getMessage());
         }
     }
-
+    
     public void refreshTermbaseList() {
         loadTermbaseList();
     }
@@ -262,6 +314,7 @@ public class TermRecognitionPanel extends JPanel {
             tableModel.setRowCount(0);
             currentMatches.clear();
             clearHighlights();
+            statsLabel.setText(" ");
             return -1;
         }
 
@@ -270,6 +323,7 @@ public class TermRecognitionPanel extends JPanel {
             tableModel.setRowCount(0);
             currentMatches.clear();
             clearHighlights();
+            statsLabel.setText(" ");
             return -1;
         }
 
@@ -299,6 +353,7 @@ public class TermRecognitionPanel extends JPanel {
                     }
                 }
             } catch (Exception e) {
+                System.err.println("Failed to build Author segments: " + e.getMessage());
             }
         }
 
@@ -363,6 +418,14 @@ public class TermRecognitionPanel extends JPanel {
 
         currentMatches = allMatches;
 
+        int totalHits = allMatches.size();
+        int uniqueTerms = seenTerms.size();
+        if (uniqueTerms == 0) {
+            statsLabel.setText("No terms matched.");
+        } else {
+            statsLabel.setText("共命中 " + totalHits + " 个术语，覆盖 " + uniqueTerms + " 个不同词条");
+        }
+
         if (highlightToggle.isSelected() && !isTextMode) {
             applyHighlights();
         }
@@ -389,6 +452,7 @@ public class TermRecognitionPanel extends JPanel {
                 highlighter.addHighlight(match.startOffset, match.endOffset - 1, painter, null);
             }
         } catch (Exception e) {
+            System.err.println("Failed to apply highlights: " + e.getMessage());
         }
     }
 
@@ -406,6 +470,7 @@ public class TermRecognitionPanel extends JPanel {
                 highlighter.removeAllHighlights();
             }
         } catch (Exception e) {
+            System.err.println("Failed to clear highlights: " + e.getMessage());
         }
     }
 
@@ -439,38 +504,86 @@ public class TermRecognitionPanel extends JPanel {
         }
     }
 
-    private void jumpToTerm(int row) {
+    private void updateNavState() {
+        int row = resultTable.getSelectedRow();
+        if (row < 0) {
+            prevButton.setEnabled(false);
+            nextButton.setEnabled(false);
+            posLabel.setText("0/0");
+            return;
+        }
         String sourceTerm = (String) tableModel.getValueAt(row, 0);
+        if (sourceTerm == null) {
+            prevButton.setEnabled(false);
+            nextButton.setEnabled(false);
+            posLabel.setText("0/0");
+            return;
+        }
+        int count = 0;
+        for (TermMatch m : currentMatches) {
+            if (m.sourceTerm.equals(sourceTerm)) count++;
+        }
+        if (count == 0) {
+            prevButton.setEnabled(false);
+            nextButton.setEnabled(false);
+            posLabel.setText("0/0");
+            return;
+        }
+        int idx = navIndices.getOrDefault(sourceTerm, 0);
+        if (idx < 0 || idx >= count) {
+            idx = 0;
+            navIndices.put(sourceTerm, idx);
+        }
+        prevButton.setEnabled(true);
+        nextButton.setEnabled(true);
+        posLabel.setText((idx + 1) + "/" + count);
+    }
+
+    private void navigatePrev() {
+        int row = resultTable.getSelectedRow();
+        if (row < 0) return;
+        String sourceTerm = (String) tableModel.getValueAt(row, 0);
+        if (sourceTerm == null) return;
+        int count = 0;
+        for (TermMatch m : currentMatches) {
+            if (m.sourceTerm.equals(sourceTerm)) count++;
+        }
+        if (count == 0) return;
+        int idx = navIndices.getOrDefault(sourceTerm, 0);
+        idx = (idx - 1 + count) % count;
+        navIndices.put(sourceTerm, idx);
+        jumpToOccurrence(sourceTerm, idx);
+        updateNavState();
+    }
+
+    private void navigateNext() {
+        int row = resultTable.getSelectedRow();
+        if (row < 0) return;
+        String sourceTerm = (String) tableModel.getValueAt(row, 0);
+        if (sourceTerm == null) return;
+        int count = 0;
+        for (TermMatch m : currentMatches) {
+            if (m.sourceTerm.equals(sourceTerm)) count++;
+        }
+        if (count == 0) return;
+        int idx = navIndices.getOrDefault(sourceTerm, 0);
+        idx = (idx + 1) % count;
+        navIndices.put(sourceTerm, idx);
+        jumpToOccurrence(sourceTerm, idx);
+        updateNavState();
+    }
+
+    private void jumpToOccurrence(String sourceTerm, int occurrenceIndex) {
         if (sourceTerm == null || sourceTerm.isEmpty()) return;
 
-        // Use pre-computed offsets from the scan
-        for (TermMatch match : currentMatches) {
-            if (match.sourceTerm.equals(sourceTerm)) {
-                try {
-                    PluginWorkspace workspace = PluginWorkspaceProvider.getPluginWorkspace();
-                    if (workspace == null) return;
-                    WSEditor editor = workspace.getCurrentEditorAccess(PluginWorkspace.MAIN_EDITING_AREA);
-                    if (editor == null) return;
-
-                    WSEditorPage page = editor.getCurrentPage();
-
-                    if (page instanceof WSTextEditorPage) {
-                        Object textComp = ((WSTextEditorPage) page).getTextComponent();
-                        if (textComp instanceof javax.swing.text.JTextComponent) {
-                            javax.swing.text.JTextComponent jtc = (javax.swing.text.JTextComponent) textComp;
-                            jtc.select(match.startOffset, match.endOffset);
-                            jtc.requestFocus();
-                        }
-                    } else if (page instanceof WSAuthorEditorPage) {
-                        ((WSAuthorEditorPage) page).select(match.startOffset, match.endOffset);
-                    }
-                    return;
-                } catch (Exception ex) {
-                }
-            }
+        // Collect matches for this term
+        List<TermMatch> matches = new ArrayList<>();
+        for (TermMatch m : currentMatches) {
+            if (m.sourceTerm.equals(sourceTerm)) matches.add(m);
         }
+        if (occurrenceIndex < 0 || occurrenceIndex >= matches.size()) return;
+        TermMatch match = matches.get(occurrenceIndex);
 
-        // Fallback: try fresh search if offsets are stale
         try {
             PluginWorkspace workspace = PluginWorkspaceProvider.getPluginWorkspace();
             if (workspace == null) return;
@@ -480,58 +593,17 @@ public class TermRecognitionPanel extends JPanel {
             WSEditorPage page = editor.getCurrentPage();
 
             if (page instanceof WSTextEditorPage) {
-                String docText = getDocumentText();
-                if (docText == null) return;
-                String searchTerm = escapeXmlEntities(sourceTerm);
-                int offset = docText.toLowerCase().indexOf(searchTerm.toLowerCase());
-                if (offset < 0) return;
                 Object textComp = ((WSTextEditorPage) page).getTextComponent();
                 if (textComp instanceof javax.swing.text.JTextComponent) {
                     javax.swing.text.JTextComponent jtc = (javax.swing.text.JTextComponent) textComp;
-                    jtc.select(offset, offset + searchTerm.length());
+                    jtc.select(match.startOffset, match.endOffset);
                     jtc.requestFocus();
                 }
             } else if (page instanceof WSAuthorEditorPage) {
-                WSAuthorEditorPage authorPage = (WSAuthorEditorPage) page;
-                AuthorDocumentController ctrl = authorPage.getDocumentController();
-                jumpToTermInAuthorPage(authorPage, ctrl, sourceTerm);
+                ((WSAuthorEditorPage) page).select(match.startOffset, match.endOffset);
             }
         } catch (Exception ex) {
-        }
-    }
-
-    private void jumpToTermInAuthorPage(WSAuthorEditorPage authorPage,
-            AuthorDocumentController ctrl, String sourceTerm) {
-        try {
-            StringBuilder fullText = new StringBuilder();
-            java.util.ArrayList<int[]> segments = new java.util.ArrayList<>();
-            int contentLen = ctrl.getTextContentLength();
-            TextContentIterator it = ctrl.getTextContentIterator(0, contentLen);
-            while (it.hasNext()) {
-                TextContext ctx = it.next();
-                CharSequence text = ctx.getText();
-                if (text != null && text.length() > 0) {
-                    segments.add(new int[]{ctx.getTextStartOffset(), fullText.length(), text.length()});
-                    fullText.append(text);
-                }
-            }
-
-            if (fullText.length() == 0) return;
-
-            int strOffset = fullText.toString().toLowerCase().indexOf(sourceTerm.toLowerCase());
-            if (strOffset < 0) return;
-
-            for (int[] seg : segments) {
-                int authStart = seg[0];
-                int strStart = seg[1];
-                int segLen = seg[2];
-                if (strOffset >= strStart && strOffset < strStart + segLen) {
-                    int authorOffset = authStart + (strOffset - strStart);
-                    authorPage.select(authorOffset, authorOffset + sourceTerm.length());
-                    return;
-                }
-            }
-        } catch (Exception e) {
+            System.err.println("Failed to jump to occurrence: " + ex.getMessage());
         }
     }
 
@@ -563,6 +635,7 @@ public class TermRecognitionPanel extends JPanel {
                 return doc.getText(0, doc.getLength());
             }
         } catch (Exception e) {
+            System.err.println("Failed to get document text: " + e.getMessage());
         }
         return null;
     }

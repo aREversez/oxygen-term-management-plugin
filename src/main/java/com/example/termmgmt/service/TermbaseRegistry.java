@@ -7,6 +7,7 @@ import com.example.termmgmt.model.TermbaseConfig.Format;
 import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
 import ro.sync.exml.workspace.api.options.WSOptionsStorage;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -65,6 +66,12 @@ public class TermbaseRegistry {
             sb.append("\"path\":\"").append(config.getFilePath().replace("\\", "\\\\").replace("\"", "\\\"")).append("\",");
             sb.append("\"format\":\"").append(config.getFormat().name()).append("\",");
             sb.append("\"enabled\":").append(config.isEnabled());
+            if (config.getSourceLang() != null) {
+                sb.append(",\"sourceLang\":\"").append(config.getSourceLang()).append("\"");
+            }
+            if (config.getTargetLang() != null) {
+                sb.append(",\"targetLang\":\"").append(config.getTargetLang()).append("\"");
+            }
             sb.append("}");
         }
         sb.append("]");
@@ -115,10 +122,18 @@ public class TermbaseRegistry {
             String path = extractString(json, "path");
             String format = extractString(json, "format");
             boolean enabled = extractBoolean(json, "enabled");
+            if (path == null) return null;
+            // Migration: resolve relative paths (from earlier versions) against user.dir
+            if (path.startsWith("." + File.separator)) {
+                path = new File(System.getProperty("user.dir"), path).getAbsolutePath();
+            }
             Format fmt = Format.CSV;
             if ("XLSX".equals(format)) fmt = Format.XLSX;
             else if ("TBX".equals(format)) fmt = Format.TBX;
-            return new TermbaseConfig(path, fmt, enabled);
+            TermbaseConfig config = new TermbaseConfig(path, fmt, enabled);
+            config.setSourceLang(extractString(json, "sourceLang"));
+            config.setTargetLang(extractString(json, "targetLang"));
+            return config;
         } catch (Exception e) {
             return null;
         }
@@ -239,7 +254,6 @@ public class TermbaseRegistry {
         if (cached != null) {
             return new ArrayList<>(cached);
         }
-
         // Load from file and cache
         try {
             List<TermEntry> terms = TermbaseLoader.loadTerms(config);

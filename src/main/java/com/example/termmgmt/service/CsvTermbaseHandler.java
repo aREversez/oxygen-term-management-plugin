@@ -36,8 +36,14 @@ public class CsvTermbaseHandler {
             String[] line;
             while ((line = csvReader.readNext()) != null) {
                 TermEntry entry = new TermEntry();
-                if (line.length > 0) entry.setSourceTerm(line[0]);
-                if (line.length > 1) entry.setTargetTerm(line[1]);
+                if (line.length > 0) {
+                    String src = line[0];
+                    entry.setSourceTerm(src != null ? src.trim() : null);
+                }
+                if (line.length > 1) {
+                    String tgt = line[1];
+                    entry.setTargetTerm(tgt != null ? tgt.trim() : null);
+                }
                 terms.add(entry);
             }
         } catch (Exception e) {

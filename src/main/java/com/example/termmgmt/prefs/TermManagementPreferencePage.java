@@ -16,7 +16,9 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Preferences page for Term Management plugin.
@@ -123,7 +125,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     private void reloadSettings() {
         // Clear table
         tableModel.setRowCount(0);
-        
+
         // Load data from TermbaseRegistry
         List<TermbaseConfig> configs = registry.getConfigs();
         for (TermbaseConfig config : configs) {
@@ -133,11 +135,20 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             } catch (Exception e) {
                 // Ignore if terms can't be loaded
             }
+
+            // Health check: does the file still exist?
+            String statusText;
+            if (new File(config.getFilePath()).exists()) {
+                statusText = config.isEnabled() ? "Enabled" : "Disabled";
+            } else {
+                statusText = "! Missing";
+            }
+
             tableModel.addRow(new Object[]{
                 config.getFileName(),
                 config.getFilePath(),
                 config.getFormat().name(),
-                config.isEnabled() ? "Enabled" : "Disabled",
+                statusText,
                 termCount
             });
         }
@@ -202,6 +213,75 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                 continue;
             }
 
+            // Duplicate content check: load terms and compare with enabled termbases
+            List<TermEntry> newTerms;
+            try {
+                newTerms = TermbaseLoader.loadTerms(new TermbaseConfig(filePath, format, true));
+            } catch (Exception e) {
+                int retry = JOptionPane.showConfirmDialog(ui,
+                    "Cannot load terms from \"" + file.getName() + "\".\n"
+                    + e.getMessage() + "\n\nSkip this file?",
+                    "Load Error", JOptionPane.YES_NO_OPTION, JOptionPane.ERROR_MESSAGE);
+                if (retry == JOptionPane.YES_OPTION) {
+                    skipped++;
+                    continue;
+                }
+                // User chose No — abort the whole operation
+                break;
+            }
+
+            if (newTerms.isEmpty()) {
+                int retry = JOptionPane.showConfirmDialog(ui,
+                    "File \"" + file.getName() + "\" contains no terms.\nAdd it anyway?",
+                    "Empty File", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (retry != JOptionPane.YES_OPTION) {
+                    skipped++;
+                    continue;
+                }
+            }
+
+            StringBuilder conflictMsg = new StringBuilder();
+            boolean hasConflict = false;
+            for (TermbaseConfig existingConfig : configs) {
+                if (!existingConfig.isEnabled()) continue;
+                if (existingConfig.getFilePath().equals(filePath)) continue;
+                List<TermEntry> existingTerms = registry.getTerms(existingConfig);
+                for (TermEntry newTerm : newTerms) {
+                    if (newTerm.getSourceTerm() == null || newTerm.getSourceTerm().isEmpty()) continue;
+                    String newSource = newTerm.getSourceTerm().trim();
+                    for (TermEntry existingTerm : existingTerms) {
+                        if (existingTerm.getSourceTerm() == null) continue;
+                        if (newSource.equals(existingTerm.getSourceTerm().trim())) {
+                            hasConflict = true;
+                            if (java.util.Objects.equals(newTerm.getTargetTerm(), existingTerm.getTargetTerm())) {
+                                conflictMsg.append("  [Duplicate] \"").append(newTerm.getSourceTerm())
+                                    .append("\" → \"").append(newTerm.getTargetTerm())
+                                    .append("\" (already exists in ").append(existingConfig.getFileName()).append(")\n");
+                            } else {
+                                conflictMsg.append("  [Conflict] \"").append(newTerm.getSourceTerm())
+                                    .append("\" → \"").append(newTerm.getTargetTerm())
+                                    .append("\" (exists: \"").append(existingTerm.getTargetTerm())
+                                    .append("\" in ").append(existingConfig.getFileName()).append(")\n");
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (hasConflict) {
+                String title = "Translation Conflict Detected";
+                String message = "The file \"" + file.getName() + "\" contains term pairs\n"
+                    + "that overlap with existing enabled termbases:\n\n"
+                    + conflictMsg.toString()
+                    + "\nDo you still want to add it?";
+                int choice = JOptionPane.showConfirmDialog(ui, message, title,
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (choice != JOptionPane.YES_OPTION) {
+                    skipped++;
+                    continue;
+                }
+            }
+
             TermbaseConfig config = new TermbaseConfig(filePath, format, true);
             configs.add(config);
             existingPaths.add(filePath);
@@ -262,6 +342,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             String filePath = (String) tableModel.getValueAt(row, 1);
             registry.reloadConfig(filePath);
         }
+        reloadSettings();
         JOptionPane.showMessageDialog(ui, selectedRows.length + " termbase(s) reloaded successfully.", "Success", JOptionPane.INFORMATION_MESSAGE);
     }
 

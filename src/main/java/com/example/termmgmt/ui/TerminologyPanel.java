@@ -14,17 +14,24 @@ import ro.sync.exml.workspace.api.editor.page.text.WSTextEditorPage;
 import ro.sync.exml.workspace.api.options.WSOptionsStorage;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
+import javax.swing.RowFilter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.text.Collator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Tab 3: Terminology Management panel.
@@ -34,7 +41,8 @@ import java.util.List;
  * Features:
  * - JComboBox for selecting enabled termbases
  * - JTable for displaying terms (MULTIPLE_INTERVAL_SELECTION)
- * - Buttons: Reload, Add New Term, Quick Add New Term, Edit Term, Delete Term
+ * - Buttons: Reload, Add New Term, Quick Add New Term, Edit Term, Delete Term, Undo Delete
+ * - Inline editing, filter, sort, undo support
  * - File write-back logic for CSV, XLSX, and TBX formats
  */
 public class TerminologyPanel extends JPanel {
@@ -43,8 +51,14 @@ public class TerminologyPanel extends JPanel {
     private JComboBox<TermbaseConfig> termbaseComboBox;
     private JTable termTable;
     private DefaultTableModel tableModel;
+    private TableRowSorter<DefaultTableModel> tableSorter;
     private List<TermEntry> currentTerms = new ArrayList<>();
     private TermbaseConfig currentConfig;
+    private JButton undoButton;
+
+    // Undo support: one-step snapshot for delete
+    private List<TermEntry> undoSnapshot;
+    private TermbaseConfig undoConfig;
 
     public TerminologyPanel(TermbaseRegistry registry) {
         this.registry = registry;
@@ -105,6 +119,15 @@ public class TerminologyPanel extends JPanel {
             public void popupMenuCanceled(PopupMenuEvent e) {}
         });
         northPanel.add(selectionPanel);
+
+        // Filter field
+        JPanel filterPanel = new JPanel(new BorderLayout(4, 0));
+        filterPanel.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
+        JTextField filterField = new JTextField();
+        filterField.putClientProperty("JTextField.placeholderText", "Filter terms...");
+        filterPanel.add(filterField, BorderLayout.CENTER);
+        northPanel.add(filterPanel);
+
         add(northPanel, BorderLayout.NORTH);
 
         // Create term table with in-place editing backed by TermEntry list
@@ -131,6 +154,29 @@ public class TerminologyPanel extends JPanel {
         };
         termTable = new JTable(tableModel);
         termTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+
+        // Set up sorting with Chinese-aware collation
+        tableSorter = new TableRowSorter<>(tableModel);
+        Collator chineseCollator = Collator.getInstance(Locale.CHINESE);
+        tableSorter.setComparator(0, (a, b) -> chineseCollator.compare((String) a, (String) b));
+        tableSorter.setComparator(1, (a, b) -> chineseCollator.compare((String) a, (String) b));
+        termTable.setRowSorter(tableSorter);
+
+        // Wire up filter text field
+        filterField.getDocument().addDocumentListener(new DocumentListener() {
+            void update() {
+                String text = filterField.getText();
+                if (text.trim().isEmpty()) {
+                    tableSorter.setRowFilter(null);
+                } else {
+                    tableSorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(text.trim())));
+                }
+            }
+            @Override public void insertUpdate(DocumentEvent e) { update(); }
+            @Override public void removeUpdate(DocumentEvent e) { update(); }
+            @Override public void changedUpdate(DocumentEvent e) { update(); }
+        });
+
         addTableContextMenu();
         add(new JScrollPane(termTable), BorderLayout.CENTER);
 
@@ -166,6 +212,21 @@ public class TerminologyPanel extends JPanel {
         deleteButton.setPreferredSize(new Dimension(24, 24));
         deleteButton.addActionListener(e -> deleteTerms());
         buttonPanel.add(deleteButton);
+
+        undoButton = new JButton("Undo");
+        undoButton.setToolTipText("Undo last delete");
+        undoButton.setEnabled(false);
+        undoButton.addActionListener(e -> undoDelete());
+        buttonPanel.add(undoButton);
+
+        JButton resetSortButton = new JButton("Reset Sort");
+        resetSortButton.setToolTipText("Restore original row order");
+        resetSortButton.addActionListener(e -> {
+            tableSorter.setSortKeys(null);
+            tableSorter.setRowFilter(null);
+            filterField.setText("");
+        });
+        buttonPanel.add(resetSortButton);
 
         add(buttonPanel, BorderLayout.SOUTH);
 
@@ -301,6 +362,38 @@ public class TerminologyPanel extends JPanel {
     }
 
     /**
+     * Check if a new term's source already exists in the current termbase.
+     * Shows a warning dialog if it does and returns false if user cancels.
+     */
+    private boolean checkDuplicateInCurrentTerms(TermEntry newTerm) {
+        if (newTerm == null || newTerm.getSourceTerm() == null || newTerm.getSourceTerm().trim().isEmpty()) {
+            return true;
+        }
+        String newSource = newTerm.getSourceTerm().trim();
+        List<TermEntry> terms = registry.getTerms(currentConfig);
+        for (TermEntry existing : terms) {
+            if (existing.getSourceTerm() != null && existing.getSourceTerm().trim().equals(newSource)) {
+                String newTarget = newTerm.getTargetTerm() != null ? newTerm.getTargetTerm().trim() : "";
+                String existingTarget = existing.getTargetTerm() != null ? existing.getTargetTerm().trim() : "";
+                String msg;
+                if (newTarget.equals(existingTarget)) {
+                    msg = "Source term \"" + newSource + "\" already exists\n"
+                        + "with the same translation \"" + existingTarget + "\".\n\n"
+                        + "Add it anyway?";
+                } else {
+                    msg = "Source term \"" + newSource + "\" already exists\n"
+                        + "with a different translation \"" + existingTarget + "\".\n\n"
+                        + "Add it anyway?";
+                }
+                int choice = JOptionPane.showConfirmDialog(this, msg,
+                    "Duplicate Term", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                return choice == JOptionPane.YES_OPTION;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Add a new term to the selected termbase.
      */
     private void addNewTerm() {
@@ -318,6 +411,7 @@ public class TerminologyPanel extends JPanel {
 
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
+            if (!checkDuplicateInCurrentTerms(newTerm)) return;
             List<TermEntry> terms = registry.getTerms(config);
             terms.add(newTerm);
             safeSaveTerms(config, terms);
@@ -353,6 +447,7 @@ public class TerminologyPanel extends JPanel {
 
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
+            if (!checkDuplicateInCurrentTerms(newTerm)) return;
             List<TermEntry> terms = registry.getTerms(config);
             terms.add(newTerm);
             safeSaveTerms(config, terms);
@@ -381,7 +476,6 @@ public class TerminologyPanel extends JPanel {
             return;
         }
 
-        // Check if only one row is selected
         if (termTable.getSelectedRowCount() > 1) {
             JOptionPane.showMessageDialog(this,
                 "Please select only one term to edit.",
@@ -389,7 +483,6 @@ public class TerminologyPanel extends JPanel {
             return;
         }
 
-        // Get the term from the table
         String sourceTerm = (String) tableModel.getValueAt(selectedRow, 0);
         String targetTerm = (String) tableModel.getValueAt(selectedRow, 1);
 
@@ -399,9 +492,9 @@ public class TerminologyPanel extends JPanel {
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
-            TermEntry editedTerm = dialog.getTermEntry();
+            TermEntry newTerm = dialog.getTermEntry();
             List<TermEntry> terms = registry.getTerms(config);
-            terms.set(selectedRow, editedTerm);
+            terms.set(selectedRow, newTerm);
             safeSaveTerms(config, terms);
             loadTermbaseTerms();
         }
@@ -435,13 +528,68 @@ public class TerminologyPanel extends JPanel {
 
         if (confirm == JOptionPane.OK_OPTION) {
             List<TermEntry> terms = registry.getTerms(config);
+            // Save undo snapshot before modifying
+            undoSnapshot = new ArrayList<>(terms);
+            undoConfig = config;
+            undoButton.setEnabled(true);
+
             // Delete in reverse order to maintain indices
             for (int i = selectedRows.length - 1; i >= 0; i--) {
-                terms.remove(selectedRows[i]);
+                int modelRow = termTable.convertRowIndexToModel(selectedRows[i]);
+                if (modelRow >= 0 && modelRow < terms.size()) {
+                    terms.remove(modelRow);
+                }
             }
             safeSaveTerms(config, terms);
             loadTermbaseTerms();
         }
+    }
+
+    private void undoDelete() {
+        if (undoSnapshot == null || undoConfig == null) {
+            undoButton.setEnabled(false);
+            return;
+        }
+        // Restore snapshot: write back the full term list
+        registry.saveTerms(undoConfig, undoSnapshot);
+        // If the current combo selection matches undoConfig, reload display
+        if (termbaseComboBox.getSelectedItem() != null
+                && ((TermbaseConfig) termbaseComboBox.getSelectedItem()).getFilePath().equals(undoConfig.getFilePath())) {
+            loadTermbaseTerms();
+        }
+        undoSnapshot = null;
+        undoConfig = null;
+        undoButton.setEnabled(false);
+        JOptionPane.showMessageDialog(this, "Delete undone.", "Undo", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Select a term in the terminology panel for editing.
+     * Called from TermbaseSearchPanel on double-click.
+     */
+    public void selectTerm(String filePath, String sourceTerm, String targetTerm) {
+        // Find matching termbase in combo
+        for (int i = 0; i < termbaseComboBox.getItemCount(); i++) {
+            if (termbaseComboBox.getItemAt(i).getFilePath().equals(filePath)) {
+                termbaseComboBox.setSelectedIndex(i);
+                break;
+            }
+        }
+        // Wait for combo to load terms, then find and select the row
+        SwingUtilities.invokeLater(() -> {
+            for (int row = 0; row < tableModel.getRowCount(); row++) {
+                String s = (String) tableModel.getValueAt(row, 0);
+                String t = (String) tableModel.getValueAt(row, 1);
+                if (sourceTerm.equals(s) && (targetTerm == null || targetTerm.equals(t))) {
+                    int viewRow = termTable.convertRowIndexToView(row);
+                    if (viewRow >= 0) {
+                        termTable.setRowSelectionInterval(viewRow, viewRow);
+                        termTable.scrollRectToVisible(termTable.getCellRect(viewRow, 0, true));
+                    }
+                    break;
+                }
+            }
+        });
     }
 
     private boolean checkFileAccess(TermbaseConfig config) {

@@ -22,6 +22,8 @@ public class TermbaseConfig {
         this.filePath = filePath;
         this.format = format;
         this.enabled = enabled;
+        this.sourceLang = null;
+        this.targetLang = null;
     }
 
     public String getFilePath() {
