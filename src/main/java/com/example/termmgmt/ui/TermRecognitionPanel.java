@@ -267,6 +267,10 @@ public class TermRecognitionPanel extends JPanel {
         }
     }
     
+    public TermbaseConfig getSelectedTermbase() {
+        return (TermbaseConfig) termbaseCombo.getSelectedItem();
+    }
+
     public void refreshTermbaseList() {
         loadTermbaseList();
     }
@@ -369,9 +373,9 @@ public class TermRecognitionPanel extends JPanel {
         clearHighlights();
 
         List<TermMatch> allMatches = new ArrayList<>();
-        int matchCount = 0;
+        java.util.Set<String> tablePairs = new java.util.HashSet<>();
+        java.util.Set<String> countedPositions = new java.util.HashSet<>();
         List<TermEntry> terms = registry.getTerms(config);
-        Map<String, String> seenTerms = new HashMap<>();
 
         for (TermEntry term : terms) {
             String sourceTerm = term.getSourceTerm();
@@ -386,47 +390,48 @@ public class TermRecognitionPanel extends JPanel {
                 Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
             Matcher matcher = pattern.matcher(documentText);
 
-            boolean firstMatch = true;
             while (matcher.find()) {
                 int strStart = matcher.start();
                 int strEnd = strStart + matchTerm.length();
 
-                if (isTextMode) {
-                    allMatches.add(new TermMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd));
-                } else {
-                    int authStart = -1, authEnd = -1;
-                    for (int[] seg : segments) {
-                        int segAuth = seg[0];
-                        int segStr = seg[1];
-                        int segLen = seg[2];
-                        if (strStart >= segStr && strStart < segStr + segLen) {
-                            authStart = segAuth + (strStart - segStr);
+                // Add to allMatches deduplicated by position
+                String posKey = sourceTerm + "@" + strStart;
+                if (!countedPositions.contains(posKey)) {
+                    countedPositions.add(posKey);
+                    if (isTextMode) {
+                        allMatches.add(new TermMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd));
+                    } else {
+                        int authStart = -1, authEnd = -1;
+                        for (int[] seg : segments) {
+                            int segAuth = seg[0];
+                            int segStr = seg[1];
+                            int segLen = seg[2];
+                            if (strStart >= segStr && strStart < segStr + segLen) {
+                                authStart = segAuth + (strStart - segStr);
+                            }
+                            if (strEnd >= segStr && strEnd <= segStr + segLen) {
+                                authEnd = segAuth + (strEnd - segStr);
+                            }
                         }
-                        if (strEnd >= segStr && strEnd <= segStr + segLen) {
-                            authEnd = segAuth + (strEnd - segStr);
+                        if (authStart >= 0 && authEnd >= 0) {
+                            allMatches.add(new TermMatch(sourceTerm, term.getTargetTerm(), authStart, authEnd));
                         }
-                    }
-                    if (authStart >= 0 && authEnd >= 0) {
-                        allMatches.add(new TermMatch(sourceTerm, term.getTargetTerm(), authStart, authEnd));
                     }
                 }
 
-                if (firstMatch) {
-                    seenTerms.put(sourceTerm, term.getTargetTerm());
-                    firstMatch = false;
-                    matchCount++;
+                // Collect all unique (source, target) pairs for the table
+                String pairKey = sourceTerm + "|" + term.getTargetTerm();
+                if (!tablePairs.contains(pairKey)) {
+                    tablePairs.add(pairKey);
+                    tableModel.addRow(new Object[]{sourceTerm, term.getTargetTerm()});
                 }
             }
-        }
-
-        for (Map.Entry<String, String> e : seenTerms.entrySet()) {
-            tableModel.addRow(new Object[]{e.getKey(), e.getValue()});
         }
 
         currentMatches = allMatches;
 
         int totalHits = allMatches.size();
-        int uniqueTerms = seenTerms.size();
+        int uniqueTerms = tablePairs.size();
         if (uniqueTerms == 0) {
             statsLabel.setText("No terms matched.");
         } else {
@@ -437,7 +442,7 @@ public class TermRecognitionPanel extends JPanel {
             applyHighlights();
         }
 
-        return matchCount;
+        return uniqueTerms;
     }
 
     private void applyHighlights() {
