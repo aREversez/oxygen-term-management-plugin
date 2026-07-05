@@ -2,7 +2,9 @@ package com.example.termmgmt;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import javax.swing.JMenu;
@@ -24,8 +26,11 @@ import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.ui.TermEntryDialog;
 import com.example.termmgmt.ui.TermManagementView;
 import com.example.termmgmt.util.IconUtils;
+import com.example.termmgmt.util.TermMatchUtils;
 
 public class TermContextMenuInstaller {
+
+    private static final Object MULTI_TERM_SENTINEL = new Object();
 
     private TermContextMenuInstaller() {
     }
@@ -46,7 +51,15 @@ public class TermContextMenuInstaller {
         String selectedText = hasSelection ? authorAccess.getEditorAccess().getSelectedText() : null;
 
         TermbaseConfig config = view != null ? view.getRecognitionTermbase() : null;
-        List<TermEntry> scopedMatches = findTermsInConfig(selectedText, config);
+        Object lookupResult = findTermsInConfigInternal(selectedText, config);
+        if (lookupResult == MULTI_TERM_SENTINEL) {
+            JMenu termMenu = createMultiTermDisabledMenu();
+            menu.addSeparator();
+            menu.add(termMenu);
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        List<TermEntry> scopedMatches = (List<TermEntry>) lookupResult;
 
         JMenu termMenu = createTermMenu(selectedText, config, view, scopedMatches,
             matches -> insertTranslationAuthor(authorAccess, matches));
@@ -78,9 +91,18 @@ public class TermContextMenuInstaller {
         String selectedText = textPage.getSelectedText();
         boolean hasSelection = selectedText != null && !selectedText.trim().isEmpty();
         TermbaseConfig config = view != null ? view.getRecognitionTermbase() : null;
-        List<TermEntry> scopedMatches = findTermsInConfig(hasSelection ? selectedText : null, config);
+        String lookupText = hasSelection ? selectedText : null;
+        Object lookupResult = findTermsInConfigInternal(lookupText, config);
+        if (lookupResult == MULTI_TERM_SENTINEL) {
+            JMenu termMenu = createMultiTermDisabledMenu();
+            menu.addSeparator();
+            menu.add(termMenu);
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        List<TermEntry> scopedMatches = (List<TermEntry>) lookupResult;
 
-        JMenu termMenu = createTermMenu(hasSelection ? selectedText : null, config, view, scopedMatches,
+        JMenu termMenu = createTermMenu(lookupText, config, view, scopedMatches,
             matches -> insertTranslationText(textPage, matches));
 
         if (termMenu != null) {
@@ -151,7 +173,7 @@ public class TermContextMenuInstaller {
 
         // Search in Termbase — always available when text selected
         JMenuItem search = new JMenuItem("Search in Termbase", IconUtils.loadIcon("scan", 16));
-        search.setEnabled(hasSelection);
+        search.setEnabled(hasSelection && view != null);
         if (hasSelection && view != null) {
             search.addActionListener(e -> {
                 ensureViewVisible();
@@ -219,20 +241,48 @@ public class TermContextMenuInstaller {
         return idx >= 0 ? entries.get(idx) : null;
     }
 
-    private static List<TermEntry> findTermsInConfig(String text, TermbaseConfig config) {
+    private static Object findTermsInConfigInternal(String text, TermbaseConfig config) {
         if (text == null || text.trim().isEmpty() || config == null) {
             return Collections.emptyList();
         }
         String searchKey = text.trim();
-        List<TermEntry> terms = TermbaseRegistry.getInstance().getTerms(config);
-        List<TermEntry> matches = new ArrayList<>();
-        for (TermEntry entry : terms) {
-            if (entry.getSourceTerm() != null
-                    && entry.getSourceTerm().trim().equalsIgnoreCase(searchKey)) {
-                matches.add(entry);
+
+        // Step 1: exact match via source index (O(1)), then filter by config
+        List<TermEntry> exact = TermbaseRegistry.getInstance().findTermsBySource(searchKey);
+        List<TermEntry> scoped = new ArrayList<>();
+        String filePath = config.getFilePath();
+        for (TermEntry e : exact) {
+            if (filePath.equals(e.getSourceFilePath())) {
+                scoped.add(e);
             }
         }
-        return matches;
+        if (!scoped.isEmpty()) {
+            return scoped;
+        }
+
+        // Step 2: no exact match — check if the selection contains 2+ different terms
+        Set<String> distinctFound = new HashSet<>();
+        for (TermEntry entry : TermbaseRegistry.getInstance().getTerms(config)) {
+            String sourceTerm = entry.getSourceTerm();
+            if (sourceTerm == null || sourceTerm.isEmpty()) continue;
+            if (TermMatchUtils.buildMatchPattern(sourceTerm).matcher(searchKey).find()) {
+                distinctFound.add(sourceTerm);
+                if (distinctFound.size() >= 2) {
+                    return MULTI_TERM_SENTINEL;
+                }
+            }
+        }
+
+        return Collections.emptyList();
+    }
+
+    private static JMenu createMultiTermDisabledMenu() {
+        JMenu termMenu = new JMenu("Term Management");
+        termMenu.setIcon(IconUtils.loadLogo(16));
+        JMenuItem hint = new JMenuItem("Multiple terms detected in selection, please select only one term.");
+        hint.setEnabled(false);
+        termMenu.add(hint);
+        return termMenu;
     }
 
     private static void editTermDirect(TermEntry target) {
