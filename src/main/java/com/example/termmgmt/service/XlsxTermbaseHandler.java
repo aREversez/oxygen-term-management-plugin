@@ -29,8 +29,10 @@ public class XlsxTermbaseHandler {
 
             Cell sourceHeaderCell = headerRow.getCell(0);
             Cell targetHeaderCell = headerRow.getCell(1);
-            String sourceLang = sourceHeaderCell != null ? sourceHeaderCell.getStringCellValue().trim() : "zh-cn";
-            String targetLang = targetHeaderCell != null ? targetHeaderCell.getStringCellValue().trim() : "en-us";
+            String sourceLang = getCellStringValue(sourceHeaderCell);
+            sourceLang = (sourceLang != null && !sourceLang.trim().isEmpty()) ? sourceLang.trim() : "zh-cn";
+            String targetLang = getCellStringValue(targetHeaderCell);
+            targetLang = (targetLang != null && !targetLang.trim().isEmpty()) ? targetLang.trim() : "en-us";
             config.setSourceLang(sourceLang);
             config.setTargetLang(targetLang);
 
