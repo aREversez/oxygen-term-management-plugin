@@ -59,10 +59,12 @@ public class TermRecognitionPanel extends JPanel {
     private JLabel statsLabel;
     private TermManagementView parentView;
 
+    private JButton scanButton;
     private JButton prevButton;
     private JButton nextButton;
     private JLabel posLabel;
     private final Map<String, Integer> navIndices = new HashMap<>();
+    private SwingWorker<List<TermMatch>, Void> currentScanWorker;
 
     public TermRecognitionPanel(TermbaseRegistry registry, TermManagementView parentView) {
         this.registry = registry;
@@ -110,7 +112,7 @@ public class TermRecognitionPanel extends JPanel {
         });
         actionRow.add(termbaseCombo);
 
-        JButton scanButton = new JButton(IconUtils.loadIcon("scan", 16));
+        scanButton = new JButton(IconUtils.loadIcon("scan", 16));
         scanButton.setToolTipText("Scan for terms in current document");
         scanButton.addActionListener(e -> scanDocument());
         actionRow.add(scanButton);
@@ -276,20 +278,31 @@ public class TermRecognitionPanel extends JPanel {
     }
 
     public void scanDocument() {
-        int count = doScan();
-        if (count < 0) {
-            String text = getDocumentText();
-            if (text == null) {
-                JOptionPane.showMessageDialog(this,
-                    "No document open.",
-                    "Warning", JOptionPane.WARNING_MESSAGE);
-            }
+        String text = getDocumentText();
+        if (text == null || text.isEmpty()) {
+            tableModel.setRowCount(0);
+            currentMatches.clear();
+            clearHighlights();
+            statsLabel.setText(" ");
+            JOptionPane.showMessageDialog(this,
+                "No document open.",
+                "Warning", JOptionPane.WARNING_MESSAGE);
+            return;
         }
+        startScan(text);
     }
 
     public void autoScan() {
         updateHighlightToggleState();
-        doScan();
+        String text = getDocumentText();
+        if (text == null || text.isEmpty()) {
+            tableModel.setRowCount(0);
+            currentMatches.clear();
+            clearHighlights();
+            statsLabel.setText(" ");
+            return;
+        }
+        startScan(text);
     }
 
     private String getCurrentEditorUrl() {
@@ -319,28 +332,19 @@ public class TermRecognitionPanel extends JPanel {
         }
     }
 
-    private int doScan() {
-        String documentText = getDocumentText();
-        if (documentText == null || documentText.isEmpty()) {
-            tableModel.setRowCount(0);
-            currentMatches.clear();
-            clearHighlights();
-            statsLabel.setText(" ");
-            return -1;
-        }
-
+    private void startScan(String documentText) {
         TermbaseConfig config = (TermbaseConfig) termbaseCombo.getSelectedItem();
         if (config == null) {
             tableModel.setRowCount(0);
             currentMatches.clear();
             clearHighlights();
             statsLabel.setText(" ");
-            return -1;
+            return;
         }
 
         boolean isTextMode = isTextEditorPage();
 
-        // Build segments for mapping string offsets to Author offsets
+        // Build segments on EDT
         List<int[]> segments = new ArrayList<>();
         if (!isTextMode) {
             try {
@@ -368,81 +372,118 @@ public class TermRecognitionPanel extends JPanel {
             }
         }
 
+        // Cancel previous scan if still running
+        if (currentScanWorker != null && !currentScanWorker.isDone()) {
+            currentScanWorker.cancel(true);
+        }
+
         tableModel.setRowCount(0);
         currentMatches.clear();
         clearHighlights();
+        statsLabel.setText("Scanning...");
+        scanButton.setEnabled(false);
 
-        List<TermMatch> allMatches = new ArrayList<>();
-        java.util.Set<String> tablePairs = new java.util.HashSet<>();
-        java.util.Set<String> countedPositions = new java.util.HashSet<>();
-        List<TermEntry> terms = registry.getTerms(config);
+        boolean capturedIsTextMode = isTextMode;
+        List<int[]> capturedSegments = segments;
+        String capturedText = documentText;
+        TermbaseConfig capturedConfig = config;
+        boolean highlightSelected = highlightToggle.isSelected();
 
-        for (TermEntry term : terms) {
-            String sourceTerm = term.getSourceTerm();
-            if (sourceTerm == null || sourceTerm.isEmpty()) continue;
+        currentScanWorker = new SwingWorker<List<TermMatch>, Void>() {
+            @Override
+            protected List<TermMatch> doInBackground() throws Exception {
+                List<TermEntry> terms = registry.getTerms(capturedConfig);
+                java.util.Set<String> countedPositions = new java.util.HashSet<>();
+                List<TermMatch> allMatches = new ArrayList<>();
 
-            String matchTerm = isTextMode ? escapeXmlEntities(sourceTerm) : sourceTerm;
-            String escaped = Pattern.quote(matchTerm);
-            String regex = isNonDelimitedScript(matchTerm)
-                ? escaped
-                : "(?<![\\p{L}])" + escaped + "(?![\\p{L}])";
-            Pattern pattern = Pattern.compile(regex,
-                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-            Matcher matcher = pattern.matcher(documentText);
+                for (TermEntry term : terms) {
+                    if (isCancelled()) break;
+                    String sourceTerm = term.getSourceTerm();
+                    if (sourceTerm == null || sourceTerm.isEmpty()) continue;
 
-            while (matcher.find()) {
-                int strStart = matcher.start();
-                int strEnd = strStart + matchTerm.length();
+                    String matchTerm = capturedIsTextMode
+                        ? escapeXmlEntities(sourceTerm) : sourceTerm;
+                    String escaped = Pattern.quote(matchTerm);
+                    String regex = isNonDelimitedScript(matchTerm)
+                        ? escaped
+                        : "(?<![\\p{L}])" + escaped + "(?![\\p{L}])";
+                    Pattern pattern = Pattern.compile(regex,
+                        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+                    Matcher matcher = pattern.matcher(capturedText);
 
-                // Add to allMatches deduplicated by position
-                String posKey = sourceTerm + "@" + strStart;
-                if (!countedPositions.contains(posKey)) {
-                    countedPositions.add(posKey);
-                    if (isTextMode) {
-                        allMatches.add(new TermMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd));
-                    } else {
-                        int authStart = -1, authEnd = -1;
-                        for (int[] seg : segments) {
-                            int segAuth = seg[0];
-                            int segStr = seg[1];
-                            int segLen = seg[2];
-                            if (strStart >= segStr && strStart < segStr + segLen) {
-                                authStart = segAuth + (strStart - segStr);
+                    while (matcher.find()) {
+                        if (isCancelled()) break;
+                        int strStart = matcher.start();
+                        int strEnd = strStart + matchTerm.length();
+
+                        String posKey = sourceTerm + "@" + strStart;
+                        if (!countedPositions.contains(posKey)) {
+                            countedPositions.add(posKey);
+                            if (capturedIsTextMode) {
+                                allMatches.add(new TermMatch(
+                                    sourceTerm, term.getTargetTerm(), strStart, strEnd));
+                            } else {
+                                int authStart = -1, authEnd = -1;
+                                for (int[] seg : capturedSegments) {
+                                    int segAuth = seg[0];
+                                    int segStr = seg[1];
+                                    int segLen = seg[2];
+                                    if (strStart >= segStr && strStart < segStr + segLen) {
+                                        authStart = segAuth + (strStart - segStr);
+                                    }
+                                    if (strEnd >= segStr && strEnd <= segStr + segLen) {
+                                        authEnd = segAuth + (strEnd - segStr);
+                                    }
+                                }
+                                if (authStart >= 0 && authEnd >= 0) {
+                                    allMatches.add(new TermMatch(
+                                        sourceTerm, term.getTargetTerm(), authStart, authEnd));
+                                }
                             }
-                            if (strEnd >= segStr && strEnd <= segStr + segLen) {
-                                authEnd = segAuth + (strEnd - segStr);
-                            }
-                        }
-                        if (authStart >= 0 && authEnd >= 0) {
-                            allMatches.add(new TermMatch(sourceTerm, term.getTargetTerm(), authStart, authEnd));
                         }
                     }
                 }
+                return allMatches;
+            }
 
-                // Collect all unique (source, target) pairs for the table
-                String pairKey = sourceTerm + "|" + term.getTargetTerm();
-                if (!tablePairs.contains(pairKey)) {
-                    tablePairs.add(pairKey);
-                    tableModel.addRow(new Object[]{sourceTerm, term.getTargetTerm()});
+            @Override
+            protected void done() {
+                try {
+                    if (isCancelled()) return;
+                    List<TermMatch> result = get();
+                    currentMatches = result;
+
+                    // Update table with unique pairs
+                    tableModel.setRowCount(0);
+                    java.util.Set<String> tablePairs = new java.util.HashSet<>();
+                    for (TermMatch m : result) {
+                        String pairKey = m.sourceTerm + "|" + m.targetTerm;
+                        if (tablePairs.add(pairKey)) {
+                            tableModel.addRow(new Object[]{m.sourceTerm, m.targetTerm});
+                        }
+                    }
+
+                    int totalHits = result.size();
+                    int uniqueTerms = tablePairs.size();
+                    if (uniqueTerms == 0) {
+                        statsLabel.setText("No terms matched.");
+                    } else {
+                        statsLabel.setText("Matched " + totalHits
+                            + " terms (" + uniqueTerms + " unique entries)");
+                    }
+
+                    if (highlightSelected && !capturedIsTextMode) {
+                        applyHighlights();
+                    }
+                } catch (Exception e) {
+                    System.err.println("Scan failed: " + e.getMessage());
+                    statsLabel.setText("Scan failed.");
+                } finally {
+                    scanButton.setEnabled(true);
                 }
             }
-        }
-
-        currentMatches = allMatches;
-
-        int totalHits = allMatches.size();
-        int uniqueTerms = tablePairs.size();
-        if (uniqueTerms == 0) {
-            statsLabel.setText("No terms matched.");
-        } else {
-            statsLabel.setText("Matched " + totalHits + " terms (" + uniqueTerms + " unique entries)");
-        }
-
-        if (highlightToggle.isSelected() && !isTextMode) {
-            applyHighlights();
-        }
-
-        return uniqueTerms;
+        };
+        currentScanWorker.execute();
     }
 
     private void applyHighlights() {
