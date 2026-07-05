@@ -478,6 +478,9 @@ public class TermRecognitionPanel extends JPanel {
                 } catch (Exception e) {
                     System.err.println("Scan failed: " + e.getMessage());
                     statsLabel.setText("Scan failed.");
+                    JOptionPane.showMessageDialog(TermRecognitionPanel.this,
+                        "Failed to scan document.\n" + e.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
                 } finally {
                     scanButton.setEnabled(true);
                 }

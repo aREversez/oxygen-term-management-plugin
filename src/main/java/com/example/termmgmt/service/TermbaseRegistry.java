@@ -191,19 +191,10 @@ public class TermbaseRegistry {
         if (cached != null) {
             return new ArrayList<>(cached);
         }
-        try {
-            List<TermEntry> terms = TermbaseLoader.loadTerms(config);
-            termCache.put(config.getFilePath(), new ArrayList<>(terms));
-            rebuildSourceIndex();
-            return terms;
-        } catch (Exception e) {
-            System.err.println("Failed to load terms: " + config.getFilePath());
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(null,
-                "Failed to load terms from:\n" + config.getFilePath() + "\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
-            return new ArrayList<>();
-        }
+        List<TermEntry> terms = TermbaseLoader.loadTerms(config);
+        termCache.put(config.getFilePath(), new ArrayList<>(terms));
+        rebuildSourceIndex();
+        return terms;
     }
 
     public void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
@@ -215,15 +206,7 @@ public class TermbaseRegistry {
     public void reloadConfig(String filePath) {
         for (TermbaseConfig config : configs) {
             if (config.getFilePath().equals(filePath)) {
-                try {
-                    loadTerms(config);
-                } catch (Exception e) {
-                    System.err.println("Failed to reload termbase: " + filePath);
-                    e.printStackTrace();
-                    JOptionPane.showMessageDialog(null,
-                        "Failed to reload termbase:\n" + filePath + "\n" + e.getMessage(),
-                        "Error", JOptionPane.ERROR_MESSAGE);
-                }
+                loadTerms(config);
                 break;
             }
         }
