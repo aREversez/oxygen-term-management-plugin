@@ -10,8 +10,6 @@ Oxygen XML Editor plugin for terminology management and translation assistance.
 ## Screenshots
 
 ![Plugin Overview](./assets/plugin_screenshot.png)
-![Highlight Feature](./assets/toggle_highlight_feature.png)
-![CJK Support](./assets/highlight_cjk.png)
 
 ## Features
 
@@ -53,6 +51,7 @@ When text is selected in the editor, right-click to access the **Term Management
 - **Chinese-aware sorting** — uses `Collator.getInstance(Locale.CHINESE)` for column sorting
 - **Duplicate detection** — warns when adding a term whose source already exists (same or different translation)
 - **File lock detection** — checks write access before saving; shows specific messages for locked XLSX files (e.g. open in Excel)
+- **User-facing error dialogs** — load, save, and reload failures show a message dialog instead of failing silently
 - Batch delete with confirmation: `Delete X term(s) from Y?`
 
 ### Termbase Search
@@ -74,7 +73,7 @@ When text is selected in the editor, right-click to access the **Term Management
 - **Enable / Disable** termbases without removing them
 - **Reload** termbase from disk (multi-select supported)
 - **Edit** opens termbase file in system default application
-- Configurations are persisted via Oxygen's `WSOptionsStorage` as a JSON-like string
+- Configurations are persisted via Oxygen's `WSOptionsStorage` as a JSON string (serialized with Gson)
 
 ### Term Entry Dialog
 - Source term (required) and target term fields
@@ -161,15 +160,15 @@ The deployable plugin package will be available at `output/term-management/`.
 
 ## Supported Formats
 
-## Language Identification
-
-Language tags follow the **BCP 47** standard (e.g., `en-US`, `zh-CN`, `ja-JP`). A reference table is available at [`language-tags-BCP-47.md`](./language-tags-BCP-47.md).
-
 | Format | Library | Notes |
 |--------|---------|-------|
 | CSV | OpenCSV | UTF-8 with BOM, first row header, BCP 47 language tags |
 | XLSX | Apache POI | First sheet, first row header |
 | TBX (ISO 30042) | JDK DOM | `xml:lang` attributes for language detection; supports both `<tig>` and `<ntig>` / `<termGrp>` structures |
+
+### Language Identification
+
+Language tags follow the **BCP 47** standard (e.g., `en-US`, `zh-CN`, `ja-JP`). A reference table is available at [`language-tags-BCP-47.md`](./language-tags-BCP-47.md).
 
 ## Project Structure
 
@@ -203,6 +202,8 @@ term-management/
 │   │   │   └── TermbaseRegistry.java
 │   │   ├── prefs/
 │   │   │   └── TermManagementPreferencePage.java
+│   │   ├── util/
+│   │   │   └── TermMatchUtils.java
 │   │   └── ui/
 │   │       ├── TermManagementView.java
 │   │       ├── TermRecognitionPanel.java
@@ -222,6 +223,10 @@ term-management/
 │           ├── quick_add.svg
 │           ├── edit.svg
 │           └── delete.svg
+├── src/test/java/com/example/termmgmt/service/   # Unit tests (handlers only)
+│   ├── CsvTermbaseHandlerTest.java
+│   ├── XlsxTermbaseHandlerTest.java
+│   └── TbxTermbaseHandlerTest.java
 ├── output/                    # Build output (not committed)
 │   └── term-management/
 └── reference/                 # Reference materials
@@ -243,6 +248,15 @@ term-management/
    ```bash
    mvn clean package
    ```
+
+### Testing
+Unit tests cover the termbase format handlers (`CsvTermbaseHandler`, `XlsxTermbaseHandler`, `TbxTermbaseHandler`), including round-trip save/load, encoding edge cases (UTF-8 BOM), malformed/edge-case input, and missing-file handling.
+
+Run the test suite:
+```bash
+mvn test
+```
+Note: `mvn test` runs tests only and does not produce a plugin package — use `mvn package` to build a deployable jar.
 
 ### IntelliJ IDEA Setup
 1. Open the project directory.

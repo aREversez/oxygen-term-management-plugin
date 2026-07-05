@@ -37,3 +37,6 @@ temp/
 
 # sdk
 libs/oxygen.jar
+
+# Else
+RELEASE_NOTES.md
