@@ -10,7 +10,7 @@ import os
 import json
 
 # Test CSV
-csv_path = "N:/AI/term-management/test-data/sample_terms.csv"
+csv_path = os.path.join(os.path.dirname(__file__), "test-data", "sample_terms.csv")
 with open(csv_path, "r", encoding="utf-8") as f:
     reader = csv.DictReader(f)
     rows = list(reader)
@@ -20,7 +20,7 @@ for r in rows[:3]:
 
 # Test TBX
 import xml.etree.ElementTree as ET
-tbx_path = "N:/AI/term-management/test-data/sample_terms.tbx"
+tbx_path = os.path.join(os.path.dirname(__file__), "test-data", "sample_terms.tbx")
 tree = ET.parse(tbx_path)
 root = tree.getroot()
 # TBX namespace handling
@@ -44,7 +44,7 @@ for entry in entries[:3]:
 
 # Test XLSX
 from openpyxl import load_workbook
-xlsx_path = "N:/AI/term-management/test-data/sample_terms.xlsx"
+xlsx_path = os.path.join(os.path.dirname(__file__), "test-data", "sample_terms.xlsx")
 wb = load_workbook(xlsx_path)
 ws = wb.active
 rows = []

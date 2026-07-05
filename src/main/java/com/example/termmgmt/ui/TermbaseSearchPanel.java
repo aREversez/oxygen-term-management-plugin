@@ -124,23 +124,25 @@ public class TermbaseSearchPanel extends JPanel {
                 "Warning", JOptionPane.WARNING_MESSAGE);
             return;
         }
+        executeSearch(searchTerm);
+    }
 
-        // Clear table
+    /**
+     * Execute a search with the given term and populate results.
+     * Public so it can be triggered externally (e.g. from context menu).
+     */
+    public void executeSearch(String searchTerm) {
+        searchField.setText(searchTerm);
         tableModel.setRowCount(0);
 
-        // Get enabled termbases
         List<TermbaseConfig> enabledConfigs = registry.getEnabledConfigs();
-
         int matchCount = 0;
 
-        // Search each enabled termbase
         for (TermbaseConfig config : enabledConfigs) {
             List<TermEntry> terms = registry.getTerms(config);
             for (TermEntry term : terms) {
                 String sourceTerm = term.getSourceTerm();
                 String targetTerm = term.getTargetTerm();
-
-                // Case-insensitive fuzzy match
                 if ((sourceTerm != null && sourceTerm.toLowerCase().contains(searchTerm.toLowerCase())) ||
                     (targetTerm != null && targetTerm.toLowerCase().contains(searchTerm.toLowerCase()))) {
                     tableModel.addRow(new Object[]{
@@ -153,7 +155,6 @@ public class TermbaseSearchPanel extends JPanel {
             }
         }
 
-        // Show warning only when no termbases are configured
         if (matchCount == 0 && enabledConfigs.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                 "No enabled termbases.",

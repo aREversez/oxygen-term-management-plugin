@@ -11,16 +11,31 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 ## 功能特性
 
 ### 术语识别
-- 扫描当前编辑器文档，匹配已启用的术语库中的术语
+- 扫描当前编辑器文档，匹配选中的术语库中的术语
 - 支持 Author 和 Text 两种编辑模式
 - Text 模式下自动转义 XML 实体（`&`、`<`、`>`、`"`、`'`）后再匹配
 - **Author 模式高亮** — 一键开关高亮，匹配的术语在文档中以黄色背景标记；开关状态按文档独立记忆（会话有效）
 - **CJK 支持** — 正确识别中文、日文、韩文文本，无需依赖空格分隔；非 CJK 词使用词边界正则（`(?<![\\p{L}])TERM(?![\\p{L}])`）
 - 双击匹配的术语行可跳转到**术语管理**标签页进行编辑
 - **< 上一个** / **下一个 >** 按钮导航术语出现位置，附带位置标签（如 `3/12`）
+- 导航计数按文档位置去重——术语库中的重复条目不会导致出现次数虚增
+- **重复条目处理** — 同一源语在同一术语库中有多个译法时，结果表格中显示所有译法
 - 统计标签显示 `Matched n terms (m unique entries)`
 - 切换标签页或编辑器时自动扫描
 - **主题感知 SVG 图标** — 图标自动适配 Oxygen 深色/浅色主题
+
+### 右键上下文菜单
+在编辑器中选中文本后，右键菜单出现 **Term Management** 子菜单：
+
+| 菜单项 | 条件 | 动作 |
+|--------|------|------|
+| **Quick Add** | 有选中文本，且术语未存在于 Recognition 当前术语库 | 弹出 Quick Add 对话框，源语自动填入，光标在目标语输入框 |
+| **Insert Translation** | 有选中文本，且匹配当前术语库中的已知术语 | 单条匹配直接插入；多条匹配弹出选择框 |
+| **Edit Term** | 有选中文本，且匹配当前术语库中的已知术语 | 直接弹出编辑对话框（无需跳转到 Terminology 标签页） |
+| **Search in Termbase** | 有选中文本 | 跳转到搜索标签页，填入搜索词并**在所有已启用术语库**中执行搜索 |
+
+- 所有术语库操作（Insert、Edit、Quick Add）均基于 **Term Recognition 标签页当前选中的术语库**
+- 检测到不连续多选（Ctrl+click）时，不显示 Term Management 菜单
 
 ### 术语管理
 - 在单个术语库（TBX / XLSX / CSV）中添加、编辑、删除术语
@@ -123,6 +138,16 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 5. **内联编辑** — 直接点击单元格修改，即时保存。
 6. **右键**点击行弹出编辑/删除菜单。
 
+### 右键上下文菜单
+1. 在编辑器中选中文本（Author 或 Text 模式）。
+2. 右键点击，在弹出菜单底部（分隔线后）找到 **Term Management** 子菜单。
+3. 根据选中文本是否匹配已知术语选择操作：
+   - **Quick Add** — 将选中文本作为新术语添加到 Recognition 当前术语库
+   - **Insert Translation** — 用译语替换编辑器中的选中文本
+   - **Edit Term** — 直接编辑术语条目
+   - **Search in Termbase** — 在所有已启用术语库中搜索
+4. 无可用操作时子菜单自动隐藏。
+
 ### 术语库搜索
 1. 切换到**术语库搜索**标签页。
 2. 输入搜索词，点击 **Search**（或按回车键）。
@@ -161,6 +186,7 @@ term-management/
 │   ├── java/com/example/termmgmt/
 │   │   ├── TermManagementPlugin.java
 │   │   ├── TermManagementWorkspaceAccessExtension.java
+│   │   ├── TermContextMenuInstaller.java
 │   │   ├── model/
 │   │   │   ├── TermEntry.java
 │   │   │   └── TermbaseConfig.java

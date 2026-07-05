@@ -421,9 +421,24 @@ public class TerminologyPanel extends JPanel {
 
     /**
      * Quick add a new term using the current editor selection.
+     * Called from the panel's Quick Add button.
      */
     private void quickAddNewTerm() {
-        TermbaseConfig config = (TermbaseConfig) termbaseComboBox.getSelectedItem();
+        quickAddFromExternalSelection(getEditorSelection());
+    }
+
+    /**
+     * Quick add a term using externally provided selected text.
+     * Callable from outside the panel (e.g. context menu) without
+     * reading editor selection or panel state redundantly.
+     *
+     * @param selectedText text selected in the editor, or null
+     */
+    public void quickAddFromExternalSelection(String selectedText) {
+        quickAddFromExternalSelection(selectedText, (TermbaseConfig) termbaseComboBox.getSelectedItem());
+    }
+
+    public void quickAddFromExternalSelection(String selectedText, TermbaseConfig config) {
         if (config == null) {
             JOptionPane.showMessageDialog(this,
                 "Please select a termbase.",
@@ -432,17 +447,14 @@ public class TerminologyPanel extends JPanel {
         }
         if (!checkFileAccess(config)) return;
 
-        // Get current editor selection (mock for standalone testing)
-        String editorSelection = getEditorSelection();
-
-        if (editorSelection == null || editorSelection.isEmpty()) {
+        if (selectedText == null || selectedText.trim().isEmpty()) {
             JOptionPane.showMessageDialog(this,
                 "No text selected in editor.",
                 "Warning", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        TermEntryDialog dialog = new TermEntryDialog("Add New Term", editorSelection);
+        TermEntryDialog dialog = new TermEntryDialog("Add New Term", selectedText);
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {

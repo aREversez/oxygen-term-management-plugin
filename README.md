@@ -16,16 +16,31 @@ Oxygen XML Editor plugin for terminology management and translation assistance.
 ## Features
 
 ### Term Recognition
-- Scan the current editor document for terms from enabled termbases
+- Scan the current editor document for terms from a selected termbase
 - Supports both Author and Text editing modes
 - In Text mode, XML entities (`&`, `<`, `>`, `"`, `'`) are escaped before matching
 - **Author-mode term highlighting** — toggle highlight on/off with a single button; highlighted terms are visually marked in the document with a yellow background; toggle state is per-document (session-scoped)
 - **CJK support** — correctly recognizes Chinese, Japanese, and Korean text without requiring whitespace delimiters; non-CJK terms use word-boundary regex (`(?<![\\p{L}])TERM(?![\\p{L}])`)
 - Double-click a matched term to switch to the **Terminology** tab for editing
 - Navigate occurrences with **< Prev** / **Next >** buttons and position label (e.g. `3/12`)
+- Navigation counts are deduplicated by document position — duplicate entries in the termbase do not inflate occurrence counts
+- **Duplicate entries** — if a source term has multiple translations in the same termbase, all translation pairs are shown in the results table
 - Statistics label shows `Matched n terms (m unique entries)`
 - Auto-scan on tab switch and editor change
 - **Theme-aware SVG icons** — icons adapt to dark/light Oxygen theme automatically
+
+### Right-Click Context Menu
+When text is selected in the editor, right-click to access the **Term Management** submenu:
+
+| Menu Item | Condition | Action |
+|-----------|-----------|--------|
+| **Quick Add** | Text selected, term NOT known in the Recognition tab's active termbase | Opens Quick Add dialog with source term pre-filled, cursor on target field |
+| **Insert Translation** | Text selected, matches a known term in the active termbase | Single match inserts directly; multiple matches show a chooser |
+| **Edit Term** | Text selected, matches a known term in the active termbase | Opens the Edit Term dialog directly (no Tab navigation needed) |
+| **Search in Termbase** | Text selected | Switches to the Search tab, populates search field, and executes search across **all** enabled termbases |
+
+- All termbase operations (Insert, Edit, Quick Add) are scoped to the **termbase currently selected in the Term Recognition tab**
+- Discontinuous multi-selection (Ctrl+click) is detected and suppresses the menu
 
 ### Terminology Management
 - Add, edit, delete terms in individual termbases (TBX / XLSX / CSV)
@@ -128,6 +143,16 @@ The deployable plugin package will be available at `output/term-management/`.
 5. **Inline editing** — click any cell to edit, changes are saved immediately.
 6. **Right-click** a row for a context menu with Edit/Delete options.
 
+### Right-Click Context Menu
+1. Select text in the editor (Author or Text mode).
+2. Right-click and find the **Term Management** submenu (at the bottom of the popup, after a separator).
+3. Choose an action depending on whether the selected text matches a known term:
+   - **Quick Add** — add as a new term to the Recognition tab's active termbase
+   - **Insert Translation** — replace the selection with the translation
+   - **Edit Term** — directly edit the term entry
+   - **Search in Termbase** — search across all enabled termbases
+4. The submenu is hidden when no relevant action is available.
+
 ### Termbase Search
 1. Switch to the **Termbase Search** tab.
 2. Enter a search term and click **Search** (or press Enter).
@@ -166,6 +191,7 @@ term-management/
 │   ├── java/com/example/termmgmt/
 │   │   ├── TermManagementPlugin.java
 │   │   ├── TermManagementWorkspaceAccessExtension.java
+│   │   ├── TermContextMenuInstaller.java
 │   │   ├── model/
 │   │   │   ├── TermEntry.java
 │   │   │   └── TermbaseConfig.java

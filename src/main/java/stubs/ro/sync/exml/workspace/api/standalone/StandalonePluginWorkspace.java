@@ -1,6 +1,8 @@
 package ro.sync.exml.workspace.api.standalone;
 
-public interface StandalonePluginWorkspace {
+import ro.sync.exml.workspace.api.PluginWorkspace;
+
+public interface StandalonePluginWorkspace extends PluginWorkspace {
     void addViewComponentCustomizer(ViewComponentCustomizer c);
     void addMenusAndToolbarsContributorCustomizer(Object c);
     void addMenuBarCustomizer(Object c);
@@ -10,4 +12,12 @@ public interface StandalonePluginWorkspace {
     void addWindowListener(Object l);
     void removeWindowListener(Object l);
     int MAIN_EDITING_AREA = 0;
+    /** @since 27 */
+    void showView(String viewId, boolean show);
+    /** @since 27 */
+    void openView(String viewId);
+    /** @since 27 */
+    ViewInfo[] getViews();
+    /** @since 27 */
+    Object getComponentProvider(String type);
 }
