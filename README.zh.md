@@ -4,7 +4,7 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 
 ## 截图
 
-![插件概览](./assets/plugin_screenshot.png)
+![插件概览](./assets/plugin-screenshot.png)
 
 ## 功能特性
 
