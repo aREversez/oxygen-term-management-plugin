@@ -270,8 +270,14 @@ public class TermContextMenuInstaller {
         }
 
         // Step 2: no exact match — check if the selection contains 2+ different terms
+        List<TermEntry> allTerms;
+        try {
+            allTerms = TermbaseRegistry.getInstance().getTerms(config);
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
         Set<String> distinctFound = new HashSet<>();
-        for (TermEntry entry : TermbaseRegistry.getInstance().getTerms(config)) {
+        for (TermEntry entry : allTerms) {
             String sourceTerm = entry.getSourceTerm();
             if (sourceTerm == null || sourceTerm.isEmpty()) continue;
             if (TermbaseRegistry.getInstance().getMatchPattern(sourceTerm).matcher(searchKey).find()) {
