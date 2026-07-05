@@ -26,7 +26,6 @@ import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.ui.TermEntryDialog;
 import com.example.termmgmt.ui.TermManagementView;
 import com.example.termmgmt.util.IconUtils;
-import com.example.termmgmt.util.TermMatchUtils;
 
 public class TermContextMenuInstaller {
 
@@ -265,7 +264,7 @@ public class TermContextMenuInstaller {
         for (TermEntry entry : TermbaseRegistry.getInstance().getTerms(config)) {
             String sourceTerm = entry.getSourceTerm();
             if (sourceTerm == null || sourceTerm.isEmpty()) continue;
-            if (TermMatchUtils.buildMatchPattern(sourceTerm).matcher(searchKey).find()) {
+            if (TermbaseRegistry.getInstance().getMatchPattern(sourceTerm).matcher(searchKey).find()) {
                 distinctFound.add(sourceTerm);
                 if (distinctFound.size() >= 2) {
                     return MULTI_TERM_SENTINEL;

@@ -3,6 +3,7 @@ package com.example.termmgmt.service;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.model.TermbaseConfig.Format;
+import com.example.termmgmt.util.TermMatchUtils;
 
 import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
 import ro.sync.exml.workspace.api.options.WSOptionsStorage;
@@ -13,6 +14,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Singleton registry that manages termbase configurations and cached term data.
@@ -37,11 +39,13 @@ public class TermbaseRegistry {
     private List<TermbaseConfig> configs;
     private Map<String, List<TermEntry>> termCache; // Map from file path to terms
     private Map<String, List<TermEntry>> sourceIndex; // Map from source term text → terms (case-insensitive key)
+    private Map<String, Pattern> patternCache; // Compiled match patterns keyed by source term text
 
     private TermbaseRegistry() {
         this.configs = new ArrayList<>();
         this.termCache = new HashMap<>();
         this.sourceIndex = new HashMap<>();
+        this.patternCache = new HashMap<>();
     }
 
     /**
@@ -256,6 +260,11 @@ public class TermbaseRegistry {
     public void clearCache() {
         termCache.clear();
         sourceIndex.clear();
+        patternCache.clear();
+    }
+
+    public Pattern getMatchPattern(String sourceTerm) {
+        return patternCache.computeIfAbsent(sourceTerm, TermMatchUtils::buildMatchPattern);
     }
 
     public List<TermEntry> getAllTerms() {
