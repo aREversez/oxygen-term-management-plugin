@@ -49,6 +49,13 @@
             <artifactId>svg-salamander</artifactId>
             <version>1.1.5.5</version>
         </dependency>
+
+        <!-- Gson for JSON serialization of termbase configurations -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
     </dependencies>
 
     <build>

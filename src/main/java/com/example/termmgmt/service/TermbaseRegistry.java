@@ -4,6 +4,10 @@ import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.model.TermbaseConfig.Format;
 import com.example.termmgmt.util.TermMatchUtils;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
 import ro.sync.exml.workspace.api.options.WSOptionsStorage;
@@ -63,98 +67,52 @@ public class TermbaseRegistry {
     // ---- Serialization (unchanged) ----
 
     private String serializeConfigs(List<TermbaseConfig> configs) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[");
-        boolean first = true;
+        JsonArray arr = new JsonArray();
         for (TermbaseConfig config : configs) {
-            if (!first) sb.append(",");
-            first = false;
-            sb.append("{");
-            sb.append("\"path\":\"").append(config.getFilePath().replace("\\", "\\\\").replace("\"", "\\\"")).append("\",");
-            sb.append("\"format\":\"").append(config.getFormat().name()).append("\",");
-            sb.append("\"enabled\":").append(config.isEnabled());
+            JsonObject obj = new JsonObject();
+            obj.addProperty("path", config.getFilePath());
+            obj.addProperty("format", config.getFormat().name());
+            obj.addProperty("enabled", config.isEnabled());
             if (config.getSourceLang() != null) {
-                sb.append(",\"sourceLang\":\"").append(config.getSourceLang()).append("\"");
+                obj.addProperty("sourceLang", config.getSourceLang());
             }
             if (config.getTargetLang() != null) {
-                sb.append(",\"targetLang\":\"").append(config.getTargetLang()).append("\"");
+                obj.addProperty("targetLang", config.getTargetLang());
             }
-            sb.append("}");
+            arr.add(obj);
         }
-        sb.append("]");
-        return sb.toString();
+        return new GsonBuilder().disableHtmlEscaping().create().toJson(arr);
     }
 
-    @SuppressWarnings("unchecked")
     private List<TermbaseConfig> deserializeConfigs(String serialized) {
         List<TermbaseConfig> result = new ArrayList<>();
-        if (serialized == null || serialized.isEmpty()) {
-            return result;
-        }
-        serialized = serialized.trim();
-        if (!serialized.startsWith("[") || !serialized.endsWith("]")) {
-            return result;
-        }
-        String inner = serialized.substring(1, serialized.length() - 1);
-        int depth = 0;
-        int start = 0;
-        for (int i = 0; i < inner.length(); i++) {
-            char c = inner.charAt(i);
-            if (c == '{') depth++;
-            if (c == '}') depth--;
-            if (depth == 0 && i + 1 < inner.length() && inner.charAt(i + 1) == ',') {
-                String obj = inner.substring(start, i + 1);
-                result.add(parseConfig(obj));
-                start = i + 2;
+        if (serialized == null || serialized.trim().isEmpty()) return result;
+        try {
+            JsonArray arr = JsonParser.parseString(serialized).getAsJsonArray();
+            for (int i = 0; i < arr.size(); i++) {
+                JsonObject obj = arr.get(i).getAsJsonObject();
+                String path = obj.get("path").getAsString();
+                if (path.startsWith("." + File.separator)) {
+                    path = new File(System.getProperty("user.dir"), path).getAbsolutePath();
+                }
+                String fmt = obj.get("format").getAsString();
+                Format format = Format.CSV;
+                if ("XLSX".equals(fmt)) format = Format.XLSX;
+                else if ("TBX".equals(fmt)) format = Format.TBX;
+                boolean enabled = obj.get("enabled").getAsBoolean();
+                TermbaseConfig config = new TermbaseConfig(path, format, enabled);
+                if (obj.has("sourceLang")) {
+                    config.setSourceLang(obj.get("sourceLang").getAsString());
+                }
+                if (obj.has("targetLang")) {
+                    config.setTargetLang(obj.get("targetLang").getAsString());
+                }
+                result.add(config);
             }
-        }
-        if (start < inner.length()) {
-            String obj = inner.substring(start);
-            result.add(parseConfig(obj));
+        } catch (Exception e) {
+            System.err.println("Failed to deserialize configs: " + e.getMessage());
         }
         return result;
-    }
-
-    private TermbaseConfig parseConfig(String json) {
-        try {
-            String path = extractString(json, "path");
-            String format = extractString(json, "format");
-            boolean enabled = extractBoolean(json, "enabled");
-            if (path == null) return null;
-            if (path.startsWith("." + File.separator)) {
-                path = new File(System.getProperty("user.dir"), path).getAbsolutePath();
-            }
-            Format fmt = Format.CSV;
-            if ("XLSX".equals(format)) fmt = Format.XLSX;
-            else if ("TBX".equals(format)) fmt = Format.TBX;
-            TermbaseConfig config = new TermbaseConfig(path, fmt, enabled);
-            config.setSourceLang(extractString(json, "sourceLang"));
-            config.setTargetLang(extractString(json, "targetLang"));
-            return config;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private String extractString(String json, String key) {
-        String search = "\"" + key + "\"";
-        int idx = json.indexOf(search);
-        if (idx < 0) return null;
-        int colon = json.indexOf(':', idx + search.length());
-        int quoteStart = json.indexOf('"', colon + 1);
-        int quoteEnd = json.indexOf('"', quoteStart + 1);
-        if (quoteStart < 0 || quoteEnd < 0 || quoteEnd <= quoteStart) return null;
-        String val = json.substring(quoteStart + 1, quoteEnd);
-        return val.replace("\\\\", "\\");
-    }
-
-    private boolean extractBoolean(String json, String key) {
-        String search = "\"" + key + "\"";
-        int idx = json.indexOf(search);
-        if (idx < 0) return false;
-        int colon = json.indexOf(':', idx + search.length());
-        String rest = json.substring(colon + 1).trim();
-        return rest.startsWith("true");
     }
 
     // ---- Config management ----
