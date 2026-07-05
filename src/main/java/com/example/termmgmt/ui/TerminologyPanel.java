@@ -149,7 +149,13 @@ public class TerminologyPanel extends JPanel {
                 } else if (column == 1) {
                     entry.setTargetTerm((String) value);
                 }
-                registry.saveTerms(currentConfig, currentTerms);
+                try {
+                    registry.saveTerms(currentConfig, currentTerms);
+                } catch (Exception ex) {
+                    String message = getFileLockedMessage(ex);
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        message, "Error", JOptionPane.ERROR_MESSAGE);
+                }
             }
         };
         termTable = new JTable(tableModel);
@@ -332,7 +338,14 @@ public class TerminologyPanel extends JPanel {
             return;
         }
 
-        currentTerms = new ArrayList<>(registry.getTerms(currentConfig));
+        try {
+            currentTerms = new ArrayList<>(registry.getTerms(currentConfig));
+        } catch (Exception e) {
+            currentTerms = new ArrayList<>();
+            JOptionPane.showMessageDialog(this,
+                "Failed to load terms.\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
+        }
         tableModel.setRowCount(0);
         for (TermEntry term : currentTerms) {
             tableModel.addRow(new Object[]{
@@ -354,11 +367,30 @@ public class TerminologyPanel extends JPanel {
             return;
         }
 
-        registry.reloadConfig(config.getFilePath());
-        loadTermbaseTerms();
-        JOptionPane.showMessageDialog(this,
-            "Termbase " + config.getFileName() + " reloaded.",
-            "Success", JOptionPane.INFORMATION_MESSAGE);
+        TermbaseConfig captured = config;
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                registry.reloadConfig(captured.getFilePath());
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    loadTermbaseTerms();
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        "Termbase " + captured.getFileName() + " reloaded.",
+                        "Success", JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception e) {
+                    String message = getFileLockedMessage(e);
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        "Failed to reload: " + message,
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     /**
@@ -370,7 +402,15 @@ public class TerminologyPanel extends JPanel {
             return true;
         }
         String newSource = newTerm.getSourceTerm().trim();
-        List<TermEntry> terms = registry.getTerms(currentConfig);
+        List<TermEntry> terms;
+        try {
+            terms = registry.getTerms(currentConfig);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                "Failed to read termbase.\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
         for (TermEntry existing : terms) {
             if (existing.getSourceTerm() != null && existing.getSourceTerm().trim().equals(newSource)) {
                 String newTarget = newTerm.getTargetTerm() != null ? newTerm.getTargetTerm().trim() : "";
@@ -412,10 +452,15 @@ public class TerminologyPanel extends JPanel {
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
             if (!checkDuplicateInCurrentTerms(newTerm)) return;
-            List<TermEntry> terms = registry.getTerms(config);
-            terms.add(newTerm);
-            safeSaveTerms(config, terms);
-            loadTermbaseTerms();
+            try {
+                List<TermEntry> terms = registry.getTerms(config);
+                terms.add(newTerm);
+                saveAndReloadAsync(config, terms);
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this,
+                    "Failed to save term.\n" + e.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
 
@@ -460,10 +505,15 @@ public class TerminologyPanel extends JPanel {
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
             if (!checkDuplicateInCurrentTerms(newTerm)) return;
-            List<TermEntry> terms = registry.getTerms(config);
-            terms.add(newTerm);
-            safeSaveTerms(config, terms);
-            loadTermbaseTerms();
+            try {
+                List<TermEntry> terms = registry.getTerms(config);
+                terms.add(newTerm);
+                saveAndReloadAsync(config, terms);
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this,
+                    "Failed to save term.\n" + e.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
 
@@ -505,10 +555,15 @@ public class TerminologyPanel extends JPanel {
 
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
-            List<TermEntry> terms = registry.getTerms(config);
-            terms.set(selectedRow, newTerm);
-            safeSaveTerms(config, terms);
-            loadTermbaseTerms();
+            try {
+                List<TermEntry> terms = registry.getTerms(config);
+                terms.set(selectedRow, newTerm);
+                saveAndReloadAsync(config, terms);
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this,
+                    "Failed to save edited term.\n" + e.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
 
@@ -539,21 +594,26 @@ public class TerminologyPanel extends JPanel {
             "Confirm Delete", JOptionPane.OK_CANCEL_OPTION);
 
         if (confirm == JOptionPane.OK_OPTION) {
-            List<TermEntry> terms = registry.getTerms(config);
-            // Save undo snapshot before modifying
-            undoSnapshot = new ArrayList<>(terms);
-            undoConfig = config;
-            undoButton.setEnabled(true);
+            try {
+                List<TermEntry> terms = registry.getTerms(config);
+                // Save undo snapshot before modifying
+                undoSnapshot = new ArrayList<>(terms);
+                undoConfig = config;
+                undoButton.setEnabled(true);
 
-            // Delete in reverse order to maintain indices
-            for (int i = selectedRows.length - 1; i >= 0; i--) {
-                int modelRow = termTable.convertRowIndexToModel(selectedRows[i]);
-                if (modelRow >= 0 && modelRow < terms.size()) {
-                    terms.remove(modelRow);
+                // Delete in reverse order to maintain indices
+                for (int i = selectedRows.length - 1; i >= 0; i--) {
+                    int modelRow = termTable.convertRowIndexToModel(selectedRows[i]);
+                    if (modelRow >= 0 && modelRow < terms.size()) {
+                        terms.remove(modelRow);
+                    }
                 }
+                saveAndReloadAsync(config, terms);
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this,
+                    "Failed to delete term(s).\n" + e.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
             }
-            safeSaveTerms(config, terms);
-            loadTermbaseTerms();
         }
     }
 
@@ -562,17 +622,38 @@ public class TerminologyPanel extends JPanel {
             undoButton.setEnabled(false);
             return;
         }
-        // Restore snapshot: write back the full term list
-        registry.saveTerms(undoConfig, undoSnapshot);
-        // If the current combo selection matches undoConfig, reload display
-        if (termbaseComboBox.getSelectedItem() != null
-                && ((TermbaseConfig) termbaseComboBox.getSelectedItem()).getFilePath().equals(undoConfig.getFilePath())) {
-            loadTermbaseTerms();
-        }
+        TermbaseConfig config = undoConfig;
+        List<TermEntry> snapshot = undoSnapshot;
         undoSnapshot = null;
         undoConfig = null;
         undoButton.setEnabled(false);
-        JOptionPane.showMessageDialog(this, "Delete undone.", "Undo", JOptionPane.INFORMATION_MESSAGE);
+
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                registry.saveTerms(config, snapshot);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    // If the current combo selection matches undoConfig, reload display
+                    if (termbaseComboBox.getSelectedItem() != null
+                            && ((TermbaseConfig) termbaseComboBox.getSelectedItem()).getFilePath()
+                                .equals(config.getFilePath())) {
+                        loadTermbaseTerms();
+                    }
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        "Delete undone.", "Undo", JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception e) {
+                    String message = getFileLockedMessage(e);
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        message, "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     /**
@@ -623,6 +704,51 @@ public class TerminologyPanel extends JPanel {
             }
             return false;
         }
+    }
+
+    private void saveAndReloadAsync(TermbaseConfig config, List<TermEntry> terms) {
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                registry.saveTerms(config, terms);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    loadTermbaseTerms();
+                } catch (Exception e) {
+                    String message = getFileLockedMessage(e);
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        message, "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    private void reloadAsync(TermbaseConfig config) {
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                registry.reloadConfig(config.getFilePath());
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    loadTermbaseTerms();
+                } catch (Exception e) {
+                    String message = getFileLockedMessage(e);
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        "Failed to reload: " + message,
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     private void safeSaveTerms(TermbaseConfig config, List<TermEntry> terms) {
