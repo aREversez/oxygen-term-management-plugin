@@ -5,8 +5,6 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 ## 截图
 
 ![插件概览](./assets/plugin_screenshot.png)
-![高亮功能](./assets/toggle_highlight_feature.png)
-![CJK 支持](./assets/highlight_cjk.png)
 
 ## 功能特性
 
@@ -48,6 +46,7 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 - **中文排序** — 使用 `Collator.getInstance(Locale.CHINESE)` 进行列排序
 - **重复检测** — 添加术语时检测源术语是否已存在（相同或不同译法均提示）
 - **文件锁定检测** — 写入前检查文件是否被其他程序占用，对 XLSX 显示特定提示
+- **用户可见的错误提示** — 加载、保存、重新加载失败时弹出提示对话框，不再静默失败
 - 批量删除带确认：`从 Y 中删除 X 个术语？`
 
 ### 术语库搜索
@@ -69,7 +68,7 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 - **启用 / 禁用**术语库（无需移除）
 - **重新加载**术语库（支持多选）
 - **编辑**操作用系统默认应用打开术语库文件
-- 配置通过 Oxygen 的 `WSOptionsStorage` 以 JSON 格式持久化
+- 配置通过 Oxygen 的 `WSOptionsStorage` 以 JSON 字符串持久化（使用 Gson 序列化）
 
 ### 术语条目对话框
 - 源语（必填）和目标语输入框
@@ -156,15 +155,15 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 
 ## 支持的格式
 
-## 语言标识
-
-语言标签遵循 **BCP 47** 标准（例如 `en-US`、`zh-CN`、`ja-JP`）。参考表见 [`language-tags-BCP-47.md`](./language-tags-BCP-47.md)。
-
 | 格式 | 库 | 备注 |
 |------|----|------|
 | CSV | OpenCSV | UTF-8 带 BOM 编码，首行为表头，BCP 47 语言标签 |
 | XLSX | Apache POI | 第一个工作表，首行为表头 |
 | TBX（ISO 30042） | JDK DOM | 使用 `xml:lang` 属性检测语言；支持 `<tig>` 和 `<ntig>` / `<termGrp>` 结构 |
+
+### 语言标识
+
+语言标签遵循 **BCP 47** 标准（例如 `en-US`、`zh-CN`、`ja-JP`）。参考表见 [`language-tags-BCP-47.md`](./language-tags-BCP-47.md)。
 
 ## 项目结构
 
@@ -198,6 +197,8 @@ term-management/
 │   │   │   └── TermbaseRegistry.java
 │   │   ├── prefs/
 │   │   │   └── TermManagementPreferencePage.java
+│   │   ├── util/
+│   │   │   └── TermMatchUtils.java
 │   │   └── ui/
 │   │       ├── TermManagementView.java
 │   │       ├── TermRecognitionPanel.java
@@ -217,6 +218,10 @@ term-management/
 │           ├── quick_add.svg
 │           ├── edit.svg
 │           └── delete.svg
+├── src/test/java/com/example/termmgmt/service/   # 单元测试（仅覆盖 handler 层）
+│   ├── CsvTermbaseHandlerTest.java
+│   ├── XlsxTermbaseHandlerTest.java
+│   └── TbxTermbaseHandlerTest.java
 ├── output/                    # 构建输出（不提交）
 │   └── term-management/
 └── reference/                 # 参考资料
@@ -238,6 +243,15 @@ term-management/
    ```bash
    mvn clean package
    ```
+
+### 测试
+单元测试覆盖三个术语库格式解析器（`CsvTermbaseHandler`、`XlsxTermbaseHandler`、`TbxTermbaseHandler`），包括读写往返、编码边界情况（UTF-8 BOM）、异常/边界输入、文件不存在等场景。
+
+运行测试：
+```bash
+mvn test
+```
+注意：`mvn test` 只运行测试，不会生成插件包；生成可部署的 jar 需要运行 `mvn package`。
 
 ### IntelliJ IDEA 设置
 1. 打开项目目录。
