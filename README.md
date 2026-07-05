@@ -9,7 +9,7 @@ Oxygen XML Editor plugin for terminology management and translation assistance.
 
 ## Screenshots
 
-![Plugin Overview](./assets/plugin_screenshot.png)
+![Plugin Overview](./assets/plugin-screenshot.png)
 
 ## Features
 
