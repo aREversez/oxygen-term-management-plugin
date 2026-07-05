@@ -81,6 +81,9 @@ public class TermContextMenuInstaller {
             }
         } catch (Exception e) {
             System.err.println("Failed to insert translation: " + e.getMessage());
+            JOptionPane.showMessageDialog(null,
+                "Failed to insert translation.\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -121,6 +124,9 @@ public class TermContextMenuInstaller {
             }
         } catch (Exception e) {
             System.err.println("Failed to insert translation: " + e.getMessage());
+            JOptionPane.showMessageDialog(null,
+                "Failed to insert translation.\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -203,6 +209,9 @@ public class TermContextMenuInstaller {
             }
         } catch (Exception e) {
             System.err.println("Failed to show Term Management view: " + e.getMessage());
+            JOptionPane.showMessageDialog(null,
+                "Failed to open Term Management view.\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -310,6 +319,9 @@ public class TermContextMenuInstaller {
             }
         } catch (Exception e) {
             System.err.println("Failed to edit term: " + e.getMessage());
+            JOptionPane.showMessageDialog(null,
+                "Failed to save edited term.\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 }

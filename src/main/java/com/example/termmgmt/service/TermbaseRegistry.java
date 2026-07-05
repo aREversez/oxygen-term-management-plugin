@@ -1,5 +1,7 @@
 package com.example.termmgmt.service;
 
+import javax.swing.JOptionPane;
+
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.model.TermbaseConfig.Format;
@@ -128,6 +130,9 @@ public class TermbaseRegistry {
             }
         } catch (Exception e) {
             System.err.println("Failed to load configs from OptionsStorage: " + e.getMessage());
+            JOptionPane.showMessageDialog(null,
+                "Failed to load termbase configurations.\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -138,6 +143,9 @@ public class TermbaseRegistry {
             os.setOption(PERSISTENCE_KEY, serialized);
         } catch (Exception e) {
             System.err.println("Failed to save configs to OptionsStorage: " + e.getMessage());
+            JOptionPane.showMessageDialog(null,
+                "Failed to save termbase configurations.\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -191,6 +199,9 @@ public class TermbaseRegistry {
         } catch (Exception e) {
             System.err.println("Failed to load terms: " + config.getFilePath());
             e.printStackTrace();
+            JOptionPane.showMessageDialog(null,
+                "Failed to load terms from:\n" + config.getFilePath() + "\n" + e.getMessage(),
+                "Error", JOptionPane.ERROR_MESSAGE);
             return new ArrayList<>();
         }
     }
@@ -209,6 +220,9 @@ public class TermbaseRegistry {
                 } catch (Exception e) {
                     System.err.println("Failed to reload termbase: " + filePath);
                     e.printStackTrace();
+                    JOptionPane.showMessageDialog(null,
+                        "Failed to reload termbase:\n" + filePath + "\n" + e.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
                 }
                 break;
             }
