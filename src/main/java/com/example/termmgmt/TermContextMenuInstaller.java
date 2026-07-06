@@ -7,11 +7,15 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import javax.swing.BorderFactory;
+import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
+import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingWorker;
+import javax.swing.UIManager;
 import javax.swing.text.JTextComponent;
 
 import ro.sync.ecss.extensions.api.AuthorAccess;
@@ -38,7 +42,6 @@ public class TermContextMenuInstaller {
     // ---- Author mode ----
 
     public static void build(JPopupMenu menu, AuthorAccess authorAccess, TermManagementView view) {
-        // Check for multi-selection (Ctrl+click multiple disjoint terms)
         if (authorAccess.getEditorAccess() instanceof WSAuthorEditorPageBase) {
             AuthorSelectionModel selModel =
                 ((WSAuthorEditorPageBase) authorAccess.getEditorAccess()).getAuthorSelectionModel();
@@ -53,9 +56,11 @@ public class TermContextMenuInstaller {
         TermbaseConfig config = view != null ? view.getRecognitionTermbase() : null;
         Object lookupResult = findTermsInConfigInternal(selectedText, config);
         if (lookupResult == MULTI_TERM_SENTINEL) {
-            JMenu termMenu = createMultiTermDisabledMenu();
-            menu.addSeparator();
-            menu.add(termMenu);
+            JMenu termMenu = createMultiTermMenu(selectedText, view);
+            if (termMenu != null) {
+                menu.addSeparator();
+                menu.add(termMenu);
+            }
             return;
         }
         @SuppressWarnings("unchecked")
@@ -97,9 +102,11 @@ public class TermContextMenuInstaller {
         String lookupText = hasSelection ? selectedText : null;
         Object lookupResult = findTermsInConfigInternal(lookupText, config);
         if (lookupResult == MULTI_TERM_SENTINEL) {
-            JMenu termMenu = createMultiTermDisabledMenu();
-            menu.addSeparator();
-            menu.add(termMenu);
+            JMenu termMenu = createMultiTermMenu(lookupText, view);
+            if (termMenu != null) {
+                menu.addSeparator();
+                menu.add(termMenu);
+            }
             return;
         }
         @SuppressWarnings("unchecked")
@@ -199,7 +206,38 @@ public class TermContextMenuInstaller {
         return hasEnabled ? termMenu : null;
     }
 
-    // ---- Helpers ----
+    // ---- Multi-term guard menu ----
+
+    private static JMenu createMultiTermMenu(String selectedText, TermManagementView view) {
+        JMenu termMenu = new JMenu("Term Management");
+        termMenu.setIcon(IconUtils.loadLogo(16));
+
+        // Use a JPanel+JLabel as a label row — not a JMenuItem, so Oxygen won't
+        // filter it out and clicking it won't dismiss the menu.
+        JLabel hintLabel = new JLabel("Select only one term");
+        hintLabel.setFont(hintLabel.getFont().deriveFont(java.awt.Font.ITALIC));
+        hintLabel.setForeground(UIManager.getColor("MenuItem.disabledForeground"));
+        hintLabel.setBorder(BorderFactory.createEmptyBorder(2, 24, 2, 8));
+        JPanel hintPanel = new JPanel(new java.awt.BorderLayout());
+        hintPanel.setOpaque(false);
+        hintPanel.add(hintLabel, java.awt.BorderLayout.CENTER);
+        termMenu.add(hintPanel);
+
+        boolean hasSelection = selectedText != null && !selectedText.trim().isEmpty();
+        if (hasSelection && view != null) {
+            termMenu.addSeparator();
+            JMenuItem search = new JMenuItem("Search in Termbase", IconUtils.loadIcon("scan", 16));
+            search.addActionListener(e -> {
+                ensureViewVisible();
+                view.searchInTermbase(selectedText);
+            });
+            termMenu.add(search);
+        }
+
+        return termMenu;
+    }
+
+    // ---- Shared helpers ----
 
     private static void ensureViewVisible() {
         try {
@@ -226,7 +264,7 @@ public class TermContextMenuInstaller {
             String t = matches.get(0).getTargetTerm();
             return (t == null || t.trim().isEmpty()) ? null : t;
         }
-        // Multiple matches in same termbase → let user pick
+        // Multiple matches in same termbase -> let user pick
         String[] options = matches.stream().map(TermEntry::getTargetTerm).toArray(String[]::new);
         Object pick = JOptionPane.showInputDialog(null,
             "Select translation:", "Multiple Translations",
@@ -276,28 +314,27 @@ public class TermContextMenuInstaller {
         } catch (Exception e) {
             return Collections.emptyList();
         }
+        if (allTerms == null || allTerms.isEmpty()) {
+            return Collections.emptyList();
+        }
         Set<String> distinctFound = new HashSet<>();
         for (TermEntry entry : allTerms) {
-            String sourceTerm = entry.getSourceTerm();
-            if (sourceTerm == null || sourceTerm.isEmpty()) continue;
-            if (TermbaseRegistry.getInstance().getMatchPattern(sourceTerm).matcher(searchKey).find()) {
-                distinctFound.add(sourceTerm);
-                if (distinctFound.size() >= 2) {
-                    return MULTI_TERM_SENTINEL;
+            try {
+                String sourceTerm = entry.getSourceTerm();
+                if (sourceTerm == null || sourceTerm.isEmpty()) continue;
+                if (TermbaseRegistry.getInstance().getMatchPattern(sourceTerm).matcher(searchKey).find()) {
+                    distinctFound.add(sourceTerm);
+                    if (distinctFound.size() >= 2) {
+                        return MULTI_TERM_SENTINEL;
+                    }
                 }
+            } catch (Exception e) {
+                System.err.println("Failed to match term '" + entry.getSourceTerm()
+                    + "' against selection: " + e.getMessage());
             }
         }
 
         return Collections.emptyList();
-    }
-
-    private static JMenu createMultiTermDisabledMenu() {
-        JMenu termMenu = new JMenu("Term Management");
-        termMenu.setIcon(IconUtils.loadLogo(16));
-        JMenuItem hint = new JMenuItem("Multiple terms detected in selection, please select only one term.");
-        hint.setEnabled(false);
-        termMenu.add(hint);
-        return termMenu;
     }
 
     private static void editTermDirect(TermEntry target) {

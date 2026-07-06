@@ -25,6 +25,7 @@ Oxygen XML Editor plugin for terminology management and translation assistance.
 - **Duplicate entries** — if a source term has multiple translations in the same termbase, all translation pairs are shown in the results table
 - Statistics label shows `Matched n terms (m unique entries)`
 - Auto-scan on tab switch and editor change
+- **Background scan** — scanning runs on a background thread; the scan button is disabled and shows "Scanning..." status during the operation
 - **Theme-aware SVG icons** — icons adapt to dark/light Oxygen theme automatically
 
 ### Right-Click Context Menu
@@ -39,6 +40,8 @@ When text is selected in the editor, right-click to access the **Term Management
 
 - All termbase operations (Insert, Edit, Quick Add) are scoped to the **termbase currently selected in the Term Recognition tab**
 - Discontinuous multi-selection (Ctrl+click) is detected and suppresses the menu
+- **Multi-term selection** — if the selected text contains 2+ different known terms, the submenu shows a disabled hint instead of Quick Add / Insert / Edit; if the selection contains multiple occurrences of the same known term, the menu works normally
+- **Robust matching** — individual term matching errors are caught gracefully and logged to console without interrupting the menu construction or crashing the right-click event
 
 ### Terminology Management
 - Add, edit, delete terms in individual termbases (TBX / XLSX / CSV)
@@ -52,6 +55,7 @@ When text is selected in the editor, right-click to access the **Term Management
 - **Duplicate detection** — warns when adding a term whose source already exists (same or different translation)
 - **File lock detection** — checks write access before saving; shows specific messages for locked XLSX files (e.g. open in Excel)
 - **User-facing error dialogs** — load, save, and reload failures show a message dialog instead of failing silently
+- **Background operations** — termbase file I/O (save, reload) and document scanning run on background threads via SwingWorker, keeping the UI responsive
 - Batch delete with confirmation: `Delete X term(s) from Y?`
 
 ### Termbase Search
