@@ -30,6 +30,7 @@ import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.ui.TermEntryDialog;
 import com.example.termmgmt.ui.TermManagementView;
+import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 
 public class TermContextMenuInstaller {
@@ -88,8 +89,8 @@ public class TermContextMenuInstaller {
         } catch (Exception e) {
             System.err.println("Failed to insert translation: " + e.getMessage());
             JOptionPane.showMessageDialog(null,
-                "Failed to insert translation.\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.failed.insert.translation", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -133,8 +134,8 @@ public class TermContextMenuInstaller {
         } catch (Exception e) {
             System.err.println("Failed to insert translation: " + e.getMessage());
             JOptionPane.showMessageDialog(null,
-                "Failed to insert translation.\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.failed.insert.translation", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -147,11 +148,11 @@ public class TermContextMenuInstaller {
         boolean hasConfig = config != null;
         int matchCount = scopedMatches.size();
 
-        JMenu termMenu = new JMenu("Term Management");
+        JMenu termMenu = new JMenu(I18N.getString("plugin.name"));
         termMenu.setIcon(IconUtils.loadLogo(16));
 
         // Quick Add — when text selected, config exists, term NOT known in this termbase
-        JMenuItem quickAdd = new JMenuItem("Quick Add", IconUtils.loadIcon("quick_add", 16));
+        JMenuItem quickAdd = new JMenuItem(I18N.getString("btn.quick.add"), IconUtils.loadIcon("quick_add", 16));
         quickAdd.setEnabled(hasSelection && hasConfig && matchCount == 0);
         if (hasSelection && hasConfig && matchCount == 0 && view != null) {
             quickAdd.addActionListener(e -> {
@@ -164,17 +165,17 @@ public class TermContextMenuInstaller {
         // Insert Translation / Edit Term
         if (matchCount >= 1) {
             String label = matchCount == 1
-                ? "Insert Translation: " + scopedMatches.get(0).getTargetTerm()
-                : "Insert Translation (" + matchCount + " options)";
+                ? I18N.getString("menu.insert.translation", scopedMatches.get(0).getTargetTerm())
+                : I18N.getString("menu.insert.translation.multiple", matchCount);
             JMenuItem insertTranslation = new JMenuItem(label, IconUtils.loadIcon("edit", 16));
             insertTranslation.addActionListener(e -> insertAction.accept(scopedMatches));
             termMenu.add(insertTranslation);
 
-            JMenuItem editTerm = new JMenuItem("Edit Term", IconUtils.loadIcon("edit", 16));
+            JMenuItem editTerm = new JMenuItem(I18N.getString("menu.edit.term"), IconUtils.loadIcon("edit", 16));
             editTerm.addActionListener(e -> {
                 TermEntry target = matchCount == 1
                     ? scopedMatches.get(0)
-                    : chooseEntry(scopedMatches, "Select term to edit:");
+                    : chooseEntry(scopedMatches, I18N.getString("msg.select.term.edit"));
                 if (target != null) {
                     editTermDirect(target);
                 }
@@ -185,7 +186,7 @@ public class TermContextMenuInstaller {
         termMenu.addSeparator();
 
         // Search in Termbase — always available when text selected
-        JMenuItem search = new JMenuItem("Search in Termbase", IconUtils.loadIcon("scan", 16));
+        JMenuItem search = new JMenuItem(I18N.getString("menu.search.termbase"), IconUtils.loadIcon("scan", 16));
         search.setEnabled(hasSelection && view != null);
         if (hasSelection && view != null) {
             search.addActionListener(e -> {
@@ -209,12 +210,12 @@ public class TermContextMenuInstaller {
     // ---- Multi-term guard menu ----
 
     private static JMenu createMultiTermMenu(String selectedText, TermManagementView view) {
-        JMenu termMenu = new JMenu("Term Management");
+        JMenu termMenu = new JMenu(I18N.getString("plugin.name"));
         termMenu.setIcon(IconUtils.loadLogo(16));
 
         // Use a JPanel+JLabel as a label row — not a JMenuItem, so Oxygen won't
         // filter it out and clicking it won't dismiss the menu.
-        JLabel hintLabel = new JLabel("Select only one term");
+        JLabel hintLabel = new JLabel(I18N.getString("msg.multi.term.hint"));
         hintLabel.setFont(hintLabel.getFont().deriveFont(java.awt.Font.ITALIC));
         hintLabel.setForeground(UIManager.getColor("MenuItem.disabledForeground"));
         hintLabel.setBorder(BorderFactory.createEmptyBorder(2, 24, 2, 8));
@@ -226,7 +227,7 @@ public class TermContextMenuInstaller {
         boolean hasSelection = selectedText != null && !selectedText.trim().isEmpty();
         if (hasSelection && view != null) {
             termMenu.addSeparator();
-            JMenuItem search = new JMenuItem("Search in Termbase", IconUtils.loadIcon("scan", 16));
+            JMenuItem search = new JMenuItem(I18N.getString("menu.search.termbase"), IconUtils.loadIcon("scan", 16));
             search.addActionListener(e -> {
                 ensureViewVisible();
                 view.searchInTermbase(selectedText);
@@ -249,8 +250,8 @@ public class TermContextMenuInstaller {
         } catch (Exception e) {
             System.err.println("Failed to show Term Management view: " + e.getMessage());
             JOptionPane.showMessageDialog(null,
-                "Failed to open Term Management view.\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.failed.open.view", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -267,7 +268,7 @@ public class TermContextMenuInstaller {
         // Multiple matches in same termbase -> let user pick
         String[] options = matches.stream().map(TermEntry::getTargetTerm).toArray(String[]::new);
         Object pick = JOptionPane.showInputDialog(null,
-            "Select translation:", "Multiple Translations",
+            I18N.getString("msg.select.translation"), I18N.getString("msg.multiple.translations"),
             JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
         return (pick != null) ? pick.toString().trim() : null;
     }
@@ -278,10 +279,10 @@ public class TermContextMenuInstaller {
      */
     private static TermEntry chooseEntry(List<TermEntry> entries, String message) {
         String[] labels = entries.stream()
-            .map(e -> e.getTargetTerm() != null ? e.getTargetTerm() : "(empty)")
+            .map(e -> e.getTargetTerm() != null ? e.getTargetTerm() : I18N.getString("msg.label.empty"))
             .toArray(String[]::new);
         Object pick = JOptionPane.showInputDialog(null,
-            message, "Select Entry",
+            message, I18N.getString("msg.select.entry"),
             JOptionPane.QUESTION_MESSAGE, null, labels, labels[0]);
         if (pick == null) return null;
         int idx = java.util.Arrays.asList(labels).indexOf(pick);
@@ -341,7 +342,7 @@ public class TermContextMenuInstaller {
         if (target == null) return;
         try {
             TermEntry editCopy = new TermEntry(target.getSourceTerm(), target.getTargetTerm());
-            TermEntryDialog dialog = new TermEntryDialog("Edit Term", editCopy);
+            TermEntryDialog dialog = new TermEntryDialog(I18N.getString("dlg.edit.term"), editCopy);
             dialog.setVisible(true);
 
             if (dialog.isConfirmed()) {
@@ -371,22 +372,22 @@ public class TermContextMenuInstaller {
 
                     @Override
                     protected void done() {
-                        try {
-                            get();
-                        } catch (Exception e) {
-                            System.err.println("Failed to edit term: " + e.getMessage());
-                            JOptionPane.showMessageDialog(null,
-                                "Failed to save edited term.\n" + e.getMessage(),
-                                "Error", JOptionPane.ERROR_MESSAGE);
-                        }
+        try {
+            get();
+        } catch (Exception e) {
+            System.err.println("Failed to edit term: " + e.getMessage());
+            JOptionPane.showMessageDialog(null,
+                I18N.getString("msg.failed.save.edited.term", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+        }
                     }
                 }.execute();
             }
         } catch (Exception e) {
             System.err.println("Failed to prepare term edit: " + e.getMessage());
             JOptionPane.showMessageDialog(null,
-                "Failed to prepare term edit.\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.failed.prepare.edit", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 }

@@ -3,6 +3,7 @@ package com.example.termmgmt.ui;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
+import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 
 import ro.sync.ecss.extensions.api.AuthorDocumentController;
@@ -76,7 +77,7 @@ public class TermRecognitionPanel extends JPanel {
         setLayout(new BorderLayout());
 
         JPanel headerWrap = new JPanel(new BorderLayout());
-        JLabel headerLabel = new JLabel("Scan current document for known terms.");
+        JLabel headerLabel = new JLabel(I18N.getString("tab.term.recognition.header"));
         headerLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         headerWrap.add(headerLabel, BorderLayout.CENTER);
 
@@ -113,12 +114,12 @@ public class TermRecognitionPanel extends JPanel {
         actionRow.add(termbaseCombo);
 
         scanButton = new JButton(IconUtils.loadIcon("scan", 16));
-        scanButton.setToolTipText("Scan for terms in current document");
+        scanButton.setToolTipText(I18N.getString("btn.scan.tooltip"));
         scanButton.addActionListener(e -> scanDocument());
         actionRow.add(scanButton);
 
         highlightToggle = new JToggleButton(IconUtils.loadIcon("toggle_highlight", 16));
-        highlightToggle.setToolTipText("Toggle term highlighting in Author mode");
+        highlightToggle.setToolTipText(I18N.getString("btn.highlight.tooltip"));
         highlightToggle.addActionListener(e -> {
             String url = getCurrentEditorUrl();
             boolean sel = highlightToggle.isSelected();
@@ -184,15 +185,15 @@ public class TermRecognitionPanel extends JPanel {
         JPanel southPanel = new JPanel();
         southPanel.setLayout(new BoxLayout(southPanel, BoxLayout.Y_AXIS));
 
-        JLabel hintLabel = new JLabel("Double-click to locate in Terminology.");
+        JLabel hintLabel = new JLabel(I18N.getString("msg.hint.double.click"));
         hintLabel.setBorder(BorderFactory.createEmptyBorder(4, 5, 0, 5));
         hintLabel.setForeground(java.awt.Color.GRAY);
         hintLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         southPanel.add(hintLabel);
 
         JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        prevButton = new JButton("< Prev");
-        prevButton.setToolTipText("Previous occurrence in document");
+        prevButton = new JButton(I18N.getString("btn.prev"));
+        prevButton.setToolTipText(I18N.getString("btn.prev.tooltip"));
         prevButton.setEnabled(false);
         prevButton.addActionListener(e -> navigatePrev());
         navPanel.add(prevButton);
@@ -201,8 +202,8 @@ public class TermRecognitionPanel extends JPanel {
         posLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
         navPanel.add(posLabel);
 
-        nextButton = new JButton("Next >");
-        nextButton.setToolTipText("Next occurrence in document");
+        nextButton = new JButton(I18N.getString("btn.next"));
+        nextButton.setToolTipText(I18N.getString("btn.next.tooltip"));
         nextButton.setEnabled(false);
         nextButton.addActionListener(e -> navigateNext());
         navPanel.add(nextButton);
@@ -285,8 +286,8 @@ public class TermRecognitionPanel extends JPanel {
             clearHighlights();
             statsLabel.setText(" ");
             JOptionPane.showMessageDialog(this,
-                "No document open.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.no.document"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         startScan(text);
@@ -466,7 +467,7 @@ public class TermRecognitionPanel extends JPanel {
                     int totalHits = result.size();
                     int uniqueTerms = tablePairs.size();
                     if (uniqueTerms == 0) {
-                        statsLabel.setText("No terms matched.");
+                        statsLabel.setText(I18N.getString("msg.no.matches"));
                     } else {
                         statsLabel.setText("Matched " + totalHits
                             + " terms (" + uniqueTerms + " unique entries)");
@@ -477,10 +478,10 @@ public class TermRecognitionPanel extends JPanel {
                     }
                 } catch (Exception e) {
                     System.err.println("Scan failed: " + e.getMessage());
-                    statsLabel.setText("Scan failed.");
+                        statsLabel.setText(I18N.getString("msg.scan.failed"));
                     JOptionPane.showMessageDialog(TermRecognitionPanel.this,
-                        "Failed to scan document.\n" + e.getMessage(),
-                        "Error", JOptionPane.ERROR_MESSAGE);
+                        I18N.getString("msg.failed.scan.document", e.getMessage()),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 } finally {
                     scanButton.setEnabled(true);
                 }

@@ -3,6 +3,7 @@ package com.example.termmgmt.ui;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
+import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 
 import ro.sync.exml.workspace.api.PluginWorkspace;
@@ -77,7 +78,7 @@ public class TerminologyPanel extends JPanel {
         northPanel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
 
         JPanel headerWrap = new JPanel(new BorderLayout());
-        JLabel headerLabel = new JLabel("Manage terms in selected termbase.");
+        JLabel headerLabel = new JLabel(I18N.getString("tab.terminology.header"));
         headerLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
         headerWrap.add(headerLabel, BorderLayout.CENTER);
         northPanel.add(headerWrap);
@@ -86,7 +87,7 @@ public class TerminologyPanel extends JPanel {
         JPanel selectionPanel = new JPanel();
         selectionPanel.setLayout(new BoxLayout(selectionPanel, BoxLayout.X_AXIS));
         selectionPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
-        JLabel selectLabel = new JLabel("Select Termbase:");
+        JLabel selectLabel = new JLabel(I18N.getString("lbl.select.termbase"));
         termbaseComboBox = new JComboBox<>();
         selectionPanel.add(selectLabel);
         selectionPanel.add(Box.createHorizontalStrut(8));
@@ -124,7 +125,7 @@ public class TerminologyPanel extends JPanel {
         JPanel filterPanel = new JPanel(new BorderLayout(4, 0));
         filterPanel.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
         JTextField filterField = new JTextField();
-        filterField.putClientProperty("JTextField.placeholderText", "Filter terms...");
+        filterField.putClientProperty("JTextField.placeholderText", I18N.getString("msg.filter.placeholder"));
         filterPanel.add(filterField, BorderLayout.CENTER);
         northPanel.add(filterPanel);
 
@@ -154,7 +155,7 @@ public class TerminologyPanel extends JPanel {
                 } catch (Exception ex) {
                     String message = getFileLockedMessage(ex);
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        message, "Error", JOptionPane.ERROR_MESSAGE);
+                        message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 }
             }
         };
@@ -190,43 +191,43 @@ public class TerminologyPanel extends JPanel {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 5));
 
         JButton reloadButton = new JButton(IconUtils.loadIcon("reload", 16));
-        reloadButton.setToolTipText("Reload termbase from disk");
+        reloadButton.setToolTipText(I18N.getString("btn.reload.tooltip"));
         reloadButton.setPreferredSize(new Dimension(28, 28));
         reloadButton.addActionListener(e -> reloadTermbase());
         buttonPanel.add(reloadButton);
 
         JButton addButton = new JButton(IconUtils.loadIcon("add", 16));
-        addButton.setToolTipText("Add new term");
+        addButton.setToolTipText(I18N.getString("btn.add.new.tooltip"));
         addButton.setPreferredSize(new Dimension(24, 24));
         addButton.addActionListener(e -> addNewTerm());
         buttonPanel.add(addButton);
 
         JButton quickAddButton = new JButton(IconUtils.loadIcon("quick_add", 16));
-        quickAddButton.setToolTipText("Quick add term from editor selection");
+        quickAddButton.setToolTipText(I18N.getString("btn.quick.add.tooltip"));
         quickAddButton.setPreferredSize(new Dimension(24, 24));
         quickAddButton.addActionListener(e -> quickAddNewTerm());
         buttonPanel.add(quickAddButton);
 
         JButton editButton = new JButton(IconUtils.loadIcon("edit", 16));
-        editButton.setToolTipText("Edit selected term");
+        editButton.setToolTipText(I18N.getString("btn.edit.tooltip"));
         editButton.setPreferredSize(new Dimension(24, 24));
         editButton.addActionListener(e -> editTerm());
         buttonPanel.add(editButton);
 
         JButton deleteButton = new JButton(IconUtils.loadIcon("delete", 16));
-        deleteButton.setToolTipText("Delete selected term(s)");
+        deleteButton.setToolTipText(I18N.getString("btn.delete.tooltip"));
         deleteButton.setPreferredSize(new Dimension(24, 24));
         deleteButton.addActionListener(e -> deleteTerms());
         buttonPanel.add(deleteButton);
 
-        undoButton = new JButton("Undo");
-        undoButton.setToolTipText("Undo last delete");
+        undoButton = new JButton(I18N.getString("btn.undo"));
+        undoButton.setToolTipText(I18N.getString("btn.undo.tooltip"));
         undoButton.setEnabled(false);
         undoButton.addActionListener(e -> undoDelete());
         buttonPanel.add(undoButton);
 
-        JButton resetSortButton = new JButton("Reset Sort");
-        resetSortButton.setToolTipText("Restore original row order");
+        JButton resetSortButton = new JButton(I18N.getString("btn.reset.sort"));
+        resetSortButton.setToolTipText(I18N.getString("btn.reset.sort.tooltip"));
         resetSortButton.addActionListener(e -> {
             tableSorter.setSortKeys(null);
             tableSorter.setRowFilter(null);
@@ -242,11 +243,11 @@ public class TerminologyPanel extends JPanel {
 
     private void addTableContextMenu() {
         JPopupMenu popup = new JPopupMenu();
-        JMenuItem editItem = new JMenuItem("Edit Term");
+        JMenuItem editItem = new JMenuItem(I18N.getString("menu.edit.term"));
         editItem.addActionListener(e -> editTerm());
         popup.add(editItem);
 
-        JMenuItem deleteItem = new JMenuItem("Delete Term");
+        JMenuItem deleteItem = new JMenuItem(I18N.getString("menu.delete.term"));
         deleteItem.addActionListener(e -> deleteTerms());
         popup.add(deleteItem);
 
@@ -343,8 +344,8 @@ public class TerminologyPanel extends JPanel {
         } catch (Exception e) {
             currentTerms = new ArrayList<>();
             JOptionPane.showMessageDialog(this,
-                "Failed to load terms.\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.failed.load.terms", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
         tableModel.setRowCount(0);
         for (TermEntry term : currentTerms) {
@@ -362,8 +363,8 @@ public class TerminologyPanel extends JPanel {
         TermbaseConfig config = (TermbaseConfig) termbaseComboBox.getSelectedItem();
         if (config == null) {
             JOptionPane.showMessageDialog(this,
-                "Please select a termbase.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.select.termbase.please"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -381,13 +382,13 @@ public class TerminologyPanel extends JPanel {
                     get();
                     loadTermbaseTerms();
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        "Termbase " + captured.getFileName() + " reloaded.",
-                        "Success", JOptionPane.INFORMATION_MESSAGE);
+                        I18N.getString("msg.reload.success", captured.getFileName()),
+                        I18N.getString("msg.success"), JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception e) {
                     String message = getFileLockedMessage(e);
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        "Failed to reload: " + message,
-                        "Error", JOptionPane.ERROR_MESSAGE);
+                        I18N.getString("msg.failed.reload", message),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 }
             }
         }.execute();
@@ -407,8 +408,8 @@ public class TerminologyPanel extends JPanel {
             terms = registry.getTerms(currentConfig);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
-                "Failed to read termbase.\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.failed.read.termbase", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             return false;
         }
         for (TermEntry existing : terms) {
@@ -417,16 +418,12 @@ public class TerminologyPanel extends JPanel {
                 String existingTarget = existing.getTargetTerm() != null ? existing.getTargetTerm().trim() : "";
                 String msg;
                 if (newTarget.equals(existingTarget)) {
-                    msg = "Source term \"" + newSource + "\" already exists\n"
-                        + "with the same translation \"" + existingTarget + "\".\n\n"
-                        + "Add it anyway?";
+                    msg = I18N.getString("msg.duplicate.same.translation", newSource, existingTarget);
                 } else {
-                    msg = "Source term \"" + newSource + "\" already exists\n"
-                        + "with a different translation \"" + existingTarget + "\".\n\n"
-                        + "Add it anyway?";
+                    msg = I18N.getString("msg.duplicate.different.translation", newSource, existingTarget);
                 }
                 int choice = JOptionPane.showConfirmDialog(this, msg,
-                    "Duplicate Term", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    I18N.getString("msg.duplicate.term"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 return choice == JOptionPane.YES_OPTION;
             }
         }
@@ -440,13 +437,14 @@ public class TerminologyPanel extends JPanel {
         TermbaseConfig config = (TermbaseConfig) termbaseComboBox.getSelectedItem();
         if (config == null) {
             JOptionPane.showMessageDialog(this,
-                "Please select a termbase.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.select.termbase.please"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
+
         if (!checkFileAccess(config)) return;
 
-        TermEntryDialog dialog = new TermEntryDialog("Add New Term", (TermEntry) null);
+        TermEntryDialog dialog = new TermEntryDialog(I18N.getString("dlg.add.new.term"), (TermEntry) null);
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
@@ -458,8 +456,8 @@ public class TerminologyPanel extends JPanel {
                 saveAndReloadAsync(config, terms);
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(this,
-                    "Failed to save term.\n" + e.getMessage(),
-                    "Error", JOptionPane.ERROR_MESSAGE);
+                    I18N.getString("msg.failed.save.term", e.getMessage()),
+                    I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -486,20 +484,20 @@ public class TerminologyPanel extends JPanel {
     public void quickAddFromExternalSelection(String selectedText, TermbaseConfig config) {
         if (config == null) {
             JOptionPane.showMessageDialog(this,
-                "Please select a termbase.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.select.termbase.please"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         if (!checkFileAccess(config)) return;
 
         if (selectedText == null || selectedText.trim().isEmpty()) {
             JOptionPane.showMessageDialog(this,
-                "No text selected in editor.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.no.editor.selection"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        TermEntryDialog dialog = new TermEntryDialog("Add New Term", selectedText);
+        TermEntryDialog dialog = new TermEntryDialog(I18N.getString("dlg.add.new.term"), selectedText);
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
@@ -511,8 +509,8 @@ public class TerminologyPanel extends JPanel {
                 saveAndReloadAsync(config, terms);
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(this,
-                    "Failed to save term.\n" + e.getMessage(),
-                    "Error", JOptionPane.ERROR_MESSAGE);
+                    I18N.getString("msg.failed.save.term", e.getMessage()),
+                    I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -524,8 +522,8 @@ public class TerminologyPanel extends JPanel {
         TermbaseConfig config = (TermbaseConfig) termbaseComboBox.getSelectedItem();
         if (config == null) {
             JOptionPane.showMessageDialog(this,
-                "Please select a termbase.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.select.termbase.please"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         if (!checkFileAccess(config)) return;
@@ -533,15 +531,15 @@ public class TerminologyPanel extends JPanel {
         int selectedRow = termTable.getSelectedRow();
         if (selectedRow < 0) {
             JOptionPane.showMessageDialog(this,
-                "Please select a term to edit.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.select.term.please"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         if (termTable.getSelectedRowCount() > 1) {
             JOptionPane.showMessageDialog(this,
-                "Please select only one term to edit.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.select.only.one"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -550,7 +548,7 @@ public class TerminologyPanel extends JPanel {
 
         TermEntry existingTerm = new TermEntry(sourceTerm, targetTerm);
 
-        TermEntryDialog dialog = new TermEntryDialog("Edit Term", existingTerm);
+        TermEntryDialog dialog = new TermEntryDialog(I18N.getString("dlg.edit.term"), existingTerm);
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
@@ -560,9 +558,9 @@ public class TerminologyPanel extends JPanel {
                 terms.set(selectedRow, newTerm);
                 saveAndReloadAsync(config, terms);
             } catch (Exception e) {
-                JOptionPane.showMessageDialog(this,
-                    "Failed to save edited term.\n" + e.getMessage(),
-                    "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("msg.failed.save.edited.term", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -574,8 +572,8 @@ public class TerminologyPanel extends JPanel {
         TermbaseConfig config = (TermbaseConfig) termbaseComboBox.getSelectedItem();
         if (config == null) {
             JOptionPane.showMessageDialog(this,
-                "Please select a termbase.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.select.termbase.please"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         if (!checkFileAccess(config)) return;
@@ -583,15 +581,15 @@ public class TerminologyPanel extends JPanel {
         int[] selectedRows = termTable.getSelectedRows();
         if (selectedRows.length == 0) {
             JOptionPane.showMessageDialog(this,
-                "Please select term(s) to delete.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.select.term.delete.please"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         // Confirm deletion
         int confirm = JOptionPane.showConfirmDialog(this,
-            String.format("Delete %d term(s) from %s?", selectedRows.length, config.getFileName()),
-            "Confirm Delete", JOptionPane.OK_CANCEL_OPTION);
+            I18N.getString("msg.confirm.delete", selectedRows.length, config.getFileName()),
+            I18N.getString("msg.confirm.delete.title"), JOptionPane.OK_CANCEL_OPTION);
 
         if (confirm == JOptionPane.OK_OPTION) {
             try {
@@ -610,9 +608,9 @@ public class TerminologyPanel extends JPanel {
                 }
                 saveAndReloadAsync(config, terms);
             } catch (Exception e) {
-                JOptionPane.showMessageDialog(this,
-                    "Failed to delete term(s).\n" + e.getMessage(),
-                    "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("msg.failed.delete.terms", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -646,11 +644,11 @@ public class TerminologyPanel extends JPanel {
                         loadTermbaseTerms();
                     }
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        "Delete undone.", "Undo", JOptionPane.INFORMATION_MESSAGE);
+                        I18N.getString("msg.delete.undone"), I18N.getString("btn.undo"), JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception e) {
                     String message = getFileLockedMessage(e);
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        message, "Error", JOptionPane.ERROR_MESSAGE);
+                        message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 }
             }
         }.execute();
@@ -693,14 +691,13 @@ public class TerminologyPanel extends JPanel {
         } catch (IOException e) {
             String msg = e.getMessage();
             if (msg != null && msg.toLowerCase().contains("being used by another process")) {
-                JOptionPane.showMessageDialog(this,
-                    "The termbase file is currently open in another application.\n" +
-                    "Please close the file and try again.",
-                    "Error", JOptionPane.ERROR_MESSAGE);
-            } else {
-                JOptionPane.showMessageDialog(this,
-                    "Cannot access file: " + msg,
-                    "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("msg.file.locked"),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+        } else {
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("msg.cannot.access.file", msg),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             }
             return false;
         }
@@ -722,7 +719,7 @@ public class TerminologyPanel extends JPanel {
                 } catch (Exception e) {
                     String message = getFileLockedMessage(e);
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        message, "Error", JOptionPane.ERROR_MESSAGE);
+                        message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 }
             }
         }.execute();
@@ -744,8 +741,8 @@ public class TerminologyPanel extends JPanel {
                 } catch (Exception e) {
                     String message = getFileLockedMessage(e);
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        "Failed to reload: " + message,
-                        "Error", JOptionPane.ERROR_MESSAGE);
+                        I18N.getString("msg.failed.reload", message),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 }
             }
         }.execute();
@@ -756,17 +753,16 @@ public class TerminologyPanel extends JPanel {
             registry.saveTerms(config, terms);
         } catch (Exception ex) {
             String message = getFileLockedMessage(ex);
-            JOptionPane.showMessageDialog(this, message, "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
     private String getFileLockedMessage(Throwable ex) {
         String msg = ex.getMessage();
         if (msg != null && msg.toLowerCase().contains("being used by another process")) {
-            return "The XLSX termbase file is currently open in another application (e.g., Excel).\n" +
-                   "Please close the file and try again.";
+            return I18N.getString("msg.file.locked.xlsx");
         }
-        return "Failed to save termbase: " + (msg != null ? msg : "Unknown error");
+        return I18N.getString("msg.failed.save.termbase.generic", msg != null ? msg : "Unknown error");
     }
 
     /**
