@@ -187,7 +187,10 @@ term-management/
 ├── assets/                    # Screenshots for README
 ├── i18n/                      # Internationalization resources (deployment copy)
 │   ├── messages_en.properties
-│   └── messages_zh.properties
+│   ├── messages_zh.properties
+│   ├── messages_fr.properties
+│   ├── messages_de.properties
+│   └── messages_ja.properties
 ├── licenses/                  # Third-party license files
 ├── libs/                      # Oxygen SDK and other local JARs
 ├── src/main/
@@ -217,7 +220,10 @@ term-management/
 │   └── resources/
 │       ├── i18n/              # Active i18n resource bundles
 │       │   ├── messages_en.properties
-│       │   └── messages_zh.properties
+│       │   ├── messages_zh.properties
+│       │   ├── messages_fr.properties
+│       │   ├── messages_de.properties
+│       │   └── messages_ja.properties
 │       └── icons/             # SVG icons (8 files)
 │           ├── logo.svg
 │           ├── scan.svg
