@@ -79,11 +79,17 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         ui = new JPanel(new BorderLayout(8, 8));
 
         // Header description
-        JLabel headerLabel = new JLabel("Add termbases and activate them for translation.");
+        JLabel headerLabel = new JLabel(I18N.getString("prefs.add.termbases"));
         headerLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         // Termbase table with proper model that can be updated
-        String[] columns = {"File Name", "Path", "Format", "Status", "Term Count"};
+        String[] columns = {
+            I18N.getString("prefs.col.filename"),
+            I18N.getString("prefs.col.path"),
+            I18N.getString("prefs.col.format"),
+            I18N.getString("prefs.col.status"),
+            I18N.getString("prefs.col.termcount")
+        };
         tableModel = new DefaultTableModel(columns, 0);
         termbaseTable = new JTable(tableModel);
         termbaseTable.setFillsViewportHeight(true);
@@ -92,12 +98,12 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
 
         // Button panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        JButton addBtn = new JButton("Add");
-        JButton reloadBtn = new JButton("Reload");
-        JButton editBtn = new JButton("Edit");
-        JButton removeBtn = new JButton("Remove");
-        JButton enableBtn = new JButton("Enable");
-        JButton disableBtn = new JButton("Disable");
+        JButton addBtn = new JButton(I18N.getString("prefs.add"));
+        JButton reloadBtn = new JButton(I18N.getString("prefs.reload"));
+        JButton editBtn = new JButton(I18N.getString("prefs.edit"));
+        JButton removeBtn = new JButton(I18N.getString("prefs.remove"));
+        JButton enableBtn = new JButton(I18N.getString("prefs.enable"));
+        JButton disableBtn = new JButton(I18N.getString("prefs.disable"));
         
         // Wire up button click handlers
         addBtn.addActionListener(e -> addTermbase());
@@ -139,9 +145,9 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             // Health check: does the file still exist?
             String statusText;
             if (new File(config.getFilePath()).exists()) {
-                statusText = config.isEnabled() ? "Enabled" : "Disabled";
+                statusText = config.isEnabled() ? I18N.getString("prefs.status.enabled") : I18N.getString("prefs.status.disabled");
             } else {
-                statusText = "! Missing";
+                statusText = I18N.getString("prefs.status.missing");
             }
 
             tableModel.addRow(new Object[]{
@@ -158,12 +164,13 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         // Use AWT FileDialog for native Windows dialog with rubber-band multi-select
         Window owner = SwingUtilities.getWindowAncestor(ui);
         FileDialog dialog;
+        String fileDialogTitle = I18N.getString("prefs.file.dialog.title");
         if (owner instanceof Frame) {
-            dialog = new FileDialog((Frame) owner, "Select Termbase File(s)", FileDialog.LOAD);
+            dialog = new FileDialog((Frame) owner, fileDialogTitle, FileDialog.LOAD);
         } else if (owner instanceof Dialog) {
-            dialog = new FileDialog((Dialog) owner, "Select Termbase File(s)", FileDialog.LOAD);
+            dialog = new FileDialog((Dialog) owner, fileDialogTitle, FileDialog.LOAD);
         } else {
-            dialog = new FileDialog((Frame) null, "Select Termbase File(s)", FileDialog.LOAD);
+            dialog = new FileDialog((Frame) null, fileDialogTitle, FileDialog.LOAD);
         }
         dialog.setMultipleMode(true);
         dialog.setFilenameFilter((dir, name) -> {
@@ -219,9 +226,8 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                 newTerms = TermbaseLoader.loadTerms(new TermbaseConfig(filePath, format, true));
             } catch (Exception e) {
                 int retry = JOptionPane.showConfirmDialog(ui,
-                    "Cannot load terms from \"" + file.getName() + "\".\n"
-                    + e.getMessage() + "\n\nSkip this file?",
-                    "Load Error", JOptionPane.YES_NO_OPTION, JOptionPane.ERROR_MESSAGE);
+                    I18N.getString("prefs.cannot.load.terms", file.getName(), e.getMessage()),
+                    I18N.getString("prefs.load.error"), JOptionPane.YES_NO_OPTION, JOptionPane.ERROR_MESSAGE);
                 if (retry == JOptionPane.YES_OPTION) {
                     skipped++;
                     continue;
@@ -232,8 +238,8 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
 
             if (newTerms.isEmpty()) {
                 int retry = JOptionPane.showConfirmDialog(ui,
-                    "File \"" + file.getName() + "\" contains no terms.\nAdd it anyway?",
-                    "Empty File", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    I18N.getString("prefs.empty.file", file.getName()),
+                    I18N.getString("prefs.empty.file.title"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (retry != JOptionPane.YES_OPTION) {
                     skipped++;
                     continue;
@@ -254,26 +260,20 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                         if (newSource.equals(existingTerm.getSourceTerm().trim())) {
                             hasConflict = true;
                             if (java.util.Objects.equals(newTerm.getTargetTerm(), existingTerm.getTargetTerm())) {
-                                conflictMsg.append("  [Duplicate] \"").append(newTerm.getSourceTerm())
-                                    .append("\" → \"").append(newTerm.getTargetTerm())
-                                    .append("\" (already exists in ").append(existingConfig.getFileName()).append(")\n");
+                                conflictMsg.append(I18N.getString("prefs.conflict.duplicate.line",
+                                    newTerm.getSourceTerm(), newTerm.getTargetTerm(), existingConfig.getFileName()));
                             } else {
-                                conflictMsg.append("  [Conflict] \"").append(newTerm.getSourceTerm())
-                                    .append("\" → \"").append(newTerm.getTargetTerm())
-                                    .append("\" (exists: \"").append(existingTerm.getTargetTerm())
-                                    .append("\" in ").append(existingConfig.getFileName()).append(")\n");
+                                conflictMsg.append(I18N.getString("prefs.conflict.conflict.line",
+                                    newTerm.getSourceTerm(), newTerm.getTargetTerm(), existingTerm.getTargetTerm(), existingConfig.getFileName()));
                             }
                         }
-                    }
                 }
+            }
             }
 
             if (hasConflict) {
-                String title = "Translation Conflict Detected";
-                String message = "The file \"" + file.getName() + "\" contains term pairs\n"
-                    + "that overlap with existing enabled termbases:\n\n"
-                    + conflictMsg.toString()
-                    + "\nDo you still want to add it?";
+                String title = I18N.getString("prefs.conflict.title");
+                String message = I18N.getString("prefs.conflict.message", file.getName(), conflictMsg.toString());
                 int choice = JOptionPane.showConfirmDialog(ui, message, title,
                     JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (choice != JOptionPane.YES_OPTION) {
@@ -294,18 +294,18 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         // Build summary message
         StringBuilder msg = new StringBuilder();
         if (added > 0) {
-            msg.append(added).append(" termbase(s) added.\n");
+            msg.append(I18N.getString("prefs.added.count", added)).append("\n");
         }
         if (duplicates > 0) {
-            msg.append(duplicates).append(" file(s) already exist in the list.\n");
+            msg.append(I18N.getString("prefs.duplicates.count", duplicates)).append("\n");
         }
         if (skipped > 0) {
-            msg.append(skipped).append(" file(s) skipped (unsupported format).\n");
+            msg.append(I18N.getString("prefs.skipped.count", skipped)).append("\n");
         }
 
         if (msg.length() > 0) {
-            msg.append("\nSupported formats: TBX (.tbx), XLSX (.xlsx), CSV (.csv)");
-            JOptionPane.showMessageDialog(ui, msg.toString(), "Add Termbase",
+            msg.append("\n").append(I18N.getString("prefs.supported.formats"));
+            JOptionPane.showMessageDialog(ui, msg.toString(), I18N.getString("prefs.add.termbases.short"),
                 added > 0 ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
         }
     }
@@ -334,7 +334,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     private void reloadTermbase() {
         int[] selectedRows = termbaseTable.getSelectedRows();
         if (selectedRows.length == 0) {
-            JOptionPane.showMessageDialog(ui, "Please select at least one termbase to reload.", "Warning", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.select.reload"), I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         
@@ -343,44 +343,44 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             registry.reloadConfig(filePath);
         }
         reloadSettings();
-        JOptionPane.showMessageDialog(ui, selectedRows.length + " termbase(s) reloaded successfully.", "Success", JOptionPane.INFORMATION_MESSAGE);
+        JOptionPane.showMessageDialog(ui, I18N.getString("prefs.reload.success", selectedRows.length), I18N.getString("msg.success"), JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void editTermbase() {
         int[] selectedRows = termbaseTable.getSelectedRows();
         if (selectedRows.length == 0) {
-            JOptionPane.showMessageDialog(ui, "Please select a termbase to edit.", "Warning", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.select.edit"), I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         if (selectedRows.length > 1) {
-            JOptionPane.showMessageDialog(ui, "Please select only one termbase to edit.", "Warning", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.select.one.edit"), I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         
         String filePath = (String) tableModel.getValueAt(selectedRows[0], 1);
         File file = new File(filePath);
         if (!file.exists()) {
-            JOptionPane.showMessageDialog(ui, "File not found: " + filePath, "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.file.not.found", filePath), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             return;
         }
         
         try {
             Desktop.getDesktop().open(file);
         } catch (IOException ex) {
-            JOptionPane.showMessageDialog(ui, "Failed to open file: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.failed.open.file", ex.getMessage()), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
     private void removeTermbase() {
         int[] selectedRows = termbaseTable.getSelectedRows();
         if (selectedRows.length == 0) {
-            JOptionPane.showMessageDialog(ui, "Please select termbase(s) to remove.", "Warning", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.select.remove"), I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         
         int confirm = JOptionPane.showConfirmDialog(ui,
-            "Are you sure you want to remove " + selectedRows.length + " termbase(s)?",
-            "Confirm Remove", JOptionPane.OK_CANCEL_OPTION);
+            I18N.getString("prefs.confirm.remove", selectedRows.length),
+            I18N.getString("prefs.confirm.remove.title"), JOptionPane.OK_CANCEL_OPTION);
         
         if (confirm == JOptionPane.OK_OPTION) {
             List<TermbaseConfig> configs = registry.getConfigs();
@@ -396,7 +396,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     private void enableTermbase() {
         int[] selectedRows = termbaseTable.getSelectedRows();
         if (selectedRows.length == 0) {
-            JOptionPane.showMessageDialog(ui, "Please select termbase(s) to enable.", "Warning", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.select.enable"), I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         
@@ -411,7 +411,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     private void disableTermbase() {
         int[] selectedRows = termbaseTable.getSelectedRows();
         if (selectedRows.length == 0) {
-            JOptionPane.showMessageDialog(ui, "Please select termbase(s) to disable.", "Warning", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.select.disable"), I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         

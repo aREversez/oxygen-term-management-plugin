@@ -13,6 +13,7 @@ import ro.sync.exml.workspace.api.standalone.ViewInfo;
 import ro.sync.exml.workspace.api.standalone.actions.MenusAndToolbarsContributorCustomizer;
 
 import com.example.termmgmt.ui.TermManagementView;
+import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 
 public class TermManagementWorkspaceAccessExtension
@@ -27,7 +28,7 @@ public class TermManagementWorkspaceAccessExtension
             public void customizeView(ViewInfo viewInfo) {
                 if ("com.example.termmgmt.TermManagementView".equals(viewInfo.getViewID())) {
                     view = new TermManagementView(workspace);
-                    viewInfo.setTitle("Term Management");
+                    viewInfo.setTitle(I18N.getString("window.title"));
                     viewInfo.setIcon(IconUtils.loadLogo(16));
                     viewInfo.setComponent(view);
                 }

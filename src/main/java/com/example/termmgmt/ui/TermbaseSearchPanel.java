@@ -3,6 +3,7 @@ package com.example.termmgmt.ui;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
+import com.example.termmgmt.util.I18N;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -48,7 +49,7 @@ public class TermbaseSearchPanel extends JPanel {
         northPanel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
 
         JPanel headerWrap = new JPanel(new BorderLayout());
-        JLabel headerLabel = new JLabel("Search across all enabled termbases.");
+        JLabel headerLabel = new JLabel(I18N.getString("tab.termbase.search.header"));
         headerLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
         headerWrap.add(headerLabel, BorderLayout.CENTER);
         northPanel.add(headerWrap);
@@ -65,7 +66,7 @@ public class TermbaseSearchPanel extends JPanel {
         });
         searchPanel.add(searchField, BorderLayout.CENTER);
 
-        JButton searchButton = new JButton("Search");
+        JButton searchButton = new JButton(I18N.getString("btn.search"));
         searchButton.addActionListener(e -> searchTerms());
         searchPanel.add(searchButton, BorderLayout.EAST);
 
@@ -74,7 +75,7 @@ public class TermbaseSearchPanel extends JPanel {
 
         // Create result table
         tableModel = new DefaultTableModel(
-            new String[]{"Source", "Target", "Termbase"}, 0
+            new String[]{I18N.getString("msg.col.source"), I18N.getString("msg.col.target"), I18N.getString("msg.col.termbase")}, 0
         ) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -107,7 +108,7 @@ public class TermbaseSearchPanel extends JPanel {
         add(new JScrollPane(resultTable), BorderLayout.CENTER);
 
         // Hint label at bottom
-        JLabel hintLabel = new JLabel("Double-click to locate in Terminology.");
+        JLabel hintLabel = new JLabel(I18N.getString("msg.hint.double.click"));
         hintLabel.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
         hintLabel.setForeground(java.awt.Color.GRAY);
         add(hintLabel, BorderLayout.SOUTH);
@@ -120,8 +121,8 @@ public class TermbaseSearchPanel extends JPanel {
         String searchTerm = searchField.getText().trim();
         if (searchTerm.isEmpty()) {
             JOptionPane.showMessageDialog(this,
-                "Please enter a search term.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.enter.search.term"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         executeSearch(searchTerm);
@@ -157,8 +158,8 @@ public class TermbaseSearchPanel extends JPanel {
 
         if (matchCount == 0 && enabledConfigs.isEmpty()) {
             JOptionPane.showMessageDialog(this,
-                "No enabled termbases.",
-                "Warning", JOptionPane.WARNING_MESSAGE);
+                I18N.getString("msg.no.enabled.termbases"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
         }
     }
 }

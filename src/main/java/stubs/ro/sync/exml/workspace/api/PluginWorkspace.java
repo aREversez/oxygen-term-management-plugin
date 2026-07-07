@@ -18,4 +18,10 @@ public interface PluginWorkspace {
      * Get the current editor access.
      */
     Object getCurrentEditorAccess(int editingArea);
+
+    /**
+     * Get the user interface language code.
+     * @return Language code like "en", "de", "fr", "ja", "zh"
+     */
+    String getUserInterfaceLanguage();
 }

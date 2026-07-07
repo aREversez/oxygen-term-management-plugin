@@ -36,9 +36,9 @@ public class TermManagementView extends JPanel {
         terminologyPanel = new TerminologyPanel(registry);
         searchPanel = new TermbaseSearchPanel(registry, this);
         tabbedPane = new JTabbedPane();
-        tabbedPane.addTab("Term Recognition", recognitionPanel);
-        tabbedPane.addTab("Termbase Search", searchPanel);
-        tabbedPane.addTab("Terminology", terminologyPanel);
+        tabbedPane.addTab(I18N.getString("tab.term.recognition"), recognitionPanel);
+        tabbedPane.addTab(I18N.getString("tab.termbase.search"), searchPanel);
+        tabbedPane.addTab(I18N.getString("tab.terminology"), terminologyPanel);
         tabbedPane.addChangeListener(e -> {
             JComponent sel = (JComponent) tabbedPane.getSelectedComponent();
             if (sel == recognitionPanel) {

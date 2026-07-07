@@ -5,6 +5,7 @@ import javax.swing.JOptionPane;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.model.TermbaseConfig.Format;
+import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.TermMatchUtils;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -131,8 +132,8 @@ public class TermbaseRegistry {
         } catch (Exception e) {
             System.err.println("Failed to load configs from OptionsStorage: " + e.getMessage());
             JOptionPane.showMessageDialog(null,
-                "Failed to load termbase configurations.\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.failed.load.configs", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -144,8 +145,8 @@ public class TermbaseRegistry {
         } catch (Exception e) {
             System.err.println("Failed to save configs to OptionsStorage: " + e.getMessage());
             JOptionPane.showMessageDialog(null,
-                "Failed to save termbase configurations.\n" + e.getMessage(),
-                "Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.failed.save.configs", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
