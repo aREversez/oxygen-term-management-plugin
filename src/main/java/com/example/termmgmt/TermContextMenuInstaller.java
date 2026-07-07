@@ -81,6 +81,7 @@ public class TermContextMenuInstaller {
         if (translation == null) return;
 
         try {
+            authorAccess.getDocumentController().beginCompoundEdit();
             int selStart = authorAccess.getEditorAccess().getSelectionStart();
             authorAccess.getEditorAccess().deleteSelection();
             if (selStart >= 0) {
@@ -91,6 +92,8 @@ public class TermContextMenuInstaller {
             JOptionPane.showMessageDialog(null,
                 I18N.getString("msg.failed.insert.translation", e.getMessage()),
                 I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+        } finally {
+            authorAccess.getDocumentController().endCompoundEdit();
         }
     }
 
