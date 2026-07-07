@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import javax.swing.SwingUtilities;
+
 /**
  * Singleton registry that manages termbase configurations and cached term data.
  *
@@ -48,11 +50,14 @@ public class TermbaseRegistry {
     private Map<String, List<TermEntry>> sourceIndex; // Map from source term text → terms (case-insensitive key)
     private Map<String, Pattern> patternCache; // Compiled match patterns keyed by source term text
 
+    private List<Runnable> changeListeners;
+
     private TermbaseRegistry() {
         this.configs = new ArrayList<>();
         this.termCache = new HashMap<>();
         this.sourceIndex = new HashMap<>();
         this.patternCache = new HashMap<>();
+        this.changeListeners = new ArrayList<>();
     }
 
     /**
@@ -65,6 +70,26 @@ public class TermbaseRegistry {
             instance = new TermbaseRegistry();
         }
         return instance;
+    }
+
+    // ---- Change listeners ----
+
+    public synchronized void addChangeListener(Runnable listener) {
+        changeListeners.add(listener);
+    }
+
+    public synchronized void removeChangeListener(Runnable listener) {
+        changeListeners.remove(listener);
+    }
+
+    public void fireTermsChanged() {
+        List<Runnable> copy;
+        synchronized (this) {
+            copy = new ArrayList<>(changeListeners);
+        }
+        for (Runnable r : copy) {
+            r.run();
+        }
     }
 
     // ---- Serialization (unchanged) ----
@@ -202,12 +227,14 @@ public class TermbaseRegistry {
         TermbaseLoader.saveTerms(config, terms);
         termCache.put(config.getFilePath(), new ArrayList<>(terms));
         rebuildSourceIndex();
+        fireTermsChanged();
     }
 
     public void reloadConfig(String filePath) {
         for (TermbaseConfig config : configs) {
             if (config.getFilePath().equals(filePath)) {
                 loadTerms(config);
+                fireTermsChanged();
                 break;
             }
         }

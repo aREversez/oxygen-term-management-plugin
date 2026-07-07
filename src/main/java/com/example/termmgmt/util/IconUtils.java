@@ -11,6 +11,8 @@ import java.io.InputStream;
 import java.io.StringReader;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class IconUtils {
 
@@ -18,6 +20,8 @@ public final class IconUtils {
     private static final Color DARK_ICON = new Color(0xC0C0C0);
 
     private static Boolean isDark = null;
+    private static final Map<String, String> svgCache = new ConcurrentHashMap<>();
+    private static final Map<String, SVGDiagram> diagramCache = new ConcurrentHashMap<>();
 
     private IconUtils() {}
 
@@ -36,22 +40,38 @@ public final class IconUtils {
     }
 
     public static Icon loadIcon(String name, int size) {
+        String cacheKey = name + "@" + size + "_" + isDarkTheme();
+        Icon cached = (Icon) UIManager.get(cacheKey);
+        if (cached != null) return cached;
+
         String svg = readResource("/icons/" + name + ".svg");
         if (svg == null) return null;
         String hex = colorHex(isDarkTheme() ? DARK_ICON : LIGHT_ICON);
         svg = svg.replace("currentColor", hex);
         SVGDiagram diagram = loadDiagram(svg, "icon_" + name);
         if (diagram == null) return null;
-        return new SvgIcon(diagram, size, size);
+
+        Icon icon = new SvgIcon(diagram, size, size);
+        UIManager.put(cacheKey, icon);
+        return icon;
     }
 
     public static ImageIcon loadLogo(int size) {
+        String cacheKey = "logo@" + size + "_" + isDarkTheme();
+        Icon cached = UIManager.getIcon(cacheKey);
+        if (cached instanceof ImageIcon) return (ImageIcon) cached;
+
         String svg = readResource("/icons/logo.svg");
         if (svg == null) return null;
 
         try {
-            SVGDiagram diagram = loadDiagram(svg, "logo");
-            if (diagram == null) return null;
+            String cacheKey2 = "logoSvg_" + isDarkTheme();
+            SVGDiagram diagram = diagramCache.get(cacheKey2);
+            if (diagram == null) {
+                diagram = loadDiagram(svg, "logo");
+                if (diagram == null) return null;
+                diagramCache.put(cacheKey2, diagram);
+            }
 
             double dw = diagram.getWidth();
             double dh = diagram.getHeight();
@@ -74,7 +94,9 @@ public final class IconUtils {
             diagram.render(g);
             g.dispose();
 
-            return new ImageIcon(img);
+            ImageIcon icon = new ImageIcon(img);
+            UIManager.put(cacheKey, icon);
+            return icon;
         } catch (Exception e) {
             e.printStackTrace();
             return null;
@@ -82,6 +104,9 @@ public final class IconUtils {
     }
 
     private static SVGDiagram loadDiagram(String svgContent, String name) {
+        String cacheKey = "diagram_" + name + "_" + svgContent.hashCode();
+        SVGDiagram d = diagramCache.get(cacheKey);
+        if (d != null) return d;
         try {
             SVGUniverse universe = new SVGUniverse();
             URI uri = universe.loadSVG(new StringReader(svgContent), name);
@@ -89,6 +114,7 @@ public final class IconUtils {
             if (diagram == null || diagram.getWidth() <= 0 || diagram.getHeight() <= 0) {
                 return null;
             }
+            diagramCache.put(cacheKey, diagram);
             return diagram;
         } catch (Exception e) {
             e.printStackTrace();
@@ -97,9 +123,13 @@ public final class IconUtils {
     }
 
     private static String readResource(String path) {
+        String cached = svgCache.get(path);
+        if (cached != null) return cached;
         try (InputStream is = IconUtils.class.getResourceAsStream(path)) {
             if (is == null) return null;
-            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            svgCache.put(path, content);
+            return content;
         } catch (IOException e) {
             e.printStackTrace();
             return null;

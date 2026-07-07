@@ -20,6 +20,18 @@ public class TermManagementView extends JPanel {
         this.registry = TermbaseRegistry.getInstance();
         registry.loadConfigs();
         initComponents();
+        registry.addChangeListener(() -> SwingUtilities.invokeLater(this::refreshAllPanels));
+    }
+
+    private void refreshAllPanels() {
+        if (recognitionPanel != null) {
+            recognitionPanel.refreshTermbaseList();
+            recognitionPanel.autoScan();
+        }
+        if (terminologyPanel != null) {
+            terminologyPanel.refreshTermbaseList();
+            terminologyPanel.loadTermbaseTerms();
+        }
     }
 
     public TermManagementView(StandalonePluginWorkspace workspace) {

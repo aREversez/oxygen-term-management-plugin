@@ -331,7 +331,7 @@ public class TerminologyPanel extends JPanel {
     /**
      * Load terms for the selected termbase.
      */
-    private void loadTermbaseTerms() {
+    public void loadTermbaseTerms() {
         currentConfig = (TermbaseConfig) termbaseComboBox.getSelectedItem();
         if (currentConfig == null) {
             currentTerms = new ArrayList<>();
