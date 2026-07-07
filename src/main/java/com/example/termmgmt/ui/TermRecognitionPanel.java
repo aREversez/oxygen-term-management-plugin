@@ -157,7 +157,7 @@ public class TermRecognitionPanel extends JPanel {
         add(northPanel, BorderLayout.NORTH);
 
         tableModel = new DefaultTableModel(
-            new String[]{"Source", "Target"}, 0
+            new String[]{I18N.getString("msg.col.source"), I18N.getString("msg.col.target")}, 0
         );
         resultTable = new JTable(tableModel);
         resultTable.setDefaultEditor(Object.class, null);
@@ -198,7 +198,7 @@ public class TermRecognitionPanel extends JPanel {
         prevButton.addActionListener(e -> navigatePrev());
         navPanel.add(prevButton);
 
-        posLabel = new JLabel("0/0");
+        posLabel = new JLabel(I18N.getString("msg.nav.default"));
         posLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
         navPanel.add(posLabel);
 
@@ -381,7 +381,7 @@ public class TermRecognitionPanel extends JPanel {
         tableModel.setRowCount(0);
         currentMatches.clear();
         clearHighlights();
-        statsLabel.setText("Scanning...");
+        statsLabel.setText(I18N.getString("msg.scanning"));
         scanButton.setEnabled(false);
 
         boolean capturedIsTextMode = isTextMode;
@@ -469,8 +469,7 @@ public class TermRecognitionPanel extends JPanel {
                     if (uniqueTerms == 0) {
                         statsLabel.setText(I18N.getString("msg.no.matches"));
                     } else {
-                        statsLabel.setText("Matched " + totalHits
-                            + " terms (" + uniqueTerms + " unique entries)");
+                        statsLabel.setText(I18N.getString("msg.matched.terms", totalHits, uniqueTerms));
                     }
 
                     if (highlightSelected && !capturedIsTextMode) {
@@ -566,14 +565,14 @@ public class TermRecognitionPanel extends JPanel {
         if (row < 0) {
             prevButton.setEnabled(false);
             nextButton.setEnabled(false);
-            posLabel.setText("0/0");
+            posLabel.setText(I18N.getString("msg.nav.default"));
             return;
         }
         String sourceTerm = (String) tableModel.getValueAt(row, 0);
         if (sourceTerm == null) {
             prevButton.setEnabled(false);
             nextButton.setEnabled(false);
-            posLabel.setText("0/0");
+            posLabel.setText(I18N.getString("msg.nav.default"));
             return;
         }
         int count = 0;
@@ -583,7 +582,7 @@ public class TermRecognitionPanel extends JPanel {
         if (count == 0) {
             prevButton.setEnabled(false);
             nextButton.setEnabled(false);
-            posLabel.setText("0/0");
+            posLabel.setText(I18N.getString("msg.nav.default"));
             return;
         }
         int idx = navIndices.getOrDefault(sourceTerm, 0);
@@ -593,7 +592,7 @@ public class TermRecognitionPanel extends JPanel {
         }
         prevButton.setEnabled(true);
         nextButton.setEnabled(true);
-        posLabel.setText((idx + 1) + "/" + count);
+        posLabel.setText(I18N.getString("msg.nav.position", idx + 1, count));
     }
 
     private void navigatePrev() {

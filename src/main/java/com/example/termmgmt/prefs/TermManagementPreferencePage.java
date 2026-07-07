@@ -69,7 +69,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
 
     @Override
     public String getTitle() {
-        return I18N.getString("plugin.name");
+        return "Term Management";
     }
 
     private void buildUI() {

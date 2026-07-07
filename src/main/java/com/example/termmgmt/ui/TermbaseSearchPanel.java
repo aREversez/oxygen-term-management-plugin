@@ -75,7 +75,7 @@ public class TermbaseSearchPanel extends JPanel {
 
         // Create result table
         tableModel = new DefaultTableModel(
-            new String[]{"Source", "Target", "Termbase"}, 0
+            new String[]{I18N.getString("msg.col.source"), I18N.getString("msg.col.target"), I18N.getString("msg.col.termbase")}, 0
         ) {
             @Override
             public boolean isCellEditable(int row, int column) {

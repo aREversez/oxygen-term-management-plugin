@@ -133,7 +133,7 @@ public class TerminologyPanel extends JPanel {
 
         // Create term table with in-place editing backed by TermEntry list
         tableModel = new DefaultTableModel(
-            new String[]{"Source Term", "Target Term"}, 0
+            new String[]{I18N.getString("lbl.source.term"), I18N.getString("lbl.target.term")}, 0
         ) {
             @Override
             public boolean isCellEditable(int row, int column) {
