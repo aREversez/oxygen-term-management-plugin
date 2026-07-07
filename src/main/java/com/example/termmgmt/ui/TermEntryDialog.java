@@ -88,12 +88,20 @@ public class TermEntryDialog extends JDialog {
         if (source.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                 I18N.getString("msg.source.required"),
-                "Validation Error", JOptionPane.ERROR_MESSAGE);
+                I18N.getString("msg.validation.error"), JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String target = targetField.getText().trim();
+        if (target.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("msg.target.required"),
+                I18N.getString("msg.validation.error"), JOptionPane.ERROR_MESSAGE);
             return;
         }
 
         termEntry.setSourceTerm(source);
-        termEntry.setTargetTerm(targetField.getText().trim());
+        termEntry.setTargetTerm(target);
 
         confirmed = true;
         dispose();
