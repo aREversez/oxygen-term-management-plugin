@@ -297,9 +297,10 @@ public class TermContextMenuInstaller {
             return Collections.emptyList();
         }
         String searchKey = text.trim();
+        TermbaseRegistry registry = TermbaseRegistry.getInstance();
 
         // Step 1: exact match via source index (O(1)), then filter by config
-        List<TermEntry> exact = TermbaseRegistry.getInstance().findTermsBySource(searchKey);
+        List<TermEntry> exact = registry.findTermsBySource(searchKey);
         List<TermEntry> scoped = new ArrayList<>();
         String filePath = config.getFilePath();
         for (TermEntry e : exact) {
@@ -311,30 +312,21 @@ public class TermContextMenuInstaller {
             return scoped;
         }
 
-        // Step 2: no exact match — check if the selection contains 2+ different terms
-        List<TermEntry> allTerms;
-        try {
-            allTerms = TermbaseRegistry.getInstance().getTerms(config);
-        } catch (Exception e) {
-            return Collections.emptyList();
-        }
-        if (allTerms == null || allTerms.isEmpty()) {
-            return Collections.emptyList();
-        }
-        Set<String> distinctFound = new HashSet<>();
-        for (TermEntry entry : allTerms) {
-            try {
-                String sourceTerm = entry.getSourceTerm();
-                if (sourceTerm == null || sourceTerm.isEmpty()) continue;
-                if (TermbaseRegistry.getInstance().getMatchPattern(sourceTerm).matcher(searchKey).find()) {
-                    distinctFound.add(sourceTerm);
-                    if (distinctFound.size() >= 2) {
+        // Step 2: no exact match — token-based multi-term detection (O(k) where k = tokens)
+        // Split selection into tokens and look up each in the source index.
+        // This is much faster than iterating all terms with regex matching.
+        String[] tokens = searchKey.split("\\s+");
+        Set<String> matchedTerms = new HashSet<>();
+        for (String token : tokens) {
+            if (token.isEmpty()) continue;
+            List<TermEntry> tokenMatches = registry.findTermsBySource(token);
+            for (TermEntry e : tokenMatches) {
+                if (filePath.equals(e.getSourceFilePath())) {
+                    matchedTerms.add(e.getSourceTerm());
+                    if (matchedTerms.size() >= 2) {
                         return MULTI_TERM_SENTINEL;
                     }
                 }
-            } catch (Exception e) {
-                System.err.println("Failed to match term '" + entry.getSourceTerm()
-                    + "' against selection: " + e.getMessage());
             }
         }
 
