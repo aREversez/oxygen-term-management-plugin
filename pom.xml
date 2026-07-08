@@ -6,7 +6,7 @@
 
     <groupId>com.example</groupId>
     <artifactId>term-management</artifactId>
-    <version>1.0.10</version>
+    <version>1.0.11</version>
     <packaging>jar</packaging>
 
     <name>Term Management</name>
