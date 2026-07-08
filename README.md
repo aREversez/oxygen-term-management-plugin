@@ -185,12 +185,6 @@ term-management/
 ├── README.md
 ├── README.zh.md
 ├── assets/                    # Screenshots for README
-├── i18n/                      # Internationalization resources (deployment copy)
-│   ├── messages_en.properties
-│   ├── messages_zh.properties
-│   ├── messages_fr.properties
-│   ├── messages_de.properties
-│   └── messages_ja.properties
 ├── licenses/                  # Third-party license files
 ├── libs/                      # Oxygen SDK and other local JARs
 ├── src/main/

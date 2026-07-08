@@ -180,12 +180,6 @@ term-management/
 ├── README.md
 ├── README.zh.md
 ├── assets/                    # README 截图
-├── i18n/                      # 国际化资源（部署副本）
-│   ├── messages_en.properties
-│   ├── messages_zh.properties
-│   ├── messages_fr.properties
-│   ├── messages_de.properties
-│   └── messages_ja.properties
 ├── licenses/                  # 第三方许可文件
 ├── libs/                      # Oxygen SDK 及其他本地 JAR
 ├── src/main/
