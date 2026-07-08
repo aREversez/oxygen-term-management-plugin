@@ -20,15 +20,6 @@
     </properties>
 
     <dependencies>
-        <!-- Oxygen XML Editor SDK (system scope - available at runtime) -->
-        <dependency>
-            <groupId>ro.sync</groupId>
-            <artifactId>oxygen-sdk</artifactId>
-            <version>27.1</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libs/oxygen.jar</systemPath>
-        </dependency>
-
         <!-- Apache POI for XLSX support -->
         <dependency>
             <groupId>org.apache.poi</groupId>
@@ -196,4 +187,45 @@
             </plugin>
         </plugins>
     </build>
+<profiles>
+        <profile>
+            <id>local</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>ro.sync</groupId>
+                    <artifactId>oxygen-sdk</artifactId>
+                    <version>27.1</version>
+                    <scope>system</scope>
+                    <systemPath>${project.basedir}/libs/oxygen.jar</systemPath>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <profile>
+            <id>ci</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <source>17</source>
+                            <target>17</target>
+                            <release>17</release>
+                            <includes>
+                                <include>com/example/termmgmt/model/**</include>
+                                <include>com/example/termmgmt/service/CsvTermbaseHandler.java</include>
+                                <include>com/example/termmgmt/service/XlsxTermbaseHandler.java</include>
+                                <include>com/example/termmgmt/service/TbxTermbaseHandler.java</include>
+                                <include>com/example/termmgmt/service/TermbaseLoader.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
