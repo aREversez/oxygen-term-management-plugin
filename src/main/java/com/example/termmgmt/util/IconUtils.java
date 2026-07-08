@@ -22,6 +22,7 @@ public final class IconUtils {
     private static Boolean isDark = null;
     private static final Map<String, String> svgCache = new ConcurrentHashMap<>();
     private static final Map<String, SVGDiagram> diagramCache = new ConcurrentHashMap<>();
+    private static final Map<String, Icon> iconCache = new ConcurrentHashMap<>();
 
     private IconUtils() {}
 
@@ -41,7 +42,7 @@ public final class IconUtils {
 
     public static Icon loadIcon(String name, int size) {
         String cacheKey = name + "@" + size + "_" + isDarkTheme();
-        Icon cached = (Icon) UIManager.get(cacheKey);
+        Icon cached = iconCache.get(cacheKey);
         if (cached != null) return cached;
 
         String svg = readResource("/icons/" + name + ".svg");
@@ -52,13 +53,13 @@ public final class IconUtils {
         if (diagram == null) return null;
 
         Icon icon = new SvgIcon(diagram, size, size);
-        UIManager.put(cacheKey, icon);
+        iconCache.put(cacheKey, icon);
         return icon;
     }
 
     public static ImageIcon loadLogo(int size) {
         String cacheKey = "logo@" + size + "_" + isDarkTheme();
-        Icon cached = UIManager.getIcon(cacheKey);
+        Icon cached = iconCache.get(cacheKey);
         if (cached instanceof ImageIcon) return (ImageIcon) cached;
 
         String svg = readResource("/icons/logo.svg");
@@ -95,7 +96,7 @@ public final class IconUtils {
             g.dispose();
 
             ImageIcon icon = new ImageIcon(img);
-            UIManager.put(cacheKey, icon);
+            iconCache.put(cacheKey, icon);
             return icon;
         } catch (Exception e) {
             e.printStackTrace();

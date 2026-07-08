@@ -179,7 +179,6 @@
                         <configuration>
                             <target>
                                 <mkdir dir="${project.basedir}/output/term-management/lib"/>
-                                <mkdir dir="${project.basedir}/output/term-management/i18n"/>
                                 <mkdir dir="${project.basedir}/output/term-management/licenses"/>
                                 <copy file="${project.build.directory}/${project.artifactId}-${project.version}-jar-with-dependencies.jar"
                                       todir="${project.basedir}/output/term-management/lib" overwrite="true"/>
@@ -187,9 +186,6 @@
                                       todir="${project.basedir}/output/term-management" overwrite="true"/>
                                 <copy file="${project.basedir}/extension.xml"
                                       todir="${project.basedir}/output/term-management" overwrite="true"/>
-                                <copy todir="${project.basedir}/output/term-management/i18n" overwrite="true">
-                                    <fileset dir="${project.basedir}/i18n"/>
-                                </copy>
                                 <copy todir="${project.basedir}/output/term-management/licenses" overwrite="true">
                                     <fileset dir="${project.basedir}/licenses"/>
                                 </copy>
