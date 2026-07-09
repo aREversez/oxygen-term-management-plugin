@@ -217,10 +217,12 @@
                             <release>17</release>
                             <includes>
                                 <include>com/example/termmgmt/model/**</include>
+                                <include>com/example/termmgmt/util/TermMatchUtils.java</include>
                                 <include>com/example/termmgmt/service/CsvTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/XlsxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TbxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TermbaseLoader.java</include>
+                                <include>com/example/termmgmt/service/DocumentScanner.java</include>
                             </includes>
                         </configuration>
                     </plugin>
