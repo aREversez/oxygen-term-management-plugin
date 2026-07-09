@@ -3,12 +3,12 @@
 All notable changes to the Term Management plugin are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## 1.0.11 — 2026-07-08
+## 1.0.11 - 2026-07-08
 
 ### Fixed
-- **Duplicate `i18n/` folder**: removed root `i18n/` (unreferenced at runtime); cleaned up pom.xml ant copy step
-- **Stale fallback translations**: `messages.properties` synced to full 150-key set matching `messages_en.properties`
-- **Icon cache via `UIManager`**: replaced with private `ConcurrentHashMap` to avoid LAF collision risk
+- Icon cache no longer misuses the global `UIManager` defaults table as a cache store; switched to a private, isolated cache map, consistent with the plugin's other caches.
+- Fallback resource bundle (`messages.properties`) was out of sync with the other language files (63 vs 150 keys); now kept in sync.
+- Removed a duplicate, unused `i18n/` folder left over at the repository root from an earlier packaging attempt.
 
 ## [1.0.10] - 2026-07-07
 
@@ -18,11 +18,6 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Plugin UI language now follows Oxygen's configured interface language (via `getUserInterfaceLanguage()`) instead of the OS/JVM default locale.
 - `TermbaseRegistry` change-listener mechanism — panels now automatically refresh when terms are added/edited/deleted from any entry point (e.g. right-click Quick Add updates an already-open Terminology panel).
 - Compound edit support for "Insert Translation" — the delete-selection + insert-translation sequence is now a single undoable step in Author mode.
-
-### Fixed
-- Icon cache no longer misuses the global `UIManager` defaults table as a cache store; switched to a private, isolated cache map, consistent with the plugin's other caches.
-- Fallback resource bundle (`messages.properties`) was out of sync with the other language files (63 vs 150 keys); now kept in sync.
-- Removed a duplicate, unused `i18n/` folder left over at the repository root from an earlier packaging attempt.
 
 ## [1.0.9] - 2026-07-06
 

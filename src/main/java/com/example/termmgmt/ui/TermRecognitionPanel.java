@@ -2,6 +2,8 @@ package com.example.termmgmt.ui;
 
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
+import com.example.termmgmt.service.DocumentScanner;
+import com.example.termmgmt.service.DocumentScanner.ScanResult;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
@@ -31,8 +33,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class TermRecognitionPanel extends JPanel {
 
@@ -42,20 +42,7 @@ public class TermRecognitionPanel extends JPanel {
     private DefaultTableModel tableModel;
     private JToggleButton highlightToggle;
     private final Map<String, Boolean> highlightEnabledMap = new HashMap<>();
-    private List<TermMatch> currentMatches = new ArrayList<>();
-
-    private static class TermMatch {
-        final String sourceTerm;
-        final String targetTerm;
-        final int startOffset;
-        final int endOffset;
-        TermMatch(String source, String target, int start, int end) {
-            this.sourceTerm = source;
-            this.targetTerm = target;
-            this.startOffset = start;
-            this.endOffset = end;
-        }
-    }
+    private List<ScanResult> currentMatches = new ArrayList<>();
 
     private JLabel statsLabel;
     private TermManagementView parentView;
@@ -65,7 +52,7 @@ public class TermRecognitionPanel extends JPanel {
     private JButton nextButton;
     private JLabel posLabel;
     private final Map<String, Integer> navIndices = new HashMap<>();
-    private SwingWorker<List<TermMatch>, Void> currentScanWorker;
+    private SwingWorker<List<ScanResult>, Void> currentScanWorker;
 
     public TermRecognitionPanel(TermbaseRegistry registry, TermManagementView parentView) {
         this.registry = registry;
@@ -390,74 +377,25 @@ public class TermRecognitionPanel extends JPanel {
         TermbaseConfig capturedConfig = config;
         boolean highlightSelected = highlightToggle.isSelected();
 
-        currentScanWorker = new SwingWorker<List<TermMatch>, Void>() {
+        currentScanWorker = new SwingWorker<List<ScanResult>, Void>() {
             @Override
-            protected List<TermMatch> doInBackground() throws Exception {
+            protected List<ScanResult> doInBackground() throws Exception {
                 List<TermEntry> terms = registry.getTerms(capturedConfig);
-                java.util.Set<String> countedPositions = new java.util.HashSet<>();
-                List<TermMatch> allMatches = new ArrayList<>();
-
-                for (TermEntry term : terms) {
-                    if (isCancelled()) break;
-                    String sourceTerm = term.getSourceTerm();
-                    if (sourceTerm == null || sourceTerm.isEmpty()) continue;
-
-                    String matchTerm = capturedIsTextMode
-                        ? escapeXmlEntities(sourceTerm) : sourceTerm;
-                    String escaped = Pattern.quote(matchTerm);
-                    String regex = isNonDelimitedScript(matchTerm)
-                        ? escaped
-                        : "(?<![\\p{L}])" + escaped + "(?![\\p{L}])";
-                    Pattern pattern = Pattern.compile(regex,
-                        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-                    Matcher matcher = pattern.matcher(capturedText);
-
-                    while (matcher.find()) {
-                        if (isCancelled()) break;
-                        int strStart = matcher.start();
-                        int strEnd = strStart + matchTerm.length();
-
-                        String posKey = sourceTerm + "@" + strStart;
-                        if (!countedPositions.contains(posKey)) {
-                            countedPositions.add(posKey);
-                            if (capturedIsTextMode) {
-                                allMatches.add(new TermMatch(
-                                    sourceTerm, term.getTargetTerm(), strStart, strEnd));
-                            } else {
-                                int authStart = -1, authEnd = -1;
-                                for (int[] seg : capturedSegments) {
-                                    int segAuth = seg[0];
-                                    int segStr = seg[1];
-                                    int segLen = seg[2];
-                                    if (strStart >= segStr && strStart < segStr + segLen) {
-                                        authStart = segAuth + (strStart - segStr);
-                                    }
-                                    if (strEnd >= segStr && strEnd <= segStr + segLen) {
-                                        authEnd = segAuth + (strEnd - segStr);
-                                    }
-                                }
-                                if (authStart >= 0 && authEnd >= 0) {
-                                    allMatches.add(new TermMatch(
-                                        sourceTerm, term.getTargetTerm(), authStart, authEnd));
-                                }
-                            }
-                        }
-                    }
-                }
-                return allMatches;
+                DocumentScanner scanner = new DocumentScanner();
+                return scanner.scan(capturedText, terms, capturedIsTextMode, capturedSegments);
             }
 
             @Override
             protected void done() {
                 try {
                     if (isCancelled()) return;
-                    List<TermMatch> result = get();
+                    List<ScanResult> result = get();
                     currentMatches = result;
 
                     // Update table with unique pairs
                     tableModel.setRowCount(0);
                     java.util.Set<String> tablePairs = new java.util.HashSet<>();
-                    for (TermMatch m : result) {
+                    for (ScanResult m : result) {
                         String pairKey = m.sourceTerm + "|" + m.targetTerm;
                         if (tablePairs.add(pairKey)) {
                             tableModel.addRow(new Object[]{m.sourceTerm, m.targetTerm});
@@ -504,7 +442,7 @@ public class TermRecognitionPanel extends JPanel {
             ColorHighlightPainter painter = new ColorHighlightPainter();
             painter.setBgColor(new Color(255, 230, 0, 80));
 
-            for (TermMatch match : currentMatches) {
+            for (ScanResult match : currentMatches) {
                 highlighter.addHighlight(match.startOffset, match.endOffset - 1, painter, null);
             }
         } catch (Exception e) {
@@ -528,24 +466,6 @@ public class TermRecognitionPanel extends JPanel {
         } catch (Exception e) {
             System.err.println("Failed to clear highlights: " + e.getMessage());
         }
-    }
-
-    private static boolean isNonDelimitedScript(String text) {
-        return text.codePoints().anyMatch(cp -> {
-            Character.UnicodeScript script = Character.UnicodeScript.of(cp);
-            return script == Character.UnicodeScript.HAN
-                || script == Character.UnicodeScript.HIRAGANA
-                || script == Character.UnicodeScript.KATAKANA
-                || script == Character.UnicodeScript.HANGUL;
-        });
-    }
-
-    private static String escapeXmlEntities(String text) {
-        return text.replace("&", "&amp;")
-                   .replace("<", "&lt;")
-                   .replace(">", "&gt;")
-                   .replace("\"", "&quot;")
-                   .replace("'", "&apos;");
     }
 
     private boolean isTextEditorPage() {
@@ -576,7 +496,7 @@ public class TermRecognitionPanel extends JPanel {
             return;
         }
         int count = 0;
-        for (TermMatch m : currentMatches) {
+        for (ScanResult m : currentMatches) {
             if (m.sourceTerm.equals(sourceTerm)) count++;
         }
         if (count == 0) {
@@ -601,7 +521,7 @@ public class TermRecognitionPanel extends JPanel {
         String sourceTerm = (String) tableModel.getValueAt(row, 0);
         if (sourceTerm == null) return;
         int count = 0;
-        for (TermMatch m : currentMatches) {
+        for (ScanResult m : currentMatches) {
             if (m.sourceTerm.equals(sourceTerm)) count++;
         }
         if (count == 0) return;
@@ -618,7 +538,7 @@ public class TermRecognitionPanel extends JPanel {
         String sourceTerm = (String) tableModel.getValueAt(row, 0);
         if (sourceTerm == null) return;
         int count = 0;
-        for (TermMatch m : currentMatches) {
+        for (ScanResult m : currentMatches) {
             if (m.sourceTerm.equals(sourceTerm)) count++;
         }
         if (count == 0) return;
@@ -633,12 +553,12 @@ public class TermRecognitionPanel extends JPanel {
         if (sourceTerm == null || sourceTerm.isEmpty()) return;
 
         // Collect matches for this term
-        List<TermMatch> matches = new ArrayList<>();
-        for (TermMatch m : currentMatches) {
+        List<ScanResult> matches = new ArrayList<>();
+        for (ScanResult m : currentMatches) {
             if (m.sourceTerm.equals(sourceTerm)) matches.add(m);
         }
         if (occurrenceIndex < 0 || occurrenceIndex >= matches.size()) return;
-        TermMatch match = matches.get(occurrenceIndex);
+        ScanResult match = matches.get(occurrenceIndex);
 
         try {
             PluginWorkspace workspace = PluginWorkspaceProvider.getPluginWorkspace();
