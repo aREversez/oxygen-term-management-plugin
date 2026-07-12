@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Concept//EN" "concept.dtd">
+<concept id="term_management_overview" xml:lang="zh-CN">
+    <title>Term Management 插件概述</title>
+    <shortdesc>Term Management 插件是专为 Oxygen XML Editor 设计的术语管理工具，旨在提升文档编写过程中的术语一致性与翻译效率。</shortdesc>
+    <conbody>
+        <p>本指南面向日常使用者。如果您是开发者，请参考仓库中的 <filepath>README.md</filepath>。</p>
+        <section id="features">
+            <title>核心功能</title>
+            <p>插件提供三个核心面板功能：</p>
+            <ul>
+                <li><b>Term Recognition（术语识别）</b>：实时扫描文档，识别并高亮术语。</li>
+                <li><b>Terminology Management（术语管理）</b>：集中管理术语库词条。</li>
+                <li><b>Termbase Search（术语库搜索）</b>：跨术语库进行模糊搜索。</li>
+            </ul>
+        </section>
+    </conbody>
+</concept>

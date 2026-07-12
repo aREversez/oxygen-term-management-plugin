@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "map.dtd">
+<map xml:lang="zh-CN">
+    <title>Term Management 插件用户指南</title>
+    <topicref href="term_management_overview.dita"/>
+    <topicref href="term_management_setup.dita"/>
+    <topicref href="usage_scenarios.dita">
+        <topicref href="term_recognition.dita"/>
+        <topicref href="term.dita"/>
+    </topicref>
+    <topicref href="term_management_tasks.dita"/>
+    <topicref href="term_management_faq.dita"/>
+</map>

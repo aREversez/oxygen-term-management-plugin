@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE reference PUBLIC "-//OASIS//DTD DITA Reference//EN" "reference.dtd">
+<reference id="term_management_faq" xml:lang="zh-CN">
+    <title>常见问题与故障排除</title>
+    <refbody>
+        <section>
+            <title>常见问题</title>
+            <dl>
+                <dlentry>
+                    <dt>术语库更新后插件未同步？</dt>
+                    <dd>请在 Preferences 中点击 <uicontrol>Reload</uicontrol> 或重启 Oxygen。</dd>
+                </dlentry>
+                <dlentry>
+                    <dt>保存术语时提示文件被占用？</dt>
+                    <dd>请检查是否有其他程序（如 Excel）正在打开该术语库文件，关闭后重试。</dd>
+                </dlentry>
+            </dl>
+        </section>
+    </refbody>
+</reference>

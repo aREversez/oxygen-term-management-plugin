@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE task PUBLIC "-//OASIS//DTD DITA Task//EN" "task.dtd">
+<task id="term_recognition" xml:lang="zh-CN">
+    <title>术语识别与搜索</title>
+    <taskbody>
+        <context>本节介绍如何识别文档中的术语以及如何跨术语库进行搜索。</context>
+        <steps>
+            <step>
+                <cmd>打开 <uicontrol>Term Recognition</uicontrol> 标签页。</cmd>
+            </step>
+            <step>
+                <cmd>在顶部下拉框选择目标术语库，点击 <uicontrol>Scan</uicontrol> 扫描文档。</cmd>
+            </step>
+            <step>
+                <cmd>点击 <uicontrol>Toggle Highlight</uicontrol> 可在文档中高亮显示匹配术语。</cmd>
+            </step>
+            <step>
+                <cmd>使用 <uicontrol>&lt; 上一个</uicontrol> 或 <uicontrol>下一个 &gt;</uicontrol>
+                    按钮在文档中跳转定位。</cmd>
+            </step>
+            <step>
+                <cmd>若需跨库搜索，切换至 <uicontrol>Termbase Search</uicontrol> 标签页，输入关键词即可查询所有已启用的术语库。</cmd>
+            </step>
+        </steps>
+    </taskbody>
+</task>
