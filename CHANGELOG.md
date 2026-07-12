@@ -3,6 +3,15 @@
 All notable changes to the Term Management plugin are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 1.0.12 - 2026-07-08
+
+### Refactored
+- `DocumentScanner` extracted from `TermRecognitionPanel` (13 new unit tests)
+- `checkDuplicateInCurrentTerms()` uses source index instead of linear scan
+
+### Maintenance
+- CI profile includes `DocumentScanner.java` and `TermMatchUtils.java`
+
 ## 1.0.11 - 2026-07-08
 
 ### Fixed
