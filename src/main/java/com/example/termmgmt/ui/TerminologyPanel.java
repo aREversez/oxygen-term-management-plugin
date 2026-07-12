@@ -403,17 +403,20 @@ public class TerminologyPanel extends JPanel {
             return true;
         }
         String newSource = newTerm.getSourceTerm().trim();
-        List<TermEntry> terms;
+        String filePath = currentConfig != null ? currentConfig.getFilePath() : null;
+        if (filePath == null) return true;
+
+        List<TermEntry> matches;
         try {
-            terms = registry.getTerms(currentConfig);
+            matches = registry.findTermsBySource(newSource);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
                 I18N.getString("msg.failed.read.termbase", e.getMessage()),
                 I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             return false;
         }
-        for (TermEntry existing : terms) {
-            if (existing.getSourceTerm() != null && existing.getSourceTerm().trim().equals(newSource)) {
+        for (TermEntry existing : matches) {
+            if (filePath.equals(existing.getSourceFilePath())) {
                 String newTarget = newTerm.getTargetTerm() != null ? newTerm.getTargetTerm().trim() : "";
                 String existingTarget = existing.getTargetTerm() != null ? existing.getTargetTerm().trim() : "";
                 String msg;
