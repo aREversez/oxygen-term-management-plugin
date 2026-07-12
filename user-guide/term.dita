@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE task PUBLIC "-//OASIS//DTD DITA Task//EN" "task.dtd">
+<task id="term_management_editing" xml:lang="zh-CN">
+    <title>术语库维护与编辑</title>
+    <taskbody>
+        <context>在 <uicontrol>Terminology Management</uicontrol> 标签页中，您可以对术语库进行精细化管理。</context>
+        <steps>
+            <step>
+                <cmd><b>新增术语</b>：点击 <uicontrol>Quick Add</uicontrol>
+                    或“新增”按钮。若源语已存在，系统会提示以避免重复或冲突。</cmd>
+            </step>
+            <step>
+                <cmd><b>修改词条</b>：直接双击表格单元格进行编辑，修改后按回车键自动保存。</cmd>
+            </step>
+            <step>
+                <cmd><b>删除词条</b>：选中一行或多行，点击删除。支持使用 <uicontrol>Undo</uicontrol> 撤销最近一次删除操作。</cmd>
+            </step>
+            <step>
+                <cmd><b>快速定位</b>：使用表格上方的筛选框输入关键字进行过滤，点击 <uicontrol>Reset Sort</uicontrol>
+                    可恢复原始排序。</cmd>
+            </step>
+        </steps>
+        <postreq>
+            <note type="tip">若术语库文件被其他程序（如 Excel）占用，请先关闭该程序，否则无法保存修改。</note>
+        </postreq>
+    </taskbody>
+</task>

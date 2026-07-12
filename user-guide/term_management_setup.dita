@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE task PUBLIC "-//OASIS//DTD DITA Task//EN" "task.dtd">
+<task id="term_management_setup" xml:lang="zh-CN">
+    <title>安装与配置术语库</title>
+    <taskbody>
+        <steps>
+            <step>
+                <cmd>将插件文件夹复制到 Oxygen 安装目录下的 <filepath>plugins</filepath> 文件夹中。</cmd>
+            </step>
+            <step>
+                <cmd>完全关闭并重新启动 Oxygen XML Editor。</cmd>
+            </step>
+            <step>
+                <cmd>通过 <menucascade>
+                        <uicontrol>Window</uicontrol>
+                        <uicontrol>Show View</uicontrol>
+                        <uicontrol>Term Management</uicontrol>
+                    </menucascade> 打开插件面板。</cmd>
+            </step>
+            <step>
+                <cmd>进入 <menucascade>
+                        <uicontrol>Options</uicontrol>
+                        <uicontrol>Preferences</uicontrol>
+                        <uicontrol>Term Management</uicontrol>
+                    </menucascade> 添加术语库。</cmd>
+                <info>支持 CSV、XLSX 和 TBX 格式。勾选术语库以启用，点击 <uicontrol>Reload</uicontrol>
+                    可在不重启的情况下更新术语库内容。</info>
+            </step>
+        </steps>
+    </taskbody>
+</task>
