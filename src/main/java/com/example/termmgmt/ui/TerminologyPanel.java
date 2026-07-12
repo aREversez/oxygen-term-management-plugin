@@ -410,7 +410,10 @@ public class TerminologyPanel extends JPanel {
         try {
             matches = registry.findTermsBySource(newSource);
         } catch (Exception e) {
-            return true;
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("msg.failed.read.termbase", e.getMessage()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+            return false;
         }
         for (TermEntry existing : matches) {
             if (filePath.equals(existing.getSourceFilePath())) {
