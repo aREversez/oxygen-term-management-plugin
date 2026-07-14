@@ -5,9 +5,9 @@
     <topicref href="term_management_overview.dita"/>
     <topicref href="term_management_setup.dita"/>
     <topicref href="usage_scenarios.dita">
+        <topicref href="term_context_menu.dita"/>
         <topicref href="term_recognition.dita"/>
-        <topicref href="term.dita"/>
+        <topicref href="term_management_editing.dita"/>
     </topicref>
-    <topicref href="term_management_tasks.dita"/>
     <topicref href="term_management_faq.dita"/>
 </map>
