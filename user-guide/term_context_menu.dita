@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE task PUBLIC "-//OASIS//DTD DITA Task//EN" "task.dtd">
+<task id="term_context_menu" xml:lang="zh-CN">
+    <title>右键快捷操作</title>
+    <taskbody>
+        <context>在文档中选中文字并右键点击，通过 <uicontrol>Term Management</uicontrol> 子菜单可快速处理术语，无需切换标签页。</context>
+        <steps>
+            <step>
+                <cmd>选中一段文字，右键点击，展开 <uicontrol>Term Management</uicontrol> 子菜单。</cmd>
+                <info>
+                    <table frame="all">
+                        <tgroup cols="3">
+                            <thead>
+                                <row>
+                                    <entry>选中内容</entry>
+                                    <entry>选项</entry>
+                                    <entry>功能描述</entry>
+                                </row>
+                            </thead>
+                            <tbody>
+                                <row>
+                                    <entry>新词</entry>
+                                    <entry>Quick Add</entry>
+                                    <entry>弹出窗口，将新词及其译法存入术语库。</entry>
+                                </row>
+                                <row>
+                                    <entry>已有词</entry>
+                                    <entry>Insert Translation</entry>
+                                    <entry>将选中文本替换为术语库中的译文。</entry>
+                                </row>
+                                <row>
+                                    <entry>已有词</entry>
+                                    <entry>Edit Term</entry>
+                                    <entry>弹出编辑窗口，直接修改该词条。</entry>
+                                </row>
+                                <row>
+                                    <entry>任意文字</entry>
+                                    <entry>Search in Termbase</entry>
+                                    <entry>跳转到搜索标签页，自动搜索所有已启用的术语库。</entry>
+                                </row>
+                            </tbody>
+                        </tgroup>
+                    </table>
+                </info>
+            </step>
+        </steps>
+        <postreq>
+            <note type="important">右键菜单使用的是 <uicontrol>Term Recognition</uicontrol> 标签页中当前选中的术语库，不是全部已启用的术语库。</note>
+            <note type="important">若选中内容包含多个不同的术语，或使用 Ctrl+点选不连续文本，右键菜单将不显示 <uicontrol>Term Management</uicontrol> 子菜单。请确保每次仅选中一个术语进行操作。</note>
+        </postreq>
+    </taskbody>
+</task>

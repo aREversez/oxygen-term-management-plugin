@@ -3,34 +3,6 @@
 <topic id="usage_scenarios" xml:lang="zh-CN">
     <title>日常使用场景</title>
     <body>
-        <section id="context_menu">
-            <title>右键快捷操作</title>
-            <p>在文档中选中文字并右键点击，通过 <uicontrol>Term Management</uicontrol> 子菜单可快速处理术语：</p>
-            <table frame="all">
-                <tgroup cols="3">
-                    <thead>
-                        <row>
-                            <entry>选中内容</entry>
-                            <entry>选项</entry>
-                            <entry>功能描述</entry>
-                        </row>
-                    </thead>
-                    <tbody>
-                        <row>
-                            <entry>新词</entry>
-                            <entry>Quick Add</entry>
-                            <entry>弹出窗口，将新词及其译法存入术语库。</entry>
-                        </row>
-                        <row>
-                            <entry>已有词</entry>
-                            <entry>Insert Translation</entry>
-                            <entry>将选中文本替换为术语库中的译文。</entry>
-                        </row>
-                    </tbody>
-                </tgroup>
-            </table>
-            <note type="important">若选中内容包含多个术语，或使用
-                Ctrl+点选不连续文本，右键菜单将不显示相关选项。请确保每次仅选中一个术语进行操作。</note>
-        </section>
+        <p>本章介绍插件在日常文档编写中的几种典型使用场景，按具体任务分别说明。</p>
     </body>
 </topic>

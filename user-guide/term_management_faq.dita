@@ -14,6 +14,14 @@
                     <dt>保存术语时提示文件被占用？</dt>
                     <dd>请检查是否有其他程序（如 Excel）正在打开该术语库文件，关闭后重试。</dd>
                 </dlentry>
+                <dlentry>
+                    <dt>右键点击 <uicontrol>Quick Add</uicontrol> 或 <uicontrol>Search in Termbase</uicontrol>，但没有任何反应？</dt>
+                    <dd>请确认是否已经打开过一次 Term Management 面板（哪怕只是打开后立即切走）。插件的部分功能需要面板至少初始化一次才能正常响应右键操作。</dd>
+                </dlentry>
+                <dlentry>
+                    <dt>高亮颜色或图标与 Oxygen 的深色/浅色主题不搭？</dt>
+                    <dd>图标会自动跟随 Oxygen 主题切换。如果切换主题后显示仍不正确，尝试重新打开一次插件面板。</dd>
+                </dlentry>
             </dl>
         </section>
     </refbody>
