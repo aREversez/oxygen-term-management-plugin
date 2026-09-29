@@ -44,6 +44,10 @@ public class CsvTermbaseHandler {
                     String tgt = line[1];
                     entry.setTargetTerm(tgt != null ? tgt.trim() : null);
                 }
+                // Blank lines and rows with nothing in the first two columns are not entries.
+                if (isBlank(entry.getSourceTerm()) && isBlank(entry.getTargetTerm())) {
+                    continue;
+                }
                 terms.add(entry);
             }
         } catch (Exception e) {
@@ -51,6 +55,10 @@ public class CsvTermbaseHandler {
         }
 
         return terms;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isEmpty();
     }
 
     public static void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
