@@ -142,9 +142,14 @@ public class TbxTermbaseHandler {
             }
             Element body = (Element) bodyNodes.item(0);
 
+            // getElementsByTagName is a live list of all descendants, and loadTerms() reads
+            // termEntry elements at any depth, so remove each through its own parent
+            // (body.removeChild() throws for a non-child). Every removed entry is in
+            // `terms` and is written back below as a direct child of body.
             NodeList existingEntryNodes = body.getElementsByTagName("termEntry");
             while (existingEntryNodes.getLength() > 0) {
-                body.removeChild(existingEntryNodes.item(0));
+                Node existing = existingEntryNodes.item(0);
+                existing.getParentNode().removeChild(existing);
             }
 
             String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-CN";

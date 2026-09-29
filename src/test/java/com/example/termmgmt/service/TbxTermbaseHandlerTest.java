@@ -221,4 +221,35 @@ class TbxTermbaseHandlerTest {
         assertEquals("你好", loaded.get(0).getSourceTerm());
         assertEquals("hello", loaded.get(0).getTargetTerm());
     }
+
+    @Test
+    void saveTerms_shouldHandleTermEntryNestedInsideWrapper() throws Exception {
+        Path file = tempDir.resolve("nested.tbx");
+        String xml =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n"
+            + "  <text><body>\n"
+            + "    <termEntry id=\"a\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>你好</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>hello</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <group><termEntry id=\"b\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>世界</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>world</term></tig></langSet>\n"
+            + "    </termEntry></group>\n"
+            + "  </body></text>\n"
+            + "</martif>";
+        Files.writeString(file, xml);
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(2, loaded.size());
+
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(2, reloaded.size());
+        assertEquals("你好", reloaded.get(0).getSourceTerm());
+        assertEquals("世界", reloaded.get(1).getSourceTerm());
+    }
 }
