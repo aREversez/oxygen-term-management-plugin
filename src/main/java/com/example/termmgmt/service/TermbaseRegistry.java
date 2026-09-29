@@ -45,7 +45,8 @@ public class TermbaseRegistry {
 
     private static TermbaseRegistry instance;
 
-    private List<TermbaseConfig> configs;
+    // Replaced wholesale, never mutated in place; volatile gives safe publication to worker threads.
+    private volatile List<TermbaseConfig> configs;
     private Map<String, List<TermEntry>> termCache; // Map from file path to terms
     private Map<String, List<TermEntry>> sourceIndex; // Map from source term text → terms (case-insensitive key)
     private Map<String, Pattern> patternCache; // Compiled match patterns keyed by source term text
@@ -205,28 +206,47 @@ public class TermbaseRegistry {
 
     // ---- Term cache & source index ----
 
+    // Thread safety: termCache, sourceIndex and patternCache are shared between the EDT and
+    // SwingWorker threads, so every access goes through this object's monitor. File I/O is
+    // deliberately done outside the lock so a slow disk never blocks readers, and listeners
+    // are notified outside the lock.
+
     public List<TermEntry> loadTerms(TermbaseConfig config) {
         List<TermEntry> terms = TermbaseLoader.loadTerms(config);
-        termCache.put(config.getFilePath(), terms);
-        rebuildSourceIndex();
+        synchronized (this) {
+            termCache.put(config.getFilePath(), terms);
+            rebuildSourceIndex();
+        }
         return terms;
     }
 
     public List<TermEntry> getTerms(TermbaseConfig config) {
-        List<TermEntry> cached = termCache.get(config.getFilePath());
-        if (cached != null) {
-            return new ArrayList<>(cached);
+        synchronized (this) {
+            List<TermEntry> cached = termCache.get(config.getFilePath());
+            if (cached != null) {
+                return new ArrayList<>(cached);
+            }
         }
         List<TermEntry> terms = TermbaseLoader.loadTerms(config);
-        termCache.put(config.getFilePath(), new ArrayList<>(terms));
-        rebuildSourceIndex();
+        synchronized (this) {
+            // Another thread may have populated the cache (e.g. saved newer terms) while we
+            // were reading the file; keep that state instead of overwriting it with ours.
+            List<TermEntry> cached = termCache.get(config.getFilePath());
+            if (cached != null) {
+                return new ArrayList<>(cached);
+            }
+            termCache.put(config.getFilePath(), new ArrayList<>(terms));
+            rebuildSourceIndex();
+        }
         return terms;
     }
 
     public void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
         TermbaseLoader.saveTerms(config, terms);
-        termCache.put(config.getFilePath(), new ArrayList<>(terms));
-        rebuildSourceIndex();
+        synchronized (this) {
+            termCache.put(config.getFilePath(), new ArrayList<>(terms));
+            rebuildSourceIndex();
+        }
         fireTermsChanged();
     }
 
@@ -240,17 +260,17 @@ public class TermbaseRegistry {
         }
     }
 
-    public void clearCache() {
+    public synchronized void clearCache() {
         termCache.clear();
         sourceIndex.clear();
         patternCache.clear();
     }
 
-    public Pattern getMatchPattern(String sourceTerm) {
+    public synchronized Pattern getMatchPattern(String sourceTerm) {
         return patternCache.computeIfAbsent(sourceTerm, TermMatchUtils::buildMatchPattern);
     }
 
-    public List<TermEntry> getAllTerms() {
+    public synchronized List<TermEntry> getAllTerms() {
         List<TermEntry> all = new ArrayList<>();
         for (List<TermEntry> terms : termCache.values()) {
             all.addAll(terms);
@@ -264,7 +284,7 @@ public class TermbaseRegistry {
      * Rebuild the source-term index from all cached termbases.
      * Called automatically after load/save/reload operations.
      */
-    public void rebuildSourceIndex() {
+    public synchronized void rebuildSourceIndex() {
         sourceIndex.clear();
         for (Map.Entry<String, List<TermEntry>> cacheEntry : termCache.entrySet()) {
             String filePath = cacheEntry.getKey();
@@ -284,7 +304,7 @@ public class TermbaseRegistry {
      * @param sourceText the source term text to look up
      * @return list of matching TermEntry objects, or empty list
      */
-    public List<TermEntry> findTermsBySource(String sourceText) {
+    public synchronized List<TermEntry> findTermsBySource(String sourceText) {
         if (sourceText == null || sourceText.trim().isEmpty()) return Collections.emptyList();
         List<TermEntry> result = sourceIndex.get(sourceText.trim().toLowerCase());
         return result != null ? new ArrayList<>(result) : Collections.emptyList();
