@@ -218,6 +218,7 @@
                             <includes>
                                 <include>com/example/termmgmt/model/**</include>
                                 <include>com/example/termmgmt/util/TermMatchUtils.java</include>
+                                <include>com/example/termmgmt/util/TableRowUtils.java</include>
                                 <include>com/example/termmgmt/service/CsvTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/XlsxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TbxTermbaseHandler.java</include>

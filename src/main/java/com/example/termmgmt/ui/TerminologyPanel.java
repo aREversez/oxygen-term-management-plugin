@@ -5,6 +5,7 @@ import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
+import com.example.termmgmt.util.TableRowUtils;
 
 import ro.sync.exml.workspace.api.PluginWorkspace;
 import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
@@ -546,8 +547,13 @@ public class TerminologyPanel extends JPanel {
             return;
         }
 
-        String sourceTerm = (String) tableModel.getValueAt(selectedRow, 0);
-        String targetTerm = (String) tableModel.getValueAt(selectedRow, 1);
+        // The table is sorted/filtered, so translate the view row to the model row
+        // before indexing the table model or the term list.
+        int modelRow = TableRowUtils.toModelRow(termTable, selectedRow);
+        if (modelRow < 0) return;
+
+        String sourceTerm = (String) tableModel.getValueAt(modelRow, 0);
+        String targetTerm = (String) tableModel.getValueAt(modelRow, 1);
 
         TermEntry existingTerm = new TermEntry(sourceTerm, targetTerm);
 
@@ -558,7 +564,7 @@ public class TerminologyPanel extends JPanel {
             TermEntry newTerm = dialog.getTermEntry();
             try {
                 List<TermEntry> terms = registry.getTerms(config);
-                terms.set(selectedRow, newTerm);
+                terms.set(modelRow, newTerm);
                 saveAndReloadAsync(config, terms);
             } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
