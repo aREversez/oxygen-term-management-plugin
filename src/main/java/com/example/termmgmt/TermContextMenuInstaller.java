@@ -32,6 +32,7 @@ import com.example.termmgmt.ui.TermEntryDialog;
 import com.example.termmgmt.ui.TermManagementView;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
+import com.example.termmgmt.util.TermEntryUtils;
 
 public class TermContextMenuInstaller {
 
@@ -347,14 +348,9 @@ public class TermContextMenuInstaller {
                 if (config == null) return;
 
                 List<TermEntry> terms = TermbaseRegistry.getInstance().getTerms(config);
-                for (int i = 0; i < terms.size(); i++) {
-                    TermEntry e = terms.get(i);
-                    if (e.getSourceTerm().equals(target.getSourceTerm())
-                            && (e.getTargetTerm() == null ? target.getTargetTerm() == null
-                                    : e.getTargetTerm().equals(target.getTargetTerm()))) {
-                        terms.set(i, updated);
-                        break;
-                    }
+                int idx = TermEntryUtils.indexOfEntry(terms, target);
+                if (idx >= 0) {
+                    terms.set(idx, updated);
                 }
                 TermbaseConfig captured = config;
                 List<TermEntry> capturedTerms = terms;
