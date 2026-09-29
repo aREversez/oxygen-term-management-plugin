@@ -2,7 +2,6 @@ package com.example.termmgmt;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -33,10 +32,13 @@ import com.example.termmgmt.ui.TermManagementView;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 import com.example.termmgmt.util.TermEntryUtils;
+import com.example.termmgmt.util.TermMatchUtils;
 
 public class TermContextMenuInstaller {
 
     private static final Object MULTI_TERM_SENTINEL = new Object();
+    /** Longest source term (in characters) probed when segmenting unspaced CJK selections. */
+    private static final int MAX_TERM_LOOKUP_LENGTH = 30;
 
     private TermContextMenuInstaller() {
     }
@@ -313,22 +315,20 @@ public class TermContextMenuInstaller {
             return scoped;
         }
 
-        // Step 2: no exact match — token-based multi-term detection (O(k) where k = tokens)
-        // Split selection into tokens and look up each in the source index.
-        // This is much faster than iterating all terms with regex matching.
-        String[] tokens = searchKey.split("\\s+");
-        Set<String> matchedTerms = new HashSet<>();
-        for (String token : tokens) {
-            if (token.isEmpty()) continue;
-            List<TermEntry> tokenMatches = registry.findTermsBySource(token);
-            for (TermEntry e : tokenMatches) {
+        // Step 2: no exact match — multi-term detection via source-index lookups (much faster
+        // than iterating all terms with regex matching). Space-delimited text is split on
+        // whitespace; unspaced CJK text is segmented by greedy longest match, since it has no
+        // whitespace to split on.
+        Set<String> matchedTerms = TermMatchUtils.findKnownTerms(searchKey, candidate -> {
+            for (TermEntry e : registry.findTermsBySource(candidate)) {
                 if (filePath.equals(e.getSourceFilePath())) {
-                    matchedTerms.add(e.getSourceTerm());
-                    if (matchedTerms.size() >= 2) {
-                        return MULTI_TERM_SENTINEL;
-                    }
+                    return true;
                 }
             }
+            return false;
+        }, MAX_TERM_LOOKUP_LENGTH, 2);
+        if (matchedTerms.size() >= 2) {
+            return MULTI_TERM_SENTINEL;
         }
 
         return Collections.emptyList();
