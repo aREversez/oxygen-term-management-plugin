@@ -8,6 +8,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class XlsxTermbaseHandler {
 
@@ -24,14 +25,17 @@ public class XlsxTermbaseHandler {
             Row headerRow = sheet.getRow(0);
             if (headerRow == null) return terms;
 
+            DataFormatter formatter = new DataFormatter(Locale.ROOT);
+            FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+
             int lastCell = headerRow.getLastCellNum();
             if (lastCell < 2) return terms;
 
             Cell sourceHeaderCell = headerRow.getCell(0);
             Cell targetHeaderCell = headerRow.getCell(1);
-            String sourceLang = getCellStringValue(sourceHeaderCell);
+            String sourceLang = getCellStringValue(sourceHeaderCell, formatter, evaluator);
             sourceLang = (sourceLang != null && !sourceLang.trim().isEmpty()) ? sourceLang.trim() : "zh-cn";
-            String targetLang = getCellStringValue(targetHeaderCell);
+            String targetLang = getCellStringValue(targetHeaderCell, formatter, evaluator);
             targetLang = (targetLang != null && !targetLang.trim().isEmpty()) ? targetLang.trim() : "en-us";
             config.setSourceLang(sourceLang);
             config.setTargetLang(targetLang);
@@ -41,8 +45,8 @@ public class XlsxTermbaseHandler {
                 if (row == null) continue;
 
                 TermEntry entry = new TermEntry();
-                String src = getCellStringValue(row.getCell(0));
-                String tgt = getCellStringValue(row.getCell(1));
+                String src = getCellStringValue(row.getCell(0), formatter, evaluator);
+                String tgt = getCellStringValue(row.getCell(1), formatter, evaluator);
                 entry.setSourceTerm(src != null ? src.trim() : null);
                 entry.setTargetTerm(tgt != null ? tgt.trim() : null);
                 terms.add(entry);
@@ -81,14 +85,29 @@ public class XlsxTermbaseHandler {
         }
     }
 
-    private static String getCellStringValue(Cell cell) {
+    /**
+     * Read a cell the way Excel shows it: a numeric 4052 is "4052" (not "4052.0") and a
+     * formula yields its computed value (not the formula text). The locale is fixed so the
+     * decimal separator does not depend on the operating system.
+     *
+     * @return the cell text, or null for blank and error cells
+     */
+    static String getCellStringValue(Cell cell, DataFormatter formatter, FormulaEvaluator evaluator) {
         if (cell == null) return null;
-        switch (cell.getCellType()) {
-            case STRING:  return cell.getStringCellValue();
-            case NUMERIC: return String.valueOf(cell.getNumericCellValue());
-            case BOOLEAN: return String.valueOf(cell.getBooleanCellValue());
-            case FORMULA: return cell.getCellFormula();
-            default:      return null;
+        CellType type = cell.getCellType();
+        if (type == CellType.FORMULA) {
+            type = cell.getCachedFormulaResultType();
+        }
+        switch (type) {
+            case STRING:
+            case NUMERIC:
+                return formatter.formatCellValue(cell, evaluator);
+            case BOOLEAN:
+                return cell.getCellType() == CellType.BOOLEAN
+                    ? String.valueOf(cell.getBooleanCellValue())
+                    : formatter.formatCellValue(cell, evaluator);
+            default:
+                return null;
         }
     }
 }

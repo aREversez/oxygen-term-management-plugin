@@ -108,4 +108,27 @@ class XlsxTermbaseHandlerTest {
             tempDir.resolve("nonexistent.xlsx").toString(), Format.XLSX, true);
         assertThrows(RuntimeException.class, () -> XlsxTermbaseHandler.loadTerms(config));
     }
+
+    @Test
+    void loadTerms_shouldReadIntegerAndFormulaCellsAsDisplayedText() throws Exception {
+        Path file = tempDir.resolve("integer_and_formula.xlsx");
+        try (Workbook wb = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(file.toFile())) {
+            Sheet sheet = wb.createSheet("Terms");
+            Row header = sheet.createRow(0);
+            header.createCell(0).setCellValue("zh-cn");
+            header.createCell(1).setCellValue("en-us");
+
+            Row row1 = sheet.createRow(1);
+            row1.createCell(0).setCellValue(4052);
+            row1.createCell(1).setCellFormula("\"ab\"&\"cd\"");
+            wb.write(fos);
+        }
+
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        List<TermEntry> loaded = XlsxTermbaseHandler.loadTerms(config);
+        assertEquals(1, loaded.size());
+        assertEquals("4052", loaded.get(0).getSourceTerm());
+        assertEquals("abcd", loaded.get(0).getTargetTerm());
+    }
 }
