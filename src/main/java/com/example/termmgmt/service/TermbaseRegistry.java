@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.Locale;
 
 import javax.swing.SwingUtilities;
 
@@ -291,7 +292,7 @@ public class TermbaseRegistry {
             for (TermEntry entry : cacheEntry.getValue()) {
                 if (entry.getSourceTerm() == null || entry.getSourceTerm().trim().isEmpty()) continue;
                 entry.setSourceFilePath(filePath);
-                String key = entry.getSourceTerm().trim().toLowerCase();
+                String key = entry.getSourceTerm().trim().toLowerCase(Locale.ROOT);
                 sourceIndex.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
             }
         }
@@ -306,7 +307,7 @@ public class TermbaseRegistry {
      */
     public synchronized List<TermEntry> findTermsBySource(String sourceText) {
         if (sourceText == null || sourceText.trim().isEmpty()) return Collections.emptyList();
-        List<TermEntry> result = sourceIndex.get(sourceText.trim().toLowerCase());
+        List<TermEntry> result = sourceIndex.get(sourceText.trim().toLowerCase(Locale.ROOT));
         return result != null ? new ArrayList<>(result) : Collections.emptyList();
     }
 }

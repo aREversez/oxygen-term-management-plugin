@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Locale;
 
 /**
  * Preferences page for Term Management plugin.
@@ -174,7 +175,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         }
         dialog.setMultipleMode(true);
         dialog.setFilenameFilter((dir, name) -> {
-            String lower = name.toLowerCase();
+            String lower = name.toLowerCase(Locale.ROOT);
             return lower.endsWith(".tbx") || lower.endsWith(".xlsx") || lower.endsWith(".csv");
         });
 

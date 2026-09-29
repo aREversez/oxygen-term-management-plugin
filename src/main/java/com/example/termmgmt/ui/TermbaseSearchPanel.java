@@ -12,6 +12,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Tab 2: Termbase Search panel.
@@ -144,8 +145,8 @@ public class TermbaseSearchPanel extends JPanel {
             for (TermEntry term : terms) {
                 String sourceTerm = term.getSourceTerm();
                 String targetTerm = term.getTargetTerm();
-                if ((sourceTerm != null && sourceTerm.toLowerCase().contains(searchTerm.toLowerCase())) ||
-                    (targetTerm != null && targetTerm.toLowerCase().contains(searchTerm.toLowerCase()))) {
+                if ((sourceTerm != null && sourceTerm.toLowerCase(Locale.ROOT).contains(searchTerm.toLowerCase(Locale.ROOT))) ||
+                    (targetTerm != null && targetTerm.toLowerCase(Locale.ROOT).contains(searchTerm.toLowerCase(Locale.ROOT)))) {
                     tableModel.addRow(new Object[]{
                         sourceTerm,
                         targetTerm,

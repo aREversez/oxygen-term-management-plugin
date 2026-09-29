@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Dispatcher that routes termbase operations to the appropriate
@@ -24,7 +25,7 @@ public class TermbaseLoader {
      * @throws IllegalArgumentException if the file extension is unrecognized
      */
     public static Format detectFormat(String filePath) {
-        String lower = filePath.toLowerCase();
+        String lower = filePath.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".tbx")) {
             return Format.TBX;
         } else if (lower.endsWith(".xlsx")) {
