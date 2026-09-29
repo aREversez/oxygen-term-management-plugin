@@ -15,12 +15,21 @@ public class TermManagementView extends JPanel {
     private TermRecognitionPanel recognitionPanel;
     private TerminologyPanel terminologyPanel;
     private TermbaseSearchPanel searchPanel;
+    private final Runnable registryListener = () -> SwingUtilities.invokeLater(this::refreshAllPanels);
 
     public TermManagementView() {
         this.registry = TermbaseRegistry.getInstance();
         registry.loadConfigs();
         initComponents();
-        registry.addChangeListener(() -> SwingUtilities.invokeLater(this::refreshAllPanels));
+        registry.addChangeListener(registryListener);
+    }
+
+    /**
+     * Detach from the singleton registry. Call before discarding this view, otherwise the
+     * registry keeps the view (and its panels) reachable and keeps refreshing it.
+     */
+    public void dispose() {
+        registry.removeChangeListener(registryListener);
     }
 
     private void refreshAllPanels() {

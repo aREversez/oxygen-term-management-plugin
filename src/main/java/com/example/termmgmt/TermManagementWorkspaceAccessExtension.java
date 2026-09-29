@@ -27,6 +27,9 @@ public class TermManagementWorkspaceAccessExtension
             @Override
             public void customizeView(ViewInfo viewInfo) {
                 if ("com.example.termmgmt.TermManagementView".equals(viewInfo.getViewID())) {
+                    if (view != null) {
+                        view.dispose();
+                    }
                     view = new TermManagementView(workspace);
                     viewInfo.setTitle(I18N.getString("window.title"));
                     viewInfo.setIcon(IconUtils.loadLogo(16));
