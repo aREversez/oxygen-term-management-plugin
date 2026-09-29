@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- The plugin.dtd file is located in the OXYGEN_INSATALL_DIR/plugins directory -->
+<!-- The plugin.dtd file is located in the OXYGEN_INSTALL_DIR/plugins directory -->
 <!DOCTYPE plugin SYSTEM "../plugin.dtd">
 
 <plugin
