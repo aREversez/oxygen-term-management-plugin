@@ -220,6 +220,7 @@
                                 <include>com/example/termmgmt/util/TermMatchUtils.java</include>
                                 <include>com/example/termmgmt/util/TableRowUtils.java</include>
                                 <include>com/example/termmgmt/util/TermEntryUtils.java</include>
+                                <include>com/example/termmgmt/util/MessageUtils.java</include>
                                 <include>com/example/termmgmt/service/CsvTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/XlsxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TbxTermbaseHandler.java</include>

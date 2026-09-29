@@ -92,10 +92,6 @@ public class I18N {
      * @return the formatted localized string
      */
     public static String getString(String key, Object... args) {
-        String msg = getString(key);
-        if (args.length > 0) {
-            msg = String.format(msg, args);
-        }
-        return msg;
+        return MessageUtils.formatSafely(getString(key), args);
     }
 }
