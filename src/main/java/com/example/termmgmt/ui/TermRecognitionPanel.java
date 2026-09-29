@@ -420,7 +420,11 @@ public class TermRecognitionPanel extends JPanel {
                         I18N.getString("msg.failed.scan.document", e.getMessage()),
                         I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 } finally {
-                    scanButton.setEnabled(true);
+                    // A superseded (cancelled) worker must not re-enable the button while
+                    // the newer scan is still running; only the latest worker does.
+                    if (currentScanWorker == this) {
+                        scanButton.setEnabled(true);
+                    }
                 }
             }
         };
