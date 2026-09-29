@@ -3,8 +3,10 @@ package com.example.termmgmt.service;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 
+import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
@@ -20,12 +22,52 @@ import java.util.List;
 
 public class TbxTermbaseHandler {
 
+    /**
+     * Termbase files may come from untrusted sources. Turn off external entities and
+     * external DTD loading (XXE / SSRF). DOCTYPE declarations stay allowed because real
+     * TBX files commonly carry one, but their external DTD is neither fetched nor required.
+     */
+    private static DocumentBuilderFactory newSecureDocumentBuilderFactory() throws ParserConfigurationException {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        setFeatureIfSupported(dbf, XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        setFeatureIfSupported(dbf, "http://xml.org/sax/features/external-general-entities", false);
+        setFeatureIfSupported(dbf, "http://xml.org/sax/features/external-parameter-entities", false);
+        setFeatureIfSupported(dbf, "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        dbf.setXIncludeAware(false);
+        dbf.setExpandEntityReferences(false);
+        return dbf;
+    }
+
+    private static void setFeatureIfSupported(DocumentBuilderFactory dbf, String feature, boolean value) {
+        try {
+            dbf.setFeature(feature, value);
+        } catch (ParserConfigurationException | RuntimeException e) {
+            // Feature not known to this JAXP implementation; the others still apply.
+        }
+    }
+
+    private static TransformerFactory newSecureTransformerFactory() {
+        TransformerFactory tf = TransformerFactory.newInstance();
+        try {
+            tf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        } catch (Exception e) {
+            // Not supported by this implementation.
+        }
+        try {
+            tf.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            tf.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+        } catch (IllegalArgumentException e) {
+            // JAXP 1.5 attributes not supported by this implementation.
+        }
+        return tf;
+    }
+
     public static List<TermEntry> loadTerms(TermbaseConfig config) {
         List<TermEntry> terms = new ArrayList<>();
         String filePath = config.getFilePath();
 
         try {
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilderFactory dbf = newSecureDocumentBuilderFactory();
             dbf.setNamespaceAware(false);
             DocumentBuilder builder = dbf.newDocumentBuilder();
             Document doc = builder.parse(new File(filePath));
@@ -89,7 +131,7 @@ public class TbxTermbaseHandler {
         String filePath = config.getFilePath();
 
         try {
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilderFactory dbf = newSecureDocumentBuilderFactory();
             dbf.setNamespaceAware(false);
             DocumentBuilder builder = dbf.newDocumentBuilder();
             Document doc = builder.parse(new File(filePath));
@@ -133,7 +175,7 @@ public class TbxTermbaseHandler {
                 body.appendChild(termEntry);
             }
 
-            TransformerFactory tf = TransformerFactory.newInstance();
+            TransformerFactory tf = newSecureTransformerFactory();
             Transformer transformer = tf.newTransformer();
             transformer.setOutputProperty("indent", "yes");
             DOMSource source = new DOMSource(doc);

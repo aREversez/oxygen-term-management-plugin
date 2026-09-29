@@ -170,4 +170,55 @@ class TbxTermbaseHandlerTest {
             tempDir.resolve("nonexistent.tbx").toString(), Format.TBX, true);
         assertThrows(RuntimeException.class, () -> TbxTermbaseHandler.loadTerms(config));
     }
+
+    @Test
+    void loadTerms_shouldNotExpandExternalEntities() throws Exception {
+        Path secret = tempDir.resolve("secret.txt");
+        Files.writeString(secret, "TOPSECRET-CONTENT");
+        Path file = tempDir.resolve("xxe.tbx");
+        String xml =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<!DOCTYPE martif [<!ENTITY xxe SYSTEM \"" + secret.toUri() + "\">]>\n"
+            + "<martif type=\"TBX\">\n"
+            + "  <body>\n"
+            + "    <termEntry id=\"tid1\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>&xxe;</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>hello</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n"
+            + "</martif>";
+        Files.writeString(file, xml);
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+
+        for (TermEntry e : loaded) {
+            assertFalse(String.valueOf(e.getSourceTerm()).contains("TOPSECRET"));
+            assertFalse(String.valueOf(e.getTargetTerm()).contains("TOPSECRET"));
+        }
+    }
+
+    @Test
+    void loadTerms_shouldLoadFileWithUnreachableExternalDtd() throws Exception {
+        Path file = tempDir.resolve("doctype.tbx");
+        String xml =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<!DOCTYPE martif SYSTEM \"file:///nonexistent/TBXcoreStructV02.dtd\">\n"
+            + "<martif type=\"TBX\">\n"
+            + "  <body>\n"
+            + "    <termEntry id=\"tid1\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>你好</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>hello</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n"
+            + "</martif>";
+        Files.writeString(file, xml);
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+
+        assertEquals(1, loaded.size());
+        assertEquals("你好", loaded.get(0).getSourceTerm());
+        assertEquals("hello", loaded.get(0).getTargetTerm());
+    }
 }
