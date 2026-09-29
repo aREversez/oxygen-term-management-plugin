@@ -155,9 +155,10 @@ public class TbxTermbaseHandler {
             String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-CN";
             String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-US";
 
-            for (TermEntry entry : terms) {
+            for (int i = 0; i < terms.size(); i++) {
+                TermEntry entry = terms.get(i);
                 Element termEntry = doc.createElement("termEntry");
-                termEntry.setAttribute("id", "tid" + (terms.indexOf(entry) + 1));
+                termEntry.setAttribute("id", "tid" + (i + 1));
 
                 Element langSetSource = doc.createElement("langSet");
                 langSetSource.setAttribute("xml:lang", sourceLang);

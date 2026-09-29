@@ -252,4 +252,20 @@ class TbxTermbaseHandlerTest {
         assertEquals("你好", reloaded.get(0).getSourceTerm());
         assertEquals("世界", reloaded.get(1).getSourceTerm());
     }
+
+    @Test
+    void saveTerms_shouldAssignSequentialUniqueIds() throws Exception {
+        Path file = tempDir.resolve("ids.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\"><text><body/></text></martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+        TermEntry shared = new TermEntry("a", "A");
+
+        TbxTermbaseHandler.saveTerms(config, List.of(shared, new TermEntry("b", "B"), shared));
+
+        String saved = Files.readString(file);
+        for (String id : new String[]{"tid1", "tid2", "tid3"}) {
+            assertEquals(1, saved.split("id=\"" + id + "\"", -1).length - 1, id);
+        }
+    }
 }
