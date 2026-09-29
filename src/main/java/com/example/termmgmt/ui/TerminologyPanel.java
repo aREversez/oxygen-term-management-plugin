@@ -608,10 +608,10 @@ public class TerminologyPanel extends JPanel {
                 undoConfig = config;
                 undoButton.setEnabled(true);
 
-                // Delete in reverse order to maintain indices
-                for (int i = selectedRows.length - 1; i >= 0; i--) {
-                    int modelRow = termTable.convertRowIndexToModel(selectedRows[i]);
-                    if (modelRow >= 0 && modelRow < terms.size()) {
+                // Convert to model rows first, then delete from the highest model index
+                // down. Reverse view order is not reverse model order on a sorted table.
+                for (int modelRow : TableRowUtils.toModelRowsDescending(termTable, selectedRows)) {
+                    if (modelRow < terms.size()) {
                         terms.remove(modelRow);
                     }
                 }

@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class TableRowUtilsTest {
@@ -84,5 +85,49 @@ class TableRowUtilsTest {
         assertEquals("B", terms.get(0).getTargetTerm());
         assertEquals("A-edited", terms.get(1).getTargetTerm());
         assertEquals("C", terms.get(2).getTargetTerm());
+    }
+
+    @Test
+    void toModelRowsDescending_returnsDistinctModelRowsHighestFirst() {
+        sorter.setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
+        // View: a(m1), b(m0), c(m2)
+        assertArrayEquals(new int[]{2, 1, 0}, TableRowUtils.toModelRowsDescending(table, new int[]{0, 1, 2}));
+        assertArrayEquals(new int[]{1, 0}, TableRowUtils.toModelRowsDescending(table, new int[]{0, 1}));
+        assertArrayEquals(new int[]{1}, TableRowUtils.toModelRowsDescending(table, new int[]{0, 0}));
+    }
+
+    @Test
+    void toModelRowsDescending_dropsInvalidRowsAndHandlesEmpty() {
+        assertArrayEquals(new int[]{}, TableRowUtils.toModelRowsDescending(table, new int[]{}));
+        assertArrayEquals(new int[]{2, 0}, TableRowUtils.toModelRowsDescending(table, new int[]{-1, 0, 2, 7}));
+    }
+
+    /** Mirrors what TerminologyPanel.deleteTerms() does with the selected rows. */
+    @Test
+    void deletingSelectedRows_whenSorted_removesExactlyTheSelectedEntries() {
+        sorter.setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
+        table.setRowSelectionInterval(0, 1); // user selects "a" and "b"
+
+        for (int modelRow : TableRowUtils.toModelRowsDescending(table, table.getSelectedRows())) {
+            terms.remove(modelRow);
+        }
+
+        assertEquals(1, terms.size());
+        assertEquals("c", terms.get(0).getSourceTerm());
+    }
+
+    @Test
+    void deletingSelectedRows_whenFilteredAndNonContiguous_removesExactlyTheSelectedEntries() {
+        sorter.setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.DESCENDING)));
+        // View: c(m2), b(m0), a(m1); select c and a (view rows 0 and 2)
+        table.setRowSelectionInterval(0, 0);
+        table.addRowSelectionInterval(2, 2);
+
+        for (int modelRow : TableRowUtils.toModelRowsDescending(table, table.getSelectedRows())) {
+            terms.remove(modelRow);
+        }
+
+        assertEquals(1, terms.size());
+        assertEquals("b", terms.get(0).getSourceTerm());
     }
 }
