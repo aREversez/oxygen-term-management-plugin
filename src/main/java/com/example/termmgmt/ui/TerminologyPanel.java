@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.text.Collator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.UnaryOperator;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -454,15 +455,10 @@ public class TerminologyPanel extends JPanel {
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
             if (!checkDuplicateInCurrentTerms(newTerm)) return;
-            try {
-                List<TermEntry> terms = registry.getTerms(config);
+            updateAndReloadAsync(config, terms -> {
                 terms.add(newTerm);
-                saveAndReloadAsync(config, terms);
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(this,
-                    I18N.getString("msg.failed.save.term", e.getMessage()),
-                    I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-            }
+                return terms;
+            });
         }
     }
 
@@ -507,15 +503,10 @@ public class TerminologyPanel extends JPanel {
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
             if (!checkDuplicateInCurrentTerms(newTerm)) return;
-            try {
-                List<TermEntry> terms = registry.getTerms(config);
+            updateAndReloadAsync(config, terms -> {
                 terms.add(newTerm);
-                saveAndReloadAsync(config, terms);
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(this,
-                    I18N.getString("msg.failed.save.term", e.getMessage()),
-                    I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-            }
+                return terms;
+            });
         }
     }
 
@@ -710,6 +701,24 @@ public class TerminologyPanel extends JPanel {
             }
             return false;
         }
+    }
+
+    /**
+     * Apply a change to the termbase's latest contents on the registry's writer thread, then
+     * refresh the table. The change is described by {@code mutator} instead of passing a full
+     * list taken earlier, so it is applied on top of any change queued before it rather than
+     * overwriting it.
+     */
+    private void updateAndReloadAsync(TermbaseConfig config, UnaryOperator<List<TermEntry>> mutator) {
+        registry.updateTermsAsync(config, mutator).whenComplete((ignored, error) ->
+            SwingUtilities.invokeLater(() -> {
+                if (error == null) {
+                    loadTermbaseTerms();
+                } else {
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        getFileLockedMessage(error), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                }
+            }));
     }
 
     private void saveAndReloadAsync(TermbaseConfig config, List<TermEntry> terms) {
