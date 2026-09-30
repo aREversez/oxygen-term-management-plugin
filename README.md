@@ -80,9 +80,9 @@ When text is selected in the editor, right-click to access the **Term Management
 - Configurations are persisted via Oxygen's `WSOptionsStorage` as a JSON string (serialized with Gson)
 
 ### Term Entry Dialog
-- Source term (required) and target term fields
+- Source term (required) and target term (required) fields
 - **Enter** to confirm, **ESC** to cancel
-- Validation: source term cannot be empty
+- Validation: neither source term nor target term can be empty
 
 ## Requirements
 
