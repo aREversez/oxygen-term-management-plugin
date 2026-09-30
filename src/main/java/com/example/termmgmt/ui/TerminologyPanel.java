@@ -3,6 +3,7 @@ package com.example.termmgmt.ui;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
+import com.example.termmgmt.util.FileAccessUtils;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 import com.example.termmgmt.util.TableRowUtils;
@@ -28,8 +29,6 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.text.Collator;
 import java.util.ArrayList;
 import java.util.List;
@@ -697,22 +696,20 @@ public class TerminologyPanel extends JPanel {
     }
 
     private boolean checkFileAccess(TermbaseConfig config) {
-        File file = new File(config.getFilePath());
-        if (!file.exists()) return true;
-        try (FileOutputStream fos = new FileOutputStream(file, true)) {
-            return true;
-        } catch (IOException e) {
-            String msg = e.getMessage();
-            if (msg != null && msg.toLowerCase().contains("being used by another process")) {
-            JOptionPane.showMessageDialog(this,
-                I18N.getString("msg.file.locked"),
-                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-        } else {
-            JOptionPane.showMessageDialog(this,
-                I18N.getString("msg.cannot.access.file", msg),
-                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-            }
-            return false;
+        FileAccessUtils.Result result = FileAccessUtils.probeWritable(config.getFilePath());
+        switch (result.status) {
+            case OK:
+                return true;
+            case LOCKED:
+                JOptionPane.showMessageDialog(this,
+                    I18N.getString("msg.file.locked"),
+                    I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                return false;
+            default:
+                JOptionPane.showMessageDialog(this,
+                    I18N.getString("msg.cannot.access.file", result.detail),
+                    I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                return false;
         }
     }
 
