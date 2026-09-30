@@ -22,6 +22,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 import java.util.Locale;
@@ -221,6 +224,15 @@ public class TermbaseRegistry {
 
     private final Map<String, Object> fileLocks = new HashMap<>();
 
+    // Runs updateTermsAsync() tasks strictly in submission order. A SwingWorker pool gives no
+    // ordering guarantee, so two quick edits of the same entry could otherwise be applied in
+    // reverse order and the later one dropped as "entry not found".
+    private final ExecutorService writer = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "term-writer");
+        t.setDaemon(true);
+        return t;
+    });
+
     private synchronized Object fileLock(String filePath) {
         return fileLocks.computeIfAbsent(filePath, k -> new Object());
     }
@@ -281,6 +293,16 @@ public class TermbaseRegistry {
      * The mutator runs while the file lock is held; it must not block or call back into
      * operations on this termbase. It receives a private copy, and returns the list to save.
      */
+    /**
+     * Queue {@link #updateTerms} on a single background writer. Updates run in the order in
+     * which they were submitted, so call this on the thread where the user's actions happen
+     * (the EDT) to have them applied in that order. The returned future completes
+     * exceptionally if the update fails; nothing is written in that case.
+     */
+    public CompletableFuture<Void> updateTermsAsync(TermbaseConfig config, UnaryOperator<List<TermEntry>> mutator) {
+        return CompletableFuture.runAsync(() -> updateTerms(config, mutator), writer);
+    }
+
     public void updateTerms(TermbaseConfig config, UnaryOperator<List<TermEntry>> mutator) {
         String filePath = config.getFilePath();
         synchronized (fileLock(filePath)) {
