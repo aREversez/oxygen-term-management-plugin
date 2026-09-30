@@ -21,6 +21,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 import java.util.Locale;
 
@@ -209,14 +211,28 @@ public class TermbaseRegistry {
 
     // Thread safety: termCache, sourceIndex and patternCache are shared between the EDT and
     // SwingWorker threads, so every access goes through this object's monitor. File I/O is
-    // deliberately done outside the lock so a slow disk never blocks readers, and listeners
-    // are notified outside the lock.
+    // deliberately done outside that monitor so a slow disk never blocks readers, and
+    // listeners are notified outside it.
+    //
+    // Reading, writing and read-modify-write of one termbase file are additionally serialized
+    // per file path (fileLock), so two edits made in quick succession each build on the
+    // result of the previous one instead of overwriting it, and a reload never reads a file
+    // that is half written. Lock order is always fileLock -> registry monitor.
+
+    private final Map<String, Object> fileLocks = new HashMap<>();
+
+    private synchronized Object fileLock(String filePath) {
+        return fileLocks.computeIfAbsent(filePath, k -> new Object());
+    }
 
     public List<TermEntry> loadTerms(TermbaseConfig config) {
-        List<TermEntry> terms = TermbaseLoader.loadTerms(config);
-        synchronized (this) {
-            termCache.put(config.getFilePath(), terms);
-            rebuildSourceIndex();
+        List<TermEntry> terms;
+        synchronized (fileLock(config.getFilePath())) {
+            terms = TermbaseLoader.loadTerms(config);
+            synchronized (this) {
+                termCache.put(config.getFilePath(), terms);
+                rebuildSourceIndex();
+            }
         }
         return terms;
     }
@@ -228,25 +244,60 @@ public class TermbaseRegistry {
                 return new ArrayList<>(cached);
             }
         }
-        List<TermEntry> terms = TermbaseLoader.loadTerms(config);
-        synchronized (this) {
-            // Another thread may have populated the cache (e.g. saved newer terms) while we
-            // were reading the file; keep that state instead of overwriting it with ours.
-            List<TermEntry> cached = termCache.get(config.getFilePath());
-            if (cached != null) {
-                return new ArrayList<>(cached);
+        synchronized (fileLock(config.getFilePath())) {
+            synchronized (this) {
+                // Populated by another thread (e.g. a save) while we waited for the file lock.
+                List<TermEntry> cached = termCache.get(config.getFilePath());
+                if (cached != null) {
+                    return new ArrayList<>(cached);
+                }
             }
-            termCache.put(config.getFilePath(), new ArrayList<>(terms));
-            rebuildSourceIndex();
+            List<TermEntry> terms = TermbaseLoader.loadTerms(config);
+            synchronized (this) {
+                termCache.put(config.getFilePath(), new ArrayList<>(terms));
+                rebuildSourceIndex();
+            }
+            return terms;
         }
-        return terms;
     }
 
     public void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
-        TermbaseLoader.saveTerms(config, terms);
-        synchronized (this) {
-            termCache.put(config.getFilePath(), new ArrayList<>(terms));
-            rebuildSourceIndex();
+        synchronized (fileLock(config.getFilePath())) {
+            TermbaseLoader.saveTerms(config, terms);
+            synchronized (this) {
+                termCache.put(config.getFilePath(), new ArrayList<>(terms));
+                rebuildSourceIndex();
+            }
+        }
+        fireTermsChanged();
+    }
+
+    /**
+     * Atomically read the latest terms of a termbase, apply {@code mutator} to a copy and
+     * write the result. Use this instead of getTerms() + saveTerms() for any change made to
+     * the current contents: the read-modify-write is serialized per file, so concurrent
+     * changes are applied one after the other and none is lost.
+     *
+     * The mutator runs while the file lock is held; it must not block or call back into
+     * operations on this termbase. It receives a private copy, and returns the list to save.
+     */
+    public void updateTerms(TermbaseConfig config, UnaryOperator<List<TermEntry>> mutator) {
+        String filePath = config.getFilePath();
+        synchronized (fileLock(filePath)) {
+            List<TermEntry> current;
+            synchronized (this) {
+                List<TermEntry> cached = termCache.get(filePath);
+                current = cached != null ? new ArrayList<>(cached) : null;
+            }
+            if (current == null) {
+                current = new ArrayList<>(TermbaseLoader.loadTerms(config));
+            }
+            List<TermEntry> updated = Objects.requireNonNull(mutator.apply(current), "mutator returned null");
+            TermbaseLoader.saveTerms(config, updated);
+            synchronized (this) {
+                termCache.put(filePath, new ArrayList<>(updated));
+                rebuildSourceIndex();
+            }
         }
         fireTermsChanged();
     }
