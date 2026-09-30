@@ -13,7 +13,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
-import javax.swing.SwingWorker;
+import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.text.JTextComponent;
 
@@ -347,32 +347,19 @@ public class TermContextMenuInstaller {
                     .getConfigByFilePath(target.getSourceFilePath());
                 if (config == null) return;
 
-                List<TermEntry> terms = TermbaseRegistry.getInstance().getTerms(config);
-                int idx = TermEntryUtils.indexOfEntry(terms, target);
-                if (idx >= 0) {
-                    terms.set(idx, updated);
-                }
-                TermbaseConfig captured = config;
-                List<TermEntry> capturedTerms = terms;
-                new SwingWorker<Void, Void>() {
-                    @Override
-                    protected Void doInBackground() throws Exception {
-                        TermbaseRegistry.getInstance().saveTerms(captured, capturedTerms);
-                        return null;
+                TermbaseRegistry.getInstance().updateTermsAsync(config, terms -> {
+                    TermEntryUtils.replaceEntry(terms, target, updated);
+                    return terms;
+                }).whenComplete((ignored, error) -> {
+                    if (error != null) {
+                        SwingUtilities.invokeLater(() -> {
+                            System.err.println("Failed to edit term: " + error.getMessage());
+                            JOptionPane.showMessageDialog(null,
+                                I18N.getString("msg.failed.save.edited.term", error.getMessage()),
+                                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                        });
                     }
-
-                    @Override
-                    protected void done() {
-        try {
-            get();
-        } catch (Exception e) {
-            System.err.println("Failed to edit term: " + e.getMessage());
-            JOptionPane.showMessageDialog(null,
-                I18N.getString("msg.failed.save.edited.term", e.getMessage()),
-                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-        }
-                    }
-                }.execute();
+                });
             }
         } catch (Exception e) {
             System.err.println("Failed to prepare term edit: " + e.getMessage());
