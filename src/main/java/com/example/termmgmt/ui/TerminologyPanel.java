@@ -147,19 +147,29 @@ public class TerminologyPanel extends JPanel {
             public void setValueAt(Object value, int row, int column) {
                 super.setValueAt(value, row, column);
                 if (currentConfig == null || row >= currentTerms.size()) return;
-                TermEntry entry = currentTerms.get(row);
+                TermbaseConfig config = currentConfig;
+                TermEntry original = currentTerms.get(row);
+                // Replace the entry instead of mutating it: the original object is shared with
+                // the registry's cache and is how the queued write finds it.
+                TermEntry edited = new TermEntry(original.getSourceTerm(), original.getTargetTerm());
                 if (column == 0) {
-                    entry.setSourceTerm((String) value);
+                    edited.setSourceTerm((String) value);
                 } else if (column == 1) {
-                    entry.setTargetTerm((String) value);
+                    edited.setTargetTerm((String) value);
                 }
-                try {
-                    registry.saveTerms(currentConfig, currentTerms);
-                } catch (Exception ex) {
-                    String message = getFileLockedMessage(ex);
-                    JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-                }
+                currentTerms.set(row, edited);
+                registry.updateTermsAsync(config, terms -> {
+                    TermEntryUtils.replaceEntry(terms, original, edited);
+                    return terms;
+                }).whenComplete((ignored, error) -> {
+                    if (error != null) {
+                        SwingUtilities.invokeLater(() -> {
+                            JOptionPane.showMessageDialog(TerminologyPanel.this,
+                                getFileLockedMessage(error), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                            loadTermbaseTerms(); // nothing was written: show what is really stored
+                        });
+                    }
+                });
             }
         };
         termTable = new JTable(tableModel);
