@@ -92,9 +92,9 @@ When text is selected in the editor, right-click to access the **Term Management
 
 ## Build
 
-1. Copy `oxygen.jar` from your Oxygen XML Editor installation directory (`lib/oxygen.jar`) to `libs/`:
+1. Copy `oxygen.jar` from your Oxygen XML Editor installation directory (`lib/oxygen.jar`) into the project-local Maven repository, renaming it to match the artifact coordinates:
    ```bash
-   cp <OXYGEN_HOME>/lib/oxygen.jar libs/
+   cp <OXYGEN_HOME>/lib/oxygen.jar repo/ro/sync/oxygen-sdk/27.1/oxygen-sdk-27.1.jar
    ```
 2. Build the plugin:
    ```bash
@@ -244,9 +244,9 @@ term-management/
 - Oxygen XML Editor 27+ (for SDK JARs and testing)
 
 ### Building
-1. Copy `oxygen.jar` from your Oxygen XML Editor installation directory (`lib/oxygen.jar`) to `libs/`:
+1. Copy `oxygen.jar` from your Oxygen XML Editor installation directory (`lib/oxygen.jar`) into the project-local Maven repository, renaming it to match the artifact coordinates:
    ```bash
-   cp <OXYGEN_HOME>/lib/oxygen.jar libs/
+   cp <OXYGEN_HOME>/lib/oxygen.jar repo/ro/sync/oxygen-sdk/27.1/oxygen-sdk-27.1.jar
    ```
 2. Build the plugin:
    ```bash
@@ -268,7 +268,7 @@ Note: `mvn test` runs tests only and does not produce a plugin package — use `
 3. Run Maven `package` goal to verify the build.
 
 ### Adding Oxygen SDK Dependencies
-The Oxygen SDK JARs (`oxygen.jar`, etc.) are included in `libs/` and are referenced from the local Maven repository. Refer to `pom.xml` for the repository configuration.
+The Oxygen SDK is resolved from a project-local file repository under `repo/` (groupId `ro.sync`, artifactId `oxygen-sdk`). Place your `oxygen.jar` there as `repo/ro/sync/oxygen-sdk/<version>/oxygen-sdk-<version>.jar`. Refer to `pom.xml` for the repository configuration.
 
 ## License
 

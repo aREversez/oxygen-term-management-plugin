@@ -87,9 +87,9 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 
 ## 构建
 
-1. 从您的 Oxygen XML Editor 安装目录复制 `oxygen.jar` 到 `libs/`：
+1. 从您的 Oxygen XML Editor 安装目录复制 `oxygen.jar` 到项目内置的本地 Maven 仓库，并按构件坐标重命名：
    ```bash
-   cp <OXYGEN_HOME>/lib/oxygen.jar libs/
+   cp <OXYGEN_HOME>/lib/oxygen.jar repo/ro/sync/oxygen-sdk/27.1/oxygen-sdk-27.1.jar
    ```
 2. 构建插件：
    ```bash
@@ -239,9 +239,9 @@ term-management/
 - Oxygen XML Editor 27+（用于 SDK JAR 和测试）
 
 ### 构建
-1. 从您的 Oxygen XML Editor 安装目录复制 `oxygen.jar` 到 `libs/`：
+1. 从您的 Oxygen XML Editor 安装目录复制 `oxygen.jar` 到项目内置的本地 Maven 仓库，并按构件坐标重命名：
    ```bash
-   cp <OXYGEN_HOME>/lib/oxygen.jar libs/
+   cp <OXYGEN_HOME>/lib/oxygen.jar repo/ro/sync/oxygen-sdk/27.1/oxygen-sdk-27.1.jar
    ```
 2. 构建插件：
    ```bash
@@ -263,7 +263,7 @@ mvn test
 3. 运行 Maven `package` 目标验证构建。
 
 ### 添加 Oxygen SDK 依赖
-Oxygen SDK JAR（`oxygen.jar` 等）位于 `libs/` 目录，通过本地 Maven 仓库引用。仓库配置请参见 `pom.xml`。
+Oxygen SDK 从项目内置的文件仓库 `repo/` 解析（groupId `ro.sync`，artifactId `oxygen-sdk`）。请将您的 `oxygen.jar` 放置为 `repo/ro/sync/oxygen-sdk/<版本>/oxygen-sdk-<版本>.jar`。仓库配置请参见 `pom.xml`。
 
 ## 许可
 

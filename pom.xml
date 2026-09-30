@@ -12,11 +12,23 @@
     <name>Term Management</name>
     <description>Oxygen XML Editor plugin for terminology management and translation assistance</description>
 
+    <repositories>
+        <!-- Project-local file repository holding the Oxygen SDK (repo/ro/sync/oxygen-sdk). -->
+        <repository>
+            <id>project-local</id>
+            <url>${project.baseUri}repo</url>
+            <!-- Locally placed jars have no checksums; skip integrity checks. -->
+            <releases><enabled>true</enabled><checksumPolicy>ignore</checksumPolicy></releases>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+    </repositories>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <oxygen.version>27</oxygen.version>
+        <oxygen.sdk.version>27.1</oxygen.sdk.version>
     </properties>
 
     <dependencies>
@@ -197,9 +209,10 @@
                 <dependency>
                     <groupId>ro.sync</groupId>
                     <artifactId>oxygen-sdk</artifactId>
-                    <version>27.1</version>
-                    <scope>system</scope>
-                    <systemPath>${project.basedir}/libs/oxygen.jar</systemPath>
+                    <version>${oxygen.sdk.version}</version>
+                    <!-- Provided by Oxygen XML Editor at runtime; resolved from the -->
+                    <!-- project-local file repository under repo/ (see <repositories>). -->
+                    <scope>provided</scope>
                 </dependency>
             </dependencies>
         </profile>

@@ -36,7 +36,7 @@ tmp/
 temp/
 
 # sdk
-libs/oxygen.jar
+repo/ro/sync/oxygen-sdk/
 
 # Else
 RELEASE_NOTES.md
