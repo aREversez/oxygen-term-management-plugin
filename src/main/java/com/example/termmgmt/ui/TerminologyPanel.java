@@ -6,6 +6,7 @@ import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 import com.example.termmgmt.util.TableRowUtils;
+import com.example.termmgmt.util.TermEntryUtils;
 
 import ro.sync.exml.workspace.api.PluginWorkspace;
 import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
@@ -547,21 +548,20 @@ public class TerminologyPanel extends JPanel {
         String targetTerm = (String) tableModel.getValueAt(modelRow, 1);
 
         TermEntry existingTerm = new TermEntry(sourceTerm, targetTerm);
+        // The entry being edited, captured before the dialog: the write is applied to the list
+        // as it is when it runs, so the entry is located by identity, not by its row.
+        TermEntry original = modelRow < currentTerms.size()
+            ? currentTerms.get(modelRow) : new TermEntry(sourceTerm, targetTerm);
 
         TermEntryDialog dialog = new TermEntryDialog(I18N.getString("dlg.edit.term"), existingTerm);
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
-            try {
-                List<TermEntry> terms = registry.getTerms(config);
-                terms.set(modelRow, newTerm);
-                saveAndReloadAsync(config, terms);
-            } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                I18N.getString("msg.failed.save.edited.term", e.getMessage()),
-                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-            }
+            updateAndReloadAsync(config, terms -> {
+                TermEntryUtils.replaceEntry(terms, original, newTerm);
+                return terms;
+            });
         }
     }
 
@@ -593,20 +593,23 @@ public class TerminologyPanel extends JPanel {
 
         if (confirm == JOptionPane.OK_OPTION) {
             try {
-                List<TermEntry> terms = registry.getTerms(config);
                 // Save undo snapshot before modifying
-                undoSnapshot = new ArrayList<>(terms);
+                undoSnapshot = new ArrayList<>(registry.getTerms(config));
                 undoConfig = config;
                 undoButton.setEnabled(true);
 
-                // Convert to model rows first, then delete from the highest model index
-                // down. Reverse view order is not reverse model order on a sorted table.
+                // Identify the selected entries, not their rows: the delete is applied to the
+                // list as it is when it runs, which may already contain other changes.
+                List<TermEntry> selected = new ArrayList<>();
                 for (int modelRow : TableRowUtils.toModelRowsDescending(termTable, selectedRows)) {
-                    if (modelRow < terms.size()) {
-                        terms.remove(modelRow);
+                    if (modelRow < currentTerms.size()) {
+                        selected.add(currentTerms.get(modelRow));
                     }
                 }
-                saveAndReloadAsync(config, terms);
+                updateAndReloadAsync(config, terms -> {
+                    TermEntryUtils.removeEntries(terms, selected);
+                    return terms;
+                });
             } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
                 I18N.getString("msg.failed.delete.terms", e.getMessage()),
@@ -719,28 +722,6 @@ public class TerminologyPanel extends JPanel {
                         getFileLockedMessage(error), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 }
             }));
-    }
-
-    private void saveAndReloadAsync(TermbaseConfig config, List<TermEntry> terms) {
-        new SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() throws Exception {
-                registry.saveTerms(config, terms);
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    get();
-                    loadTermbaseTerms();
-                } catch (Exception e) {
-                    String message = getFileLockedMessage(e);
-                    JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }.execute();
     }
 
     private void reloadAsync(TermbaseConfig config) {
