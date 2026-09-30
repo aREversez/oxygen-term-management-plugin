@@ -28,7 +28,6 @@ import javax.swing.RowFilter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.File;
 import java.text.Collator;
 import java.util.ArrayList;
 import java.util.List;
@@ -164,7 +163,7 @@ public class TerminologyPanel extends JPanel {
                     if (error != null) {
                         SwingUtilities.invokeLater(() -> {
                             JOptionPane.showMessageDialog(TerminologyPanel.this,
-                                getFileLockedMessage(error), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                                getFileLockedMessage(error, config), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                             loadTermbaseTerms(); // nothing was written: show what is really stored
                         });
                     }
@@ -397,7 +396,7 @@ public class TerminologyPanel extends JPanel {
                         I18N.getString("msg.reload.success", captured.getFileName()),
                         I18N.getString("msg.success"), JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception e) {
-                    String message = getFileLockedMessage(e);
+                    String message = getFileLockedMessage(e, captured);
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
                         I18N.getString("msg.failed.reload", message),
                         I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
@@ -658,7 +657,7 @@ public class TerminologyPanel extends JPanel {
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
                         I18N.getString("msg.delete.undone"), I18N.getString("btn.undo"), JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception e) {
-                    String message = getFileLockedMessage(e);
+                    String message = getFileLockedMessage(e, config);
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
                         message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 }
@@ -726,7 +725,7 @@ public class TerminologyPanel extends JPanel {
                     loadTermbaseTerms();
                 } else {
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        getFileLockedMessage(error), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                        getFileLockedMessage(error, config), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                 }
             }));
     }
@@ -745,7 +744,7 @@ public class TerminologyPanel extends JPanel {
                     get();
                     loadTermbaseTerms();
                 } catch (Exception e) {
-                    String message = getFileLockedMessage(e);
+                    String message = getFileLockedMessage(e, config);
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
                         I18N.getString("msg.failed.reload", message),
                         I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
@@ -758,16 +757,17 @@ public class TerminologyPanel extends JPanel {
         try {
             registry.saveTerms(config, terms);
         } catch (Exception ex) {
-            String message = getFileLockedMessage(ex);
+            String message = getFileLockedMessage(ex, config);
             JOptionPane.showMessageDialog(this, message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
-    private String getFileLockedMessage(Throwable ex) {
-        String msg = ex.getMessage();
-        if (msg != null && msg.toLowerCase().contains("being used by another process")) {
-            return I18N.getString("msg.file.locked.xlsx");
+    private String getFileLockedMessage(Throwable ex, TermbaseConfig config) {
+        if (FileAccessUtils.isLockFailure(ex, config.getFilePath())) {
+            return I18N.getString(config.getFormat() == TermbaseConfig.Format.XLSX
+                ? "msg.file.locked.xlsx" : "msg.file.locked");
         }
+        String msg = ex.getMessage();
         return I18N.getString("msg.failed.save.termbase.generic", msg != null ? msg : "Unknown error");
     }
 
