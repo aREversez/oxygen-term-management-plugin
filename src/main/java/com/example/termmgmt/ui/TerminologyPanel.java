@@ -148,8 +148,9 @@ public class TerminologyPanel extends JPanel {
                 TermbaseConfig config = currentConfig;
                 TermEntry original = currentTerms.get(row);
                 // Replace the entry instead of mutating it: the original object is shared with
-                // the registry's cache and is how the queued write finds it.
-                TermEntry edited = new TermEntry(original.getSourceTerm(), original.getTargetTerm());
+                // the registry's cache and is how the queued write finds it. The deep copy
+                // carries extra columns and the TBX id through the edit.
+                TermEntry edited = original.copy();
                 if (column == 0) {
                     edited.setSourceTerm((String) value);
                 } else if (column == 1) {
@@ -565,11 +566,13 @@ public class TerminologyPanel extends JPanel {
         String sourceTerm = (String) tableModel.getValueAt(modelRow, 0);
         String targetTerm = (String) tableModel.getValueAt(modelRow, 1);
 
-        TermEntry existingTerm = new TermEntry(sourceTerm, targetTerm);
         // The entry being edited, captured before the dialog: the write is applied to the list
         // as it is when it runs, so the entry is located by identity, not by its row.
         TermEntry original = modelRow < currentTerms.size()
             ? currentTerms.get(modelRow) : new TermEntry(sourceTerm, targetTerm);
+        // Edit a deep copy so the dialog round-trip never drops extra columns or the TBX id;
+        // the dialog mutates this instance and getTermEntry() hands it back.
+        TermEntry existingTerm = original.copy();
 
         TermEntryDialog dialog = new TermEntryDialog(I18N.getString("dlg.edit.term"), existingTerm);
         dialog.setVisible(true);

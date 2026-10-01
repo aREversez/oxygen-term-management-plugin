@@ -3,6 +3,13 @@
 All notable changes to the Term Management plugin are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- `TermEntry` now carries unmapped data through edits: `extraFields` for columns beyond source/target (CSV/XLSX) and unmapped TBX fields, and `entryId` for the TBX `termEntry` id. `TermEntry.copy()` deep-copies both, and the panel and context-menu edit paths use it instead of rebuilding an entry from its two visible columns.
+- `TermbaseConfig.extraColumns` remembers the header names from the third column on (runtime state, re-detected on load, never persisted).
+- New `AtomicFileWriter`: saves fill a temporary file in the target's directory and move it over the target when complete, so a failure half-way leaves the previous file untouched and no temporary file is left behind; a move blocked by another application is reported as "file in use".
+
 ## 1.0.12 - 2026-07-08
 
 ### Refactored

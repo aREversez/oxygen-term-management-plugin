@@ -1,6 +1,8 @@
 package com.example.termmgmt.model;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Represents a termbase configuration: its file path, detected format,
@@ -17,6 +19,11 @@ public class TermbaseConfig {
     private boolean enabled;
     private String sourceLang;
     private String targetLang;
+    /**
+     * Column headers from the third column on, as read from a CSV/XLSX header row.
+     * Runtime state only: re-detected on every load, never persisted.
+     */
+    private List<String> extraColumns = new ArrayList<>();
 
     public TermbaseConfig(String filePath, Format format, boolean enabled) {
         this.filePath = filePath;
@@ -64,6 +71,14 @@ public class TermbaseConfig {
 
     public void setTargetLang(String targetLang) {
         this.targetLang = targetLang;
+    }
+
+    public List<String> getExtraColumns() {
+        return extraColumns;
+    }
+
+    public void setExtraColumns(List<String> extraColumns) {
+        this.extraColumns = extraColumns != null ? extraColumns : new ArrayList<>();
     }
 
     /**

@@ -337,7 +337,9 @@ public class TermContextMenuInstaller {
     private static void editTermDirect(TermEntry target) {
         if (target == null) return;
         try {
-            TermEntry editCopy = new TermEntry(target.getSourceTerm(), target.getTargetTerm());
+            // Deep copy: the dialog mutates it and the result replaces the original in the
+            // registry, so extra columns and the TBX id must ride along on the copy.
+            TermEntry editCopy = target.copy();
             TermEntryDialog dialog = new TermEntryDialog(I18N.getString("dlg.edit.term"), editCopy);
             dialog.setVisible(true);
 
