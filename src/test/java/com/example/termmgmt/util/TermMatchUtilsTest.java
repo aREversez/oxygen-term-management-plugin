@@ -14,24 +14,44 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TermMatchUtilsTest {
 
+    /** The production matching contract: literal pattern hits filtered by the boundary rule. */
+    private static boolean matches(String term, String text) {
+        java.util.regex.Matcher m = TermMatchUtils.buildMatchPattern(term).matcher(text);
+        while (m.find()) {
+            if (!TermMatchUtils.boundaryNeeded(term)
+                || TermMatchUtils.acceptAtBoundary(text, m.start(), m.end())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Test
     void buildMatchPattern_latinTermIsNotBlockedByAdjacentCjkCharacters() {
         // "使用FEA。": the old (?<![\p{L}]) counted Han as a letter, so FEA never matched
         // in mixed CJK/Latin text, which CAE documents are full of.
-        java.util.regex.Pattern p = TermMatchUtils.buildMatchPattern("FEA");
-        assertTrue(p.matcher("使用FEA。").find());
-        assertTrue(p.matcher("FEA分析").find());
-        assertTrue(p.matcher("カタカナFEAです").find());
+        assertTrue(matches("FEA", "使用FEA。"));
+        assertTrue(matches("FEA", "FEA分析"));
+        assertTrue(matches("FEA", "カタカナFEAです"));
         // Adjacent digits keep working as before.
-        assertTrue(p.matcher("FEA2024 release").find());
+        assertTrue(matches("FEA", "FEA2024 release"));
     }
 
     @Test
     void buildMatchPattern_latinTermStillRejectsAdjacentLatinLetters() {
-        java.util.regex.Pattern p = TermMatchUtils.buildMatchPattern("FEA");
-        assertFalse(p.matcher("CafeFEA").find());
-        assertFalse(p.matcher("FEAx").find());
-        assertTrue(p.matcher("the FEA model").find());
+        assertFalse(matches("FEA", "CafeFEA"));
+        assertFalse(matches("FEA", "FEAx"));
+        assertTrue(matches("FEA", "the FEA model"));
+    }
+
+    @Test
+    void acceptAtBoundary_lettersOutsideTheBmpAreCaught() {
+        // A regex look-around only sees one UTF-16 code unit, so the surrogate half of
+        // U+1D400 MATHEMATICAL BOLD CAPITAL A slipped past it; code-point checks do not.
+        assertFalse(matches("FEA", "\uD835\uDC00FEA"));
+        assertFalse(matches("FEA", "FEA\uD835\uDC00"));
+        // U+1F600 is not a letter, so it must not block the match.
+        assertTrue(matches("FEA", "\uD83D\uDE00FEA"));
     }
 
     @Test
@@ -41,8 +61,10 @@ class TermMatchUtilsTest {
         assertTrue(TermMatchUtils.buildMatchPattern("FEA", true).matcher("FEA").find());
         // The single-argument overload keeps the historic case-insensitive behaviour.
         assertTrue(TermMatchUtils.buildMatchPattern("FEA").matcher("fea").find());
-        // Boundaries keep working with the flag on.
-        assertFalse(TermMatchUtils.buildMatchPattern("FEA", true).matcher("FEAx").find());
+        // Boundaries keep working with the flag on: the literal hits, the boundary rejects.
+        assertTrue(TermMatchUtils.buildMatchPattern("FEA", true).matcher("FEAx").find());
+        assertTrue(TermMatchUtils.boundaryNeeded("FEA"));
+        assertFalse(TermMatchUtils.acceptAtBoundary("FEAx", 0, 3));
     }
 
     private static Predicate<String> known(String... terms) {

@@ -20,6 +20,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Scans no longer bury a long term under its own fragments: when a shorter hit lies fully inside a longer one (e.g. 弯曲 and 刚度 within 弯曲刚度), only the longer hit is reported. Equal spans and partial overlaps are still reported separately.
 - A source term with several translations now lists every translation for the same occurrence; previously only the first one survived deduplication. Identical (source, translation, position) hits coming from two loaded termbases are still reported once.
 - Text-mode scans no longer report hits inside XML markup. Tags, attributes, comments, processing instructions and the DOCTYPE are blanked out before matching (at identical offsets), so a term that only occurs as an element name or attribute value is no longer flagged; text content, including CDATA content, is matched as before.
+- The word-boundary check now also rejects letters written outside the Basic Multilingual Plane (e.g. mathematical bold 𝐀 before `FEA`); a regex look-around only saw one UTF-16 code unit of such a letter and let the occurrence through.
+
+### Improved
+- Recognition scans are faster, not slower: the 20 000-term × 1 MB benchmark runs in about 140 s versus 261–272 s before the matching fixes (an intermediate per-position boundary regex had cost 966 s). The match pattern is now a plain literal and the word-boundary rule is checked in code per hit; compiled patterns are also reused across scans instead of being rebuilt for every panel refresh.
 
 ## 1.0.12 - 2026-07-08
 

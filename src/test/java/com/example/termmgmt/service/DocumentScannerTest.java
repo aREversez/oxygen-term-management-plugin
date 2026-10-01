@@ -185,6 +185,20 @@ class DocumentScannerTest {
     }
 
     @Test
+    void textMode_latinTermAdjacentToNonBmpLetter_isRejected() {
+        // U+1D400 MATHEMATICAL BOLD CAPITAL A is a letter outside the BMP. A regex
+        // lookbehind only inspects one UTF-16 code unit (a surrogate, category Cs),
+        // so boundary checks baked into the pattern let that prefix + FEA through; the
+        // code-point boundary check must not.
+        List<TermEntry> terms = List.of(new TermEntry("FEA", "有限要素法"));
+        List<ScanResult> results = scanner.scan("\uD835\uDC00FEA and FEA", terms, true, Collections.emptyList());
+
+        assertEquals(1, results.size());
+        // Only the standalone "FEA" survives: the 𝐀 prefix plus "FEA" plus " and " is 10 UTF-16 units.
+        assertEquals(10, results.get(0).startOffset);
+    }
+
+    @Test
     void longestMatch_containedShorterMatchesAreDropped() {
         // "计算弯曲刚度时": 弯曲 and 刚度 only ever occur inside 弯曲刚度 here, so the scan
         // must report the long term alone instead of three overlapping hits.
@@ -292,5 +306,21 @@ class DocumentScannerTest {
 
         assertEquals(1, results.size());
         assertEquals(text.indexOf("Table"), results.get(0).startOffset);
+    }
+
+    @Test
+    void patternReuse_caseSensitiveAndInsensitiveScansDoNotLeakIntoEachOther() {
+        // Both settings compile the same source term; a shared pattern cache must keep
+        // them strictly apart, in either call order and across scanner instances.
+        List<TermEntry> terms = List.of(new TermEntry("FEA", "有限要素法"));
+        String text = "FEA and fea";
+
+        assertEquals(1, scanner.scan(text, terms, true, Collections.emptyList(), true).size());
+        assertEquals(2, scanner.scan(text, terms, true, Collections.emptyList(), false).size());
+        assertEquals(1, new DocumentScanner().scan(text, terms, true, Collections.emptyList(), true).size());
+        assertEquals(2, new DocumentScanner().scan(text, terms, true, Collections.emptyList(), false).size());
+        // Author mode compiles the unescaped term and must not reuse the text-mode pattern.
+        List<int[]> fullCover = List.of(new int[]{0, 0, text.length()});
+        assertEquals(2, scanner.scan(text, terms, false, fullCover, false).size());
     }
 }

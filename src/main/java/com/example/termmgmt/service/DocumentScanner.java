@@ -5,6 +5,8 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -14,6 +16,14 @@ import com.example.termmgmt.util.MarkupMasker;
 import com.example.termmgmt.util.TermMatchUtils;
 
 public class DocumentScanner {
+
+    /**
+     * Compiled patterns survive across scans: a panel builds a new DocumentScanner for
+     * every scan, so only a static cache actually avoids recompiling every term. The key
+     * carries the literal text and the case setting; a pattern depends on nothing else
+     * (text-mode patterns key on the escaped term, author-mode on the raw one).
+     */
+    private static final Map<String, Pattern> PATTERN_CACHE = new ConcurrentHashMap<>();
 
     public static class ScanResult {
         public final String sourceTerm;
@@ -54,14 +64,22 @@ public class DocumentScanner {
             if (sourceTerm == null || sourceTerm.isEmpty()) continue;
 
             String matchTerm = isTextMode ? escapeXmlEntities(sourceTerm) : sourceTerm;
-            Pattern pattern = TermMatchUtils.buildMatchPattern(matchTerm, caseSensitive);
+            String cacheKey = (caseSensitive ? "s" : "i") + "\u0000" + matchTerm;
+            Pattern pattern = PATTERN_CACHE.computeIfAbsent(
+                cacheKey, k -> TermMatchUtils.buildMatchPattern(matchTerm, caseSensitive));
+            boolean needBoundary = TermMatchUtils.boundaryNeeded(matchTerm);
             Matcher matcher = pattern.matcher(documentText);
 
             while (matcher.find()) {
                 if (Thread.currentThread().isInterrupted()) break;
                 if (documentText.isEmpty()) break;
                 int strStart = matcher.start();
-                int strEnd = strStart + matchTerm.length();
+                int strEnd = matcher.end();
+                // The pattern is a plain literal for speed; the word-boundary rule lives
+                // here, checked on code points so letters outside the BMP count too.
+                if (needBoundary && !TermMatchUtils.acceptAtBoundary(documentText, strStart, strEnd)) {
+                    continue;
+                }
 
                 // Key: source + target + position. The target must be part of it or a second
                 // translation of the same source at the same spot silently disappears; an
