@@ -1,5 +1,7 @@
 package com.example.termmgmt.util;
 
+import com.example.termmgmt.model.TermEntry;
+
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -76,5 +78,17 @@ public class TermMatchUtils {
             }
         }
         return found;
+    }
+
+    /**
+     * Whether a term's source or target contains the search text, ignoring case.
+     *
+     * @param lowerSearch the search text, already lower-cased with {@link Locale#ROOT}
+     */
+    public static boolean matchesSearch(TermEntry term, String lowerSearch) {
+        String source = term.getSourceTerm();
+        String target = term.getTargetTerm();
+        return (source != null && source.toLowerCase(Locale.ROOT).contains(lowerSearch))
+            || (target != null && target.toLowerCase(Locale.ROOT).contains(lowerSearch));
     }
 }

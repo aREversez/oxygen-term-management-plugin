@@ -1,5 +1,6 @@
 package com.example.termmgmt.util;
 
+import com.example.termmgmt.model.TermEntry;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -8,6 +9,8 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TermMatchUtilsTest {
 
@@ -65,5 +68,32 @@ class TermMatchUtilsTest {
         // U+20BB7 (𠮷) is a Han character outside the BMP.
         Set<String> found = TermMatchUtils.findKnownTerms("𠮷网格", known("𠮷", "网格"), 30, 2);
         assertEquals(List.of("𠮷", "网格"), List.copyOf(found));
+    }
+
+    @Test
+    void matchesSearch_matchesSourceOrTargetIgnoringCase() {
+        TermEntry term = new TermEntry("网格单元", "Mesh Element");
+        assertTrue(TermMatchUtils.matchesSearch(term, "网格"));
+        assertTrue(TermMatchUtils.matchesSearch(term, "mesh el"));
+        assertTrue(TermMatchUtils.matchesSearch(term, "ELEMENT".toLowerCase(Locale.ROOT)));
+        assertFalse(TermMatchUtils.matchesSearch(term, "node"));
+    }
+
+    @Test
+    void matchesSearch_toleratesNullSourceOrTarget() {
+        assertTrue(TermMatchUtils.matchesSearch(new TermEntry(null, "node"), "nod"));
+        assertTrue(TermMatchUtils.matchesSearch(new TermEntry("节点", null), "节"));
+        assertFalse(TermMatchUtils.matchesSearch(new TermEntry(null, null), "x"));
+    }
+
+    @Test
+    void matchesSearch_doesNotDependOnTheDefaultLocale() {
+        Locale saved = Locale.getDefault();
+        try {
+            Locale.setDefault(new Locale("tr", "TR"));
+            assertTrue(TermMatchUtils.matchesSearch(new TermEntry("INFO", "x"), "info"));
+        } finally {
+            Locale.setDefault(saved);
+        }
     }
 }

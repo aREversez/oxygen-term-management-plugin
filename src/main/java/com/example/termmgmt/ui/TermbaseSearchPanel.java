@@ -4,6 +4,7 @@ import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.util.I18N;
+import com.example.termmgmt.util.TermMatchUtils;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -11,6 +12,7 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -31,6 +33,7 @@ public class TermbaseSearchPanel extends JPanel {
     private DefaultTableModel tableModel;
     private TermbaseRegistry registry;
     private TermManagementView parentView;
+    private int searchGeneration; // EDT only
 
     public TermbaseSearchPanel(TermbaseRegistry registry, TermManagementView parentView) {
         this.registry = registry;
@@ -138,29 +141,65 @@ public class TermbaseSearchPanel extends JPanel {
         tableModel.setRowCount(0);
 
         List<TermbaseConfig> enabledConfigs = registry.getEnabledConfigs();
-        int matchCount = 0;
-
-        for (TermbaseConfig config : enabledConfigs) {
-            List<TermEntry> terms = registry.getTerms(config);
-            for (TermEntry term : terms) {
-                String sourceTerm = term.getSourceTerm();
-                String targetTerm = term.getTargetTerm();
-                if ((sourceTerm != null && sourceTerm.toLowerCase(Locale.ROOT).contains(searchTerm.toLowerCase(Locale.ROOT))) ||
-                    (targetTerm != null && targetTerm.toLowerCase(Locale.ROOT).contains(searchTerm.toLowerCase(Locale.ROOT)))) {
-                    tableModel.addRow(new Object[]{
-                        sourceTerm,
-                        targetTerm,
-                        config.getFileName()
-                    });
-                    matchCount++;
-                }
-            }
-        }
-
-        if (matchCount == 0 && enabledConfigs.isEmpty()) {
+        if (enabledConfigs.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                 I18N.getString("msg.no.enabled.termbases"),
                 I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
+            return;
         }
+
+        // Loading a termbase that is not cached reads the whole file, so the search runs on a
+        // worker. Only the newest search may fill the table.
+        final int generation = ++searchGeneration;
+        final String lowerSearch = searchTerm.toLowerCase(Locale.ROOT);
+        new SwingWorker<SearchOutcome, Void>() {
+            @Override
+            protected SearchOutcome doInBackground() {
+                SearchOutcome outcome = new SearchOutcome();
+                for (TermbaseConfig config : enabledConfigs) {
+                    try {
+                        for (TermEntry term : registry.getTerms(config)) {
+                            if (TermMatchUtils.matchesSearch(term, lowerSearch)) {
+                                outcome.rows.add(new Object[]{
+                                    term.getSourceTerm(), term.getTargetTerm(), config.getFileName()});
+                            }
+                        }
+                    } catch (Exception e) {
+                        if (outcome.error == null) {
+                            outcome.error = e.getMessage();
+                        }
+                    }
+                }
+                return outcome;
+            }
+
+            @Override
+            protected void done() {
+                if (generation != searchGeneration) {
+                    return; // superseded by a newer search
+                }
+                try {
+                    SearchOutcome outcome = get();
+                    for (Object[] row : outcome.rows) {
+                        tableModel.addRow(row);
+                    }
+                    if (outcome.error != null) {
+                        JOptionPane.showMessageDialog(TermbaseSearchPanel.this,
+                            I18N.getString("msg.failed.load.terms", outcome.error),
+                            I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(TermbaseSearchPanel.this,
+                        I18N.getString("msg.failed.load.terms", e.getMessage()),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    /** Rows found by one search, plus the first error met while loading a termbase. */
+    private static final class SearchOutcome {
+        final List<Object[]> rows = new ArrayList<>();
+        String error;
     }
 }
