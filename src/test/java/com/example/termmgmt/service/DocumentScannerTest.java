@@ -236,4 +236,31 @@ class DocumentScannerTest {
 
         assertEquals(2, results.size());
     }
+
+    @Test
+    void dedup_sameSourceDifferentTargetAtSamePosition_reportsBoth() {
+        // The dedup key used to be source+position only, so the second translation of
+        // "mesh" silently disappeared from the results.
+        List<TermEntry> terms = List.of(
+            new TermEntry("mesh", "网格"),
+            new TermEntry("mesh", "网格单元"));
+        List<ScanResult> results = scanner.scan("the mesh model", terms, true, Collections.emptyList());
+
+        assertEquals(2, results.size());
+        assertEquals("网格", results.get(0).targetTerm);
+        assertEquals("网格单元", results.get(1).targetTerm);
+        assertEquals(results.get(0).startOffset, results.get(1).startOffset);
+    }
+
+    @Test
+    void dedup_identicalSourceTargetPositionFromTwoTermbases_keptOnce() {
+        // The same (source, target, position) triple arriving through two loaded
+        // termbases must still collapse to a single hit.
+        List<TermEntry> terms = List.of(
+            new TermEntry("mesh", "网格"),
+            new TermEntry("mesh", "网格"));
+        List<ScanResult> results = scanner.scan("the mesh model", terms, true, Collections.emptyList());
+
+        assertEquals(1, results.size());
+    }
 }

@@ -49,7 +49,10 @@ public class DocumentScanner {
                 int strStart = matcher.start();
                 int strEnd = strStart + matchTerm.length();
 
-                String posKey = sourceTerm + "@" + strStart;
+                // Key: source + target + position. The target must be part of it or a second
+                // translation of the same source at the same spot silently disappears; an
+                // identical triple arriving through two termbases still collapses to one hit.
+                String posKey = sourceTerm + "\u0000" + term.getTargetTerm() + "\u0000" + strStart;
                 if (countedPositions.add(posKey)) {
                     rawMatches.add(new RawMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd));
                 }

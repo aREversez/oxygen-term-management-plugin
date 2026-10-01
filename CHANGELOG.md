@@ -17,6 +17,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - A Latin term written right next to Chinese, Japanese or Korean characters is now recognized again (e.g. `FEA` in `使用FEA。`). The word-boundary check used to treat CJK characters as letters and rejected every such occurrence; letters from other languages still block a match, and a term next to digits behaves as before.
 - Scans no longer bury a long term under its own fragments: when a shorter hit lies fully inside a longer one (e.g. 弯曲 and 刚度 within 弯曲刚度), only the longer hit is reported. Equal spans and partial overlaps are still reported separately.
+- A source term with several translations now lists every translation for the same occurrence; previously only the first one survived deduplication. Identical (source, translation, position) hits coming from two loaded termbases are still reported once.
 
 ## 1.0.12 - 2026-07-08
 
