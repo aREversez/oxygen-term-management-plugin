@@ -5,6 +5,7 @@ import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseLoader;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.util.I18N;
+import com.example.termmgmt.util.TermConflictUtils;
 
 import ro.sync.exml.plugin.option.OptionPagePluginExtension;
 import ro.sync.exml.workspace.api.PluginWorkspace;
@@ -253,23 +254,18 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                 if (!existingConfig.isEnabled()) continue;
                 if (existingConfig.getFilePath().equals(filePath)) continue;
                 List<TermEntry> existingTerms = registry.getTerms(existingConfig);
-                for (TermEntry newTerm : newTerms) {
-                    if (newTerm.getSourceTerm() == null || newTerm.getSourceTerm().isEmpty()) continue;
-                    String newSource = newTerm.getSourceTerm().trim();
-                    for (TermEntry existingTerm : existingTerms) {
-                        if (existingTerm.getSourceTerm() == null) continue;
-                        if (newSource.equals(existingTerm.getSourceTerm().trim())) {
-                            hasConflict = true;
-                            if (java.util.Objects.equals(newTerm.getTargetTerm(), existingTerm.getTargetTerm())) {
-                                conflictMsg.append(I18N.getString("prefs.conflict.duplicate.line",
-                                    newTerm.getSourceTerm(), newTerm.getTargetTerm(), existingConfig.getFileName()));
-                            } else {
-                                conflictMsg.append(I18N.getString("prefs.conflict.conflict.line",
-                                    newTerm.getSourceTerm(), newTerm.getTargetTerm(), existingTerm.getTargetTerm(), existingConfig.getFileName()));
-                            }
-                        }
+                for (TermConflictUtils.Conflict conflict : TermConflictUtils.findConflicts(newTerms, existingTerms)) {
+                    hasConflict = true;
+                    TermEntry newTerm = conflict.newTerm;
+                    TermEntry existingTerm = conflict.existingTerm;
+                    if (conflict.isIdenticalTarget()) {
+                        conflictMsg.append(I18N.getString("prefs.conflict.duplicate.line",
+                            newTerm.getSourceTerm(), newTerm.getTargetTerm(), existingConfig.getFileName()));
+                    } else {
+                        conflictMsg.append(I18N.getString("prefs.conflict.conflict.line",
+                            newTerm.getSourceTerm(), newTerm.getTargetTerm(), existingTerm.getTargetTerm(), existingConfig.getFileName()));
+                    }
                 }
-            }
             }
 
             if (hasConflict) {
