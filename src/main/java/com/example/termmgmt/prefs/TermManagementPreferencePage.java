@@ -17,6 +17,7 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -39,6 +40,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
 
     private JPanel ui;
     private JTable termbaseTable;
+    private int reloadGeneration; // EDT only
     private DefaultTableModel tableModel;
     private TermbaseRegistry registry;
 
@@ -134,32 +136,60 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         // Clear table
         tableModel.setRowCount(0);
 
-        // Load data from TermbaseRegistry
+        // Rows come from the configuration at once, so row i is always configs.get(i): the
+        // remove/enable/disable actions rely on that. Whether the file exists and how many
+        // terms it has need disk access (possibly a slow network drive), so a worker fills
+        // those two columns in afterwards.
         List<TermbaseConfig> configs = registry.getConfigs();
         for (TermbaseConfig config : configs) {
-            int termCount = 0;
-            try {
-                termCount = registry.getTerms(config).size();
-            } catch (Exception e) {
-                // Ignore if terms can't be loaded
-            }
-
-            // Health check: does the file still exist?
-            String statusText;
-            if (new File(config.getFilePath()).exists()) {
-                statusText = config.isEnabled() ? I18N.getString("prefs.status.enabled") : I18N.getString("prefs.status.disabled");
-            } else {
-                statusText = I18N.getString("prefs.status.missing");
-            }
-
             tableModel.addRow(new Object[]{
                 config.getFileName(),
                 config.getFilePath(),
                 config.getFormat().name(),
-                statusText,
-                termCount
+                config.isEnabled() ? I18N.getString("prefs.status.enabled") : I18N.getString("prefs.status.disabled"),
+                "\u2026"
             });
         }
+
+        final int generation = ++reloadGeneration;
+        new SwingWorker<List<Object[]>, Void>() {
+            @Override
+            protected List<Object[]> doInBackground() {
+                List<Object[]> info = new ArrayList<>();
+                for (TermbaseConfig config : configs) {
+                    boolean exists = new File(config.getFilePath()).exists();
+                    int termCount = 0;
+                    try {
+                        termCount = registry.getTerms(config).size();
+                    } catch (Exception e) {
+                        // Ignore if terms can't be loaded
+                    }
+                    info.add(new Object[]{exists, termCount});
+                }
+                return info;
+            }
+
+            @Override
+            protected void done() {
+                if (generation != reloadGeneration) {
+                    return; // the table has been rebuilt since; a newer worker fills it
+                }
+                try {
+                    List<Object[]> info = get();
+                    for (int i = 0; i < info.size() && i < tableModel.getRowCount(); i++) {
+                        if (!configs.get(i).getFilePath().equals(tableModel.getValueAt(i, 1))) {
+                            continue;
+                        }
+                        if (!(Boolean) info.get(i)[0]) {
+                            tableModel.setValueAt(I18N.getString("prefs.status.missing"), i, 3);
+                        }
+                        tableModel.setValueAt(info.get(i)[1], i, 4);
+                    }
+                } catch (Exception e) {
+                    // Leave the placeholders; the table itself is already complete.
+                }
+            }
+        }.execute();
     }
 
     private void addTermbase() {
