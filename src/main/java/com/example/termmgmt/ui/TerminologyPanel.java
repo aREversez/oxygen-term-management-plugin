@@ -198,44 +198,51 @@ public class TerminologyPanel extends JPanel {
         addTableContextMenu();
         add(new JScrollPane(termTable), BorderLayout.CENTER);
 
-        // Create button panel with icon buttons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 5));
+        // Button bar in two rows. FlowLayout always reports a single-row preferred
+        // height, whatever the available width, so letting it wrap would push the
+        // last buttons below the height BorderLayout.SOUTH gives them and make them
+        // unreachable in a narrow view. Two explicit rows keep the preferred height
+        // covering every button at any width.
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
+        JPanel iconRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 5));
+        JPanel textRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 5));
 
         JButton reloadButton = new JButton(IconUtils.loadIcon("reload", 16));
         reloadButton.setToolTipText(I18N.getString("btn.reload.tooltip"));
         reloadButton.setPreferredSize(new Dimension(28, 28));
         reloadButton.addActionListener(e -> reloadTermbase());
-        buttonPanel.add(reloadButton);
+        iconRow.add(reloadButton);
 
         JButton addButton = new JButton(IconUtils.loadIcon("add", 16));
         addButton.setToolTipText(I18N.getString("btn.add.new.tooltip"));
         addButton.setPreferredSize(new Dimension(24, 24));
         addButton.addActionListener(e -> addNewTerm());
-        buttonPanel.add(addButton);
+        iconRow.add(addButton);
 
         JButton quickAddButton = new JButton(IconUtils.loadIcon("quick_add", 16));
         quickAddButton.setToolTipText(I18N.getString("btn.quick.add.tooltip"));
         quickAddButton.setPreferredSize(new Dimension(24, 24));
         quickAddButton.addActionListener(e -> quickAddNewTerm());
-        buttonPanel.add(quickAddButton);
+        iconRow.add(quickAddButton);
 
         JButton editButton = new JButton(IconUtils.loadIcon("edit", 16));
         editButton.setToolTipText(I18N.getString("btn.edit.tooltip"));
         editButton.setPreferredSize(new Dimension(24, 24));
         editButton.addActionListener(e -> editTerm());
-        buttonPanel.add(editButton);
+        iconRow.add(editButton);
 
         JButton deleteButton = new JButton(IconUtils.loadIcon("delete", 16));
         deleteButton.setToolTipText(I18N.getString("btn.delete.tooltip"));
         deleteButton.setPreferredSize(new Dimension(24, 24));
         deleteButton.addActionListener(e -> deleteTerms());
-        buttonPanel.add(deleteButton);
+        iconRow.add(deleteButton);
 
         undoButton = new JButton(I18N.getString("btn.undo"));
         undoButton.setToolTipText(I18N.getString("btn.undo.tooltip"));
         undoButton.setEnabled(false);
         undoButton.addActionListener(e -> undoDelete());
-        buttonPanel.add(undoButton);
+        textRow.add(undoButton);
 
         JButton resetSortButton = new JButton(I18N.getString("btn.reset.sort"));
         resetSortButton.setToolTipText(I18N.getString("btn.reset.sort.tooltip"));
@@ -244,7 +251,10 @@ public class TerminologyPanel extends JPanel {
             tableSorter.setRowFilter(null);
             filterField.setText("");
         });
-        buttonPanel.add(resetSortButton);
+        textRow.add(resetSortButton);
+
+        buttonPanel.add(iconRow);
+        buttonPanel.add(textRow);
 
         add(buttonPanel, BorderLayout.SOUTH);
 
