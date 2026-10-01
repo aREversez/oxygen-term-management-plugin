@@ -17,10 +17,13 @@ public class TermEntryDialog extends JDialog {
     private JTextField noteField;
     private boolean confirmed = false;
     private TermEntry termEntry;
+    /** 6.2: The status value at dialog-open time; null means the entry never had one. */
+    private final String originalStoredStatus;
 
     public TermEntryDialog(String title, TermEntry existingTerm) {
         super((Frame) null, title, true);
         this.termEntry = existingTerm != null ? existingTerm : new TermEntry();
+        this.originalStoredStatus = this.termEntry.getStoredStatusValue();
         initComponents();
     }
 
@@ -28,6 +31,7 @@ public class TermEntryDialog extends JDialog {
         super((Frame) null, title, true);
         this.termEntry = new TermEntry();
         this.termEntry.setSourceTerm(editorSelection);
+        this.originalStoredStatus = null;
         initComponents();
         targetField.requestFocusInWindow();
     }
@@ -133,9 +137,12 @@ public class TermEntryDialog extends JDialog {
         termEntry.setSourceTerm(source);
         termEntry.setTargetTerm(target);
 
-        // Map combo selection to TermStatus
+        // Map combo selection to TermStatus.
+        // 6.2: If combo shows Preferred (index 0) and the entry never had a status, skip.
         int idx = statusCombo.getSelectedIndex();
-        if (idx == 1) {
+        if (idx == 0 && originalStoredStatus == null) {
+            // No status was ever set; don't introduce one.
+        } else if (idx == 1) {
             termEntry.setStatus(TermStatus.ADMITTED);
         } else if (idx == 2) {
             termEntry.setStatus(TermStatus.DEPRECATED);

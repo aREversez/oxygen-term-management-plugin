@@ -91,11 +91,11 @@ public class TermEntry {
     }
 
     /**
-     * Chooses the status; the canonical lower-case value is stored, null clears it back to
-     * "unset" (which handlers write as an empty value for files that already carry one).
+     * Chooses the status; the canonical lower-case value is stored. Passing null clears
+     * the status (sentinel "" distinguishes "explicitly cleared" from "never had one").
      */
     public void setStatus(TermStatus status) {
-        this.statusValue = status == null ? null : status.value();
+        this.statusValue = (status == null) ? "" : status.value();
     }
 
     /** Replaces the effective raw value verbatim (used by handlers when loading files). */

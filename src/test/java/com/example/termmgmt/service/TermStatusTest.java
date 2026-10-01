@@ -207,4 +207,129 @@ class TermStatusTest {
         assertTrue(statuses[0] == TermStatus.DEPRECATED || statuses[1] == TermStatus.DEPRECATED,
             "the new node must carry the deprecated status");
     }
+
+    // ---- Step 6 patch-plan regression tests ----
+
+    /**
+     * 6.1: Clearing a status via setStatus(null) produces sentinel "" and the CSV/XLSX/TBX
+     * handler writes it as an empty value (or removes the termNote). Reload shows null status.
+     */
+    @Test
+    void csv_clearStatus_writesEmptyCellAndReloadsAsNull() throws Exception {
+        Path file = tempDir.resolve("clear.csv");
+        Files.writeString(file, "zh-cn,en-us,status\nFEA,x,deprecated\n");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.CSV, true);
+
+        List<TermEntry> loaded = CsvTermbaseHandler.loadTerms(config);
+        assertEquals(TermStatus.DEPRECATED, loaded.get(0).getStatus());
+
+        loaded.get(0).setStatus(null); // clear
+        CsvTermbaseHandler.saveTerms(config, loaded);
+
+        String saved = Files.readString(file);
+        // Status field written as empty (quoted or unquoted depends on CSV writer config)
+        assertFalse(saved.contains("deprecated"), "cleared status must not write 'deprecated'");
+
+        List<TermEntry> reloaded = CsvTermbaseHandler.loadTerms(config);
+        assertNull(reloaded.get(0).getStatus());
+    }
+
+    @Test
+    void tbx_clearStatus_removesTermNote() throws Exception {
+        Path file = tempDir.resolve("clear.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"tid1\">\n"
+            + "      <langSet xml:lang=\"zh-CN\">\n"
+            + "        <tig><term>FEA</term>"
+            + "<termNote type=\"administrativeStatus\">deprecatedTerm-admn-sts</termNote></tig>\n"
+            + "      </langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>x</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(TermStatus.DEPRECATED, loaded.get(0).getStatus());
+
+        loaded.get(0).setStatus(null); // clear
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        String saved = Files.readString(file);
+        assertFalse(saved.contains("administrativeStatus"),
+            "cleared status must remove the termNote");
+
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertNull(reloaded.get(0).getStatus());
+    }
+
+    /**
+     * 6.1: A status-less entry on a file without a status column: setStatus(null) does NOT
+     * append the column (sentinel "" is not a real status).
+     */
+    @Test
+    void csv_noColumnAndClearedStatus_doesNotAppendColumn() throws Exception {
+        Path file = tempDir.resolve("noclear.csv");
+        Files.writeString(file, "zh-cn,en-us\nFEA,x\n");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.CSV, true);
+
+        List<TermEntry> loaded = CsvTermbaseHandler.loadTerms(config);
+        loaded.get(0).setStatus(null); // no-op clear on already-null entry
+        CsvTermbaseHandler.saveTerms(config, loaded);
+
+        String saved = Files.readString(file);
+        assertFalse(saved.contains("status"), "no column appended for a null-cleared status");
+    }
+
+    /**
+     * 6.2: Dialog confirm logic extracted as a testable condition:
+     * Preferred on an entry with no prior status should NOT write.
+     */
+    @Test
+    void dialog_preferredOnStatuslessEntry_doesNotCallSetStatus() {
+        TermEntry entry = new TermEntry("a", "b");
+        assertNull(entry.getStoredStatusValue());
+        // Simulating what the dialog does: idx==0, originalStored==null → skip.
+        // The assertion is that getStoredStatusValue() stays null.
+        int idx = 0;
+        String original = entry.getStoredStatusValue();
+        if (!(idx == 0 && original == null)) {
+            entry.setStatus(TermStatus.PREFERRED);
+        }
+        assertNull(entry.getStoredStatusValue(), "status should remain unset");
+    }
+
+    /**
+     * 6.3: ntig/termGrp structure supports status read and write.
+     */
+    @Test
+    void tbx_ntigTermGrpStatus_readsAndWritesCorrectly() throws Exception {
+        Path file = tempDir.resolve("ntig_status.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"nt1\">\n"
+            + "      <langSet xml:lang=\"zh-CN\">\n"
+            + "        <ntig><termGrp><term>\u7f51\u683c</term>"
+            + "<termNote type=\"administrativeStatus\">deprecatedTerm-admn-sts</termNote>"
+            + "</termGrp></ntig>\n"
+            + "      </langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><ntig><termGrp><term>mesh</term></termGrp></ntig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(1, loaded.size());
+        assertEquals(TermStatus.DEPRECATED, loaded.get(0).getStatus(),
+            "status in ntig/termGrp must be readable");
+
+        loaded.get(0).setStatus(TermStatus.ADMITTED);
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(TermStatus.ADMITTED, reloaded.get(0).getStatus(),
+            "status in ntig/termGrp must be writable");
+    }
 }

@@ -96,10 +96,11 @@ public class CsvTermbaseHandler {
         return -1;
     }
 
-    /** Whether any entry carries a status value to write (a file nobody edited gains no column). */
+    /** Whether any entry carries a non-blank status value to write (cleared "" does not count). */
     static boolean hasStatusColumn(List<TermEntry> terms) {
         for (TermEntry entry : terms) {
-            if (entry.getStoredStatusValue() != null) {
+            String v = entry.getStoredStatusValue();
+            if (v != null && !v.isEmpty()) {
                 return true;
             }
         }

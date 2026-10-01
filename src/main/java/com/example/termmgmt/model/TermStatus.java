@@ -1,9 +1,9 @@
 package com.example.termmgmt.model;
 
 /**
- * Maturity status of a term (step 3.1). Stored in {@link TermEntry}'s extraFields under
- * the "status" key - CSV/XLSX column "status", TBX termNote type="administrativeStatus" -
- * never in a separate field, so saves that do not know about statuses still carry the value.
+ * Maturity status of a term (step 3.1). Stored in {@link TermEntry}'s dedicated
+ * {@code statusValue}/{@code loadedStatusRaw} fields. The handlers map the value to
+ * CSV/XLSX column "status" or TBX termNote type="administrativeStatus".
  *
  * <p>CSV/XLSX values are the plain lower-case names; empty means preferred. TBX uses the
  * TBX-Basic administrativeStatus domain ("preferredTerm-admn-sts", "admittedTerm-admn-sts",
