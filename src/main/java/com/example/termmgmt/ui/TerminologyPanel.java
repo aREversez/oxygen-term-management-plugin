@@ -164,7 +164,7 @@ public class TerminologyPanel extends JPanel {
                 }
                 currentTerms.set(row, edited);
                 registry.updateTermsAsync(config, terms -> {
-                    TermEntryUtils.replaceEntry(terms, original, edited);
+                    TermEntryUtils.replaceEntryMerging(terms, original, edited);
                     return terms;
                 }).whenComplete((ignored, error) -> {
                     if (error != null) {
@@ -594,7 +594,7 @@ public class TerminologyPanel extends JPanel {
         if (dialog.isConfirmed()) {
             TermEntry newTerm = dialog.getTermEntry();
             updateAndReloadAsync(config, terms -> {
-                TermEntryUtils.replaceEntry(terms, original, newTerm);
+                TermEntryUtils.replaceEntryMerging(terms, original, newTerm);
                 return terms;
             });
         }

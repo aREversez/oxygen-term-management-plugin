@@ -8,6 +8,7 @@ import ro.sync.exml.workspace.api.standalone.StandalonePluginWorkspace;
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TermManagementView extends JPanel {
 
@@ -16,6 +17,8 @@ public class TermManagementView extends JPanel {
     private TermRecognitionPanel recognitionPanel;
     private TerminologyPanel terminologyPanel;
     private TermbaseSearchPanel searchPanel;
+    /** 7.1: Guard against multiple concurrent external-change checks. */
+    private final AtomicBoolean checkingExternal = new AtomicBoolean(false);
     private final Runnable registryListener = () -> SwingUtilities.invokeLater(this::refreshAllPanels);
 
     public TermManagementView() {
@@ -62,6 +65,10 @@ public class TermManagementView extends JPanel {
         tabbedPane.addTab(I18N.getString("tab.termbase.search"), searchPanel);
         tabbedPane.addTab(I18N.getString("tab.terminology"), terminologyPanel);
         tabbedPane.addChangeListener(e -> {
+            // 7.2: Clear tooltip on every tab switch.
+            for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+                tabbedPane.setToolTipTextAt(i, null);
+            }
             JComponent sel = (JComponent) tabbedPane.getSelectedComponent();
             if (sel == recognitionPanel) {
                 checkExternalChanges();
@@ -76,24 +83,36 @@ public class TermManagementView extends JPanel {
     }
 
     /**
-     * Step 4.2: lazily check whether any enabled termbase file was modified externally.
-     * If so, reload it and show a non-modal status bar message once.
+     * 7.1+7.2: Lazily check whether any enabled termbase file was modified externally.
+     * Runs on a background thread to avoid blocking the EDT. Updates UI on completion.
      */
     private void checkExternalChanges() {
-        List<TermbaseConfig> enabled = registry.getEnabledConfigs();
-        boolean anyReloaded = false;
-        for (TermbaseConfig config : enabled) {
-            if (registry.isExternallyModified(config.getFilePath())) {
-                registry.reloadConfig(config.getFilePath());
-                anyReloaded = true;
+        if (!checkingExternal.compareAndSet(false, true)) return; // already running
+        final int tabAtStart = tabbedPane.getSelectedIndex();
+        new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() {
+                List<TermbaseConfig> enabled = registry.getEnabledConfigs();
+                boolean anyReloaded = false;
+                for (TermbaseConfig config : enabled) {
+                    if (registry.isExternallyModified(config.getFilePath())) {
+                        registry.reloadConfig(config.getFilePath());
+                        anyReloaded = true;
+                    }
+                }
+                return anyReloaded;
             }
-        }
-        if (anyReloaded) {
-            // Show a non-modal hint; Oxygen's workspace typically has a status bar.
-            // For portability, use a tooltip-style label in the tab header area.
-            tabbedPane.setToolTipTextAt(tabbedPane.getSelectedIndex(),
-                I18N.getString("msg.external.reload.notify"));
-        }
+            @Override
+            protected void done() {
+                checkingExternal.set(false);
+                try {
+                    if (Boolean.TRUE.equals(get()) && tabbedPane.getSelectedIndex() == tabAtStart) {
+                        tabbedPane.setToolTipTextAt(tabAtStart,
+                            I18N.getString("msg.external.reload.notify"));
+                    }
+                } catch (Exception ignored) { }
+            }
+        }.execute();
     }
 
     /**

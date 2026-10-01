@@ -81,4 +81,66 @@ public final class TermEntryUtils {
         }
         return removed;
     }
+
+    /**
+     * 7.4: Merge-style replace. Finds {@code original} in {@code terms}; if matched by identity,
+     * replaces with {@code userEdited} directly. If matched only by value (the list was reloaded
+     * due to an external change), starts from the FRESH entry on disk and overlays only the
+     * user-edited fields (source, target, status, note).
+     *
+     * @return true if the entry was found and replaced
+     */
+    public static boolean replaceEntryMerging(List<TermEntry> terms, TermEntry original,
+                                              TermEntry userEdited) {
+        if (original == null || userEdited == null) return false;
+        int idx = -1;
+        boolean byIdentity = false;
+        // Try identity first.
+        for (int i = 0; i < terms.size(); i++) {
+            if (terms.get(i) == original) {
+                idx = i;
+                byIdentity = true;
+                break;
+            }
+        }
+        // Fall back to value match.
+        if (idx < 0) {
+            idx = indexOfEntry(terms, original);
+        }
+        if (idx < 0) return false;
+
+        if (byIdentity) {
+            terms.set(idx, userEdited);
+        } else {
+            // Merge: start from the fresh disk entry, overlay only user-changed fields.
+            TermEntry fresh = terms.get(idx);
+            TermEntry merged = fresh.copy();
+            // Source and target are always the user's intent (inline editor and dialog both
+            // produce a new value here).
+            merged.setSourceTerm(userEdited.getSourceTerm());
+            merged.setTargetTerm(userEdited.getTargetTerm());
+            // Status: only overlay if user changed it compared to original.
+            String userStatus = userEdited.getStoredStatusValue();
+            String origStatus = original.getStoredStatusValue();
+            if (!Objects.equals(userStatus, origStatus)) {
+                if (userStatus == null || userStatus.isEmpty()) {
+                    merged.setStatus(null); // cleared
+                } else {
+                    merged.setStatusRaw(userStatus);
+                }
+            }
+            // Note: only overlay if user actually changed it (avoids stale overwrite).
+            String userNote = userEdited.getExtraFields().get("note");
+            String origNote = original.getExtraFields().get("note");
+            if (!Objects.equals(userNote, origNote)) {
+                if (userNote != null) {
+                    merged.getExtraFields().put("note", userNote);
+                } else {
+                    merged.getExtraFields().remove("note");
+                }
+            }
+            terms.set(idx, merged);
+        }
+        return true;
+    }
 }

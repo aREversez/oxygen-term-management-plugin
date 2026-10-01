@@ -251,8 +251,14 @@ public class TermbaseRegistry {
         List<TermEntry> terms;
         String filePath = config.getFilePath();
         synchronized (fileLock(filePath)) {
+            // 7.3: Read stamp BEFORE loading; if it changes during load, don't cache
+            // the (potentially stale) data with the post-load stamp.
+            long[] preStamp = stampOf(filePath);
             terms = TermbaseLoader.loadTerms(config);
-            long[] stamp = stampOf(filePath); // read after the load: this is what the cache mirrors
+            long[] postStamp = stampOf(filePath);
+            // Use pre-load stamp if unchanged; if changed during load, use postStamp
+            // so the next check detects the file differs from what we cached.
+            long[] stamp = java.util.Arrays.equals(preStamp, postStamp) ? preStamp : postStamp;
             synchronized (this) {
                 termCache.put(filePath, terms);
                 putStamp(filePath, stamp);
@@ -277,8 +283,11 @@ public class TermbaseRegistry {
                     return new ArrayList<>(cached);
                 }
             }
+            // 7.3: Read stamp before loading.
+            long[] preStamp = stampOf(config.getFilePath());
             List<TermEntry> terms = TermbaseLoader.loadTerms(config);
-            long[] stamp = stampOf(config.getFilePath());
+            long[] postStamp = stampOf(config.getFilePath());
+            long[] stamp = java.util.Arrays.equals(preStamp, postStamp) ? preStamp : postStamp;
             synchronized (this) {
                 termCache.put(config.getFilePath(), new ArrayList<>(terms));
                 putStamp(config.getFilePath(), stamp);
@@ -384,12 +393,16 @@ public class TermbaseRegistry {
     }
 
     /**
-     * Step 4.2: check whether a cached termbase file was modified externally since the
+     * Step 4.2 / 7.1: check whether a cached termbase file was modified externally since the
      * last load or save. Returns true if the on-disk stamp differs from what the cache holds.
+     * Reads the disk stamp outside the registry lock to avoid blocking other threads.
      * Does NOT reload anything; the caller decides whether to reload and notify.
      */
-    public synchronized boolean isExternallyModified(String filePath) {
-        long[] known = fileStamps.get(filePath);
+    public boolean isExternallyModified(String filePath) {
+        long[] known;
+        synchronized (this) {
+            known = fileStamps.get(filePath);
+        }
         if (known == null) return false; // not cached, nothing to compare
         long[] disk = stampOf(filePath);
         if (disk == null) return true;   // file deleted

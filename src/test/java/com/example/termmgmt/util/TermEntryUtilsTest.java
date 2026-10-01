@@ -96,4 +96,54 @@ class TermEntryUtilsTest {
         assertEquals(2, removed);
         assertEquals(List.of(keep, added), terms);
     }
+
+    // ---- Step 7.4 regression tests ----
+
+    /**
+     * 7.4: Identity match → replacement used directly (no merge).
+     */
+    @Test
+    void replaceEntryMerging_identityMatch_replacesDirectly() {
+        TermEntry original = new TermEntry("a", "A");
+        original.getExtraFields().put("note", "old note");
+        List<TermEntry> terms = new ArrayList<>(List.of(original));
+
+        TermEntry edited = original.copy();
+        edited.setSourceTerm("b");
+
+        assertTrue(TermEntryUtils.replaceEntryMerging(terms, original, edited));
+        assertSame(edited, terms.get(0), "identity match must use the replacement as-is");
+    }
+
+    /**
+     * 7.4: Value match → merged from fresh disk entry, preserving external extraFields.
+     */
+    @Test
+    void replaceEntryMerging_valueMatch_preservesExternalExtraFields() {
+        // "original" is the stale copy the UI held.
+        TermEntry original = new TermEntry("a", "A");
+        original.getExtraFields().put("note", "stale");
+        original.setEntryId("id1");
+
+        // "fresh" is what was reloaded from disk after an external change modified extra fields.
+        TermEntry fresh = new TermEntry("a", "A");
+        fresh.getExtraFields().put("note", "externally updated");
+        fresh.getExtraFields().put("category", "new-field");
+        fresh.setEntryId("id1");
+        List<TermEntry> terms = new ArrayList<>(List.of(fresh));
+
+        // User only edited source term to "b".
+        TermEntry userEdited = original.copy();
+        userEdited.setSourceTerm("b");
+
+        assertTrue(TermEntryUtils.replaceEntryMerging(terms, original, userEdited));
+        TermEntry result = terms.get(0);
+        assertEquals("b", result.getSourceTerm());
+        assertEquals("A", result.getTargetTerm());
+        assertEquals("externally updated", result.getExtraFields().get("note"),
+            "external note must survive the merge");
+        assertEquals("new-field", result.getExtraFields().get("category"),
+            "new external field must survive");
+        assertEquals("id1", result.getEntryId());
+    }
 }
