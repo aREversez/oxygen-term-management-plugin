@@ -1,6 +1,7 @@
 package com.example.termmgmt.ui;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.DocumentScanner;
 import com.example.termmgmt.service.DocumentScanner.ScanResult;
@@ -144,7 +145,7 @@ public class TermRecognitionPanel extends JPanel {
         add(northPanel, BorderLayout.NORTH);
 
         tableModel = new DefaultTableModel(
-            new String[]{I18N.getString("msg.col.source"), I18N.getString("msg.col.target")}, 0
+            new String[]{I18N.getString("msg.col.source"), I18N.getString("msg.col.target"), I18N.getString("msg.col.status")}, 0
         );
         resultTable = new JTable(tableModel);
         resultTable.setDefaultEditor(Object.class, null);
@@ -399,7 +400,8 @@ public class TermRecognitionPanel extends JPanel {
                     for (ScanResult m : result) {
                         String pairKey = m.sourceTerm + "|" + m.targetTerm;
                         if (tablePairs.add(pairKey)) {
-                            tableModel.addRow(new Object[]{m.sourceTerm, m.targetTerm});
+                            String statusText = statusDisplay(m.status);
+                            tableModel.addRow(new Object[]{m.sourceTerm, m.targetTerm, statusText});
                         }
                     }
 
@@ -444,14 +446,29 @@ public class TermRecognitionPanel extends JPanel {
             AuthorHighlighter highlighter = ((WSAuthorEditorPage) page).getHighlighter();
             if (highlighter == null) return;
 
-            ColorHighlightPainter painter = new ColorHighlightPainter();
-            painter.setBgColor(new Color(255, 230, 0, 80));
+            ColorHighlightPainter normalPainter = new ColorHighlightPainter();
+            normalPainter.setBgColor(new Color(255, 230, 0, 80));
+
+            ColorHighlightPainter deprecatedPainter = new ColorHighlightPainter();
+            deprecatedPainter.setBgColor(new Color(255, 80, 80, 100));
 
             for (ScanResult match : currentMatches) {
-                highlighter.addHighlight(match.startOffset, match.endOffset - 1, painter, null);
+                ColorHighlightPainter p = (match.status == TermStatus.DEPRECATED) ? deprecatedPainter : normalPainter;
+                highlighter.addHighlight(match.startOffset, match.endOffset - 1, p, null);
             }
         } catch (Exception e) {
             System.err.println("Failed to apply highlights: " + e.getMessage());
+        }
+    }
+
+    /** Display text for a term status in the recognition results table. */
+    private static String statusDisplay(TermStatus status) {
+        if (status == null) return "";
+        switch (status) {
+            case PREFERRED: return I18N.getString("status.preferred");
+            case ADMITTED:  return I18N.getString("status.admitted");
+            case DEPRECATED: return I18N.getString("status.deprecated");
+            default: return "";
         }
     }
 

@@ -1,6 +1,7 @@
 package com.example.termmgmt.ui;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 import javax.swing.*;
@@ -12,6 +13,8 @@ public class TermEntryDialog extends JDialog {
 
     private JTextField sourceField;
     private JTextField targetField;
+    private JComboBox<String> statusCombo;
+    private JTextField noteField;
     private boolean confirmed = false;
     private TermEntry termEntry;
 
@@ -38,7 +41,10 @@ public class TermEntryDialog extends JDialog {
         JPanel content = new JPanel(new BorderLayout());
         content.setBorder(BorderFactory.createEmptyBorder(12, 12, 8, 12));
 
-        JPanel formPanel = new JPanel(new GridLayout(2, 2, 8, 8));
+        // Determine row count: base 3 + 1 if note field will be shown
+        boolean hasNote = termEntry.getExtraFields().containsKey("note");
+        int rows = hasNote ? 4 : 3;
+        JPanel formPanel = new JPanel(new GridLayout(rows, 2, 8, 8));
         formPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
 
         JLabel srcLabel = new JLabel(I18N.getString("lbl.source.term"));
@@ -52,6 +58,30 @@ public class TermEntryDialog extends JDialog {
         targetField = new JTextField(termEntry.getTargetTerm() != null ? termEntry.getTargetTerm() : "", 20);
         formPanel.add(tgtLabel);
         formPanel.add(targetField);
+
+        JLabel stLabel = new JLabel(I18N.getString("lbl.status"));
+        stLabel.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 0));
+        statusCombo = new JComboBox<>(new String[]{
+            I18N.getString("status.preferred"),
+            I18N.getString("status.admitted"),
+            I18N.getString("status.deprecated")
+        });
+        // Select current status
+        TermStatus current = termEntry.getStatus();
+        if (current == TermStatus.ADMITTED) statusCombo.setSelectedIndex(1);
+        else if (current == TermStatus.DEPRECATED) statusCombo.setSelectedIndex(2);
+        else statusCombo.setSelectedIndex(0);
+        formPanel.add(stLabel);
+        formPanel.add(statusCombo);
+
+        if (hasNote) {
+            JLabel noteLabel = new JLabel(I18N.getString("lbl.note"));
+            noteLabel.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 0));
+            String noteVal = termEntry.getExtraFields().get("note");
+            noteField = new JTextField(noteVal != null ? noteVal : "", 20);
+            formPanel.add(noteLabel);
+            formPanel.add(noteField);
+        }
 
         content.add(formPanel, BorderLayout.CENTER);
 
@@ -102,6 +132,21 @@ public class TermEntryDialog extends JDialog {
 
         termEntry.setSourceTerm(source);
         termEntry.setTargetTerm(target);
+
+        // Map combo selection to TermStatus
+        int idx = statusCombo.getSelectedIndex();
+        if (idx == 1) {
+            termEntry.setStatus(TermStatus.ADMITTED);
+        } else if (idx == 2) {
+            termEntry.setStatus(TermStatus.DEPRECATED);
+        } else {
+            termEntry.setStatus(TermStatus.PREFERRED);
+        }
+
+        // Update note field if it was shown
+        if (noteField != null) {
+            termEntry.getExtraFields().put("note", noteField.getText().trim());
+        }
 
         confirmed = true;
         dispose();

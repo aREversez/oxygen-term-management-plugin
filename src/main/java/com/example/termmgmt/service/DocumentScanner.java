@@ -11,6 +11,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.model.TermStatus;
 
 import com.example.termmgmt.util.MarkupMasker;
 import com.example.termmgmt.util.TermMatchUtils;
@@ -30,12 +31,19 @@ public class DocumentScanner {
         public final String targetTerm;
         public final int startOffset;
         public final int endOffset;
+        /** The maturity status of the matched entry; null means unset/preferred. */
+        public final TermStatus status;
 
         public ScanResult(String source, String target, int start, int end) {
+            this(source, target, start, end, null);
+        }
+
+        public ScanResult(String source, String target, int start, int end, TermStatus status) {
             this.sourceTerm = source;
             this.targetTerm = target;
             this.startOffset = start;
             this.endOffset = end;
+            this.status = status;
         }
     }
 
@@ -86,7 +94,7 @@ public class DocumentScanner {
                 // identical triple arriving through two termbases still collapses to one hit.
                 String posKey = sourceTerm + "\u0000" + term.getTargetTerm() + "\u0000" + strStart;
                 if (countedPositions.add(posKey)) {
-                    rawMatches.add(new RawMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd));
+                    rawMatches.add(new RawMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd, term.getStatus()));
                 }
             }
         }
@@ -95,7 +103,7 @@ public class DocumentScanner {
         for (RawMatch m : retainLongestMatches(rawMatches)) {
             if (isTextMode) {
                 allMatches.add(new ScanResult(
-                    m.sourceTerm, m.targetTerm, m.strStart, m.strEnd));
+                    m.sourceTerm, m.targetTerm, m.strStart, m.strEnd, m.status));
             } else {
                 int authStart = -1, authEnd = -1;
                 for (int[] seg : authorSegments) {
@@ -111,7 +119,7 @@ public class DocumentScanner {
                 }
                 if (authStart >= 0 && authEnd >= 0) {
                     allMatches.add(new ScanResult(
-                        m.sourceTerm, m.targetTerm, authStart, authEnd));
+                        m.sourceTerm, m.targetTerm, authStart, authEnd, m.status));
                 }
             }
         }
@@ -124,12 +132,14 @@ public class DocumentScanner {
         final String targetTerm;
         final int strStart;
         final int strEnd;
+        final TermStatus status;
 
-        RawMatch(String sourceTerm, String targetTerm, int strStart, int strEnd) {
+        RawMatch(String sourceTerm, String targetTerm, int strStart, int strEnd, TermStatus status) {
             this.sourceTerm = sourceTerm;
             this.targetTerm = targetTerm;
             this.strStart = strStart;
             this.strEnd = strEnd;
+            this.status = status;
         }
     }
 

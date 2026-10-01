@@ -1,6 +1,7 @@
 package com.example.termmgmt.ui;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.util.FileAccessUtils;
@@ -134,11 +135,11 @@ public class TerminologyPanel extends JPanel {
 
         // Create term table with in-place editing backed by TermEntry list
         tableModel = new DefaultTableModel(
-            new String[]{I18N.getString("lbl.source.term"), I18N.getString("lbl.target.term")}, 0
+            new String[]{I18N.getString("lbl.source.term"), I18N.getString("lbl.target.term"), I18N.getString("msg.col.status")}, 0
         ) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return true;
+                return column == 0 || column == 1;
             }
 
             @Override
@@ -179,6 +180,7 @@ public class TerminologyPanel extends JPanel {
         Collator chineseCollator = Collator.getInstance(Locale.CHINESE);
         tableSorter.setComparator(0, (a, b) -> chineseCollator.compare((String) a, (String) b));
         tableSorter.setComparator(1, (a, b) -> chineseCollator.compare((String) a, (String) b));
+        tableSorter.setComparator(2, (a, b) -> chineseCollator.compare((String) a, (String) b));
         termTable.setRowSorter(tableSorter);
 
         // Wire up filter text field
@@ -371,9 +373,11 @@ public class TerminologyPanel extends JPanel {
         }
         tableModel.setRowCount(0);
         for (TermEntry term : currentTerms) {
+            String st = statusDisplay(term.getStatus());
             tableModel.addRow(new Object[]{
                 term.getSourceTerm() != null ? term.getSourceTerm() : "",
-                term.getTargetTerm() != null ? term.getTargetTerm() : ""
+                term.getTargetTerm() != null ? term.getTargetTerm() : "",
+                st
             });
         }
     }
@@ -806,5 +810,16 @@ public class TerminologyPanel extends JPanel {
             // Silently fall through
         }
         return null;
+    }
+
+    /** Display text for a term status in the terminology table. */
+    private static String statusDisplay(TermStatus status) {
+        if (status == null) return "";
+        switch (status) {
+            case PREFERRED: return I18N.getString("status.preferred");
+            case ADMITTED:  return I18N.getString("status.admitted");
+            case DEPRECATED: return I18N.getString("status.deprecated");
+            default: return "";
+        }
     }
 }
