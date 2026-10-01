@@ -41,6 +41,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     private JPanel ui;
     private JTable termbaseTable;
     private int reloadGeneration; // EDT only
+    private boolean addInProgress; // EDT only
     private DefaultTableModel tableModel;
     private TermbaseRegistry registry;
 
@@ -193,6 +194,9 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     }
 
     private void addTermbase() {
+        if (addInProgress) {
+            return; // files from the previous "Add" are still being loaded
+        }
         // Use AWT FileDialog for native Windows dialog with rubber-band multi-select
         Window owner = SwingUtilities.getWindowAncestor(ui);
         FileDialog dialog;
@@ -230,10 +234,11 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             existingPaths.add(new File(c.getFilePath()).getAbsolutePath());
         }
 
-        int added = 0;
         int skipped = 0;
         int duplicates = 0;
 
+        // Cheap checks first: already registered, unsupported extension.
+        List<AddCandidate> candidates = new ArrayList<>();
         for (File file : files) {
             String filePath = file.getAbsolutePath();
 
@@ -251,14 +256,70 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                 skipped++;
                 continue;
             }
+            candidates.add(new AddCandidate(file, filePath, format));
+        }
 
-            // Duplicate content check: load terms and compare with enabled termbases
-            List<TermEntry> newTerms;
-            try {
-                newTerms = TermbaseLoader.loadTerms(new TermbaseConfig(filePath, format, true));
-            } catch (Exception e) {
+        final int duplicateCount = duplicates;
+        final int skippedCount = skipped;
+        if (candidates.isEmpty()) {
+            completeAddTermbases(candidates, duplicateCount, skippedCount);
+            return;
+        }
+
+        // Reading the files and comparing them with the enabled termbases is the slow part;
+        // do all of it on a worker. The questions to the user stay on the EDT, in the same
+        // order as before, and are answered from the results computed here.
+        addInProgress = true;
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                for (AddCandidate candidate : candidates) {
+                    try {
+                        candidate.terms = TermbaseLoader.loadTerms(
+                            new TermbaseConfig(candidate.filePath, candidate.format, true));
+                    } catch (Exception e) {
+                        candidate.loadError = e;
+                        continue;
+                    }
+                    for (TermbaseConfig existingConfig : configs) {
+                        if (!existingConfig.isEnabled()) continue;
+                        if (existingConfig.getFilePath().equals(candidate.filePath)) continue;
+                        try {
+                            List<TermConflictUtils.Conflict> found = TermConflictUtils.findConflicts(
+                                candidate.terms, registry.getTerms(existingConfig));
+                            if (!found.isEmpty()) {
+                                candidate.conflicts.add(new ExistingConflicts(existingConfig.getFileName(), found));
+                            }
+                        } catch (Exception e) {
+                            // A termbase that cannot be read cannot be compared with.
+                        }
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    completeAddTermbases(candidates, duplicateCount, skippedCount);
+                } finally {
+                    addInProgress = false;
+                }
+            }
+        }.execute();
+    }
+
+    /** Ask the user about each loaded file, register the accepted ones and show the summary. */
+    private void completeAddTermbases(List<AddCandidate> candidates, int duplicates, int skipped) {
+        int added = 0;
+        List<AddCandidate> accepted = new ArrayList<>();
+
+        for (AddCandidate candidate : candidates) {
+            File file = candidate.file;
+
+            if (candidate.loadError != null) {
                 int retry = JOptionPane.showConfirmDialog(ui,
-                    I18N.getString("prefs.cannot.load.terms", file.getName(), e.getMessage()),
+                    I18N.getString("prefs.cannot.load.terms", file.getName(), candidate.loadError.getMessage()),
                     I18N.getString("prefs.load.error"), JOptionPane.YES_NO_OPTION, JOptionPane.ERROR_MESSAGE);
                 if (retry == JOptionPane.YES_OPTION) {
                     skipped++;
@@ -268,7 +329,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                 break;
             }
 
-            if (newTerms.isEmpty()) {
+            if (candidate.terms.isEmpty()) {
                 int retry = JOptionPane.showConfirmDialog(ui,
                     I18N.getString("prefs.empty.file", file.getName()),
                     I18N.getString("prefs.empty.file.title"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
@@ -280,21 +341,17 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
 
             StringBuilder conflictMsg = new StringBuilder();
             boolean hasConflict = false;
-            for (TermbaseConfig existingConfig : configs) {
-                if (!existingConfig.isEnabled()) continue;
-                if (existingConfig.getFilePath().equals(filePath)) continue;
-                List<TermEntry> existingTerms = registry.getTerms(existingConfig);
-                for (TermConflictUtils.Conflict conflict : TermConflictUtils.findConflicts(newTerms, existingTerms)) {
+            for (ExistingConflicts existing : candidate.conflicts) {
+                hasConflict = true;
+                appendConflictLines(conflictMsg, existing.termbaseName, existing.conflicts);
+            }
+            // Termbases accepted earlier in this same batch count as existing ones too.
+            for (AddCandidate earlier : accepted) {
+                List<TermConflictUtils.Conflict> found =
+                    TermConflictUtils.findConflicts(candidate.terms, earlier.terms);
+                if (!found.isEmpty()) {
                     hasConflict = true;
-                    TermEntry newTerm = conflict.newTerm;
-                    TermEntry existingTerm = conflict.existingTerm;
-                    if (conflict.isIdenticalTarget()) {
-                        conflictMsg.append(I18N.getString("prefs.conflict.duplicate.line",
-                            newTerm.getSourceTerm(), newTerm.getTargetTerm(), existingConfig.getFileName()));
-                    } else {
-                        conflictMsg.append(I18N.getString("prefs.conflict.conflict.line",
-                            newTerm.getSourceTerm(), newTerm.getTargetTerm(), existingTerm.getTargetTerm(), existingConfig.getFileName()));
-                    }
+                    appendConflictLines(conflictMsg, earlier.config.getFileName(), found);
                 }
             }
 
@@ -309,13 +366,23 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                 }
             }
 
-            TermbaseConfig config = new TermbaseConfig(filePath, format, true);
-            configs.add(config);
-            existingPaths.add(filePath);
+            candidate.config = new TermbaseConfig(candidate.filePath, candidate.format, true);
+            accepted.add(candidate);
             added++;
         }
 
-        registry.setConfigs(configs);
+        // Re-read the configuration: it may have changed while the files were loading.
+        List<TermbaseConfig> latest = registry.getConfigs();
+        java.util.Set<String> latestPaths = new java.util.HashSet<>();
+        for (TermbaseConfig c : latest) {
+            latestPaths.add(new File(c.getFilePath()).getAbsolutePath());
+        }
+        for (AddCandidate candidate : accepted) {
+            if (latestPaths.add(candidate.filePath)) {
+                latest.add(candidate.config);
+            }
+        }
+        registry.setConfigs(latest);
         reloadSettings();
 
         // Build summary message
@@ -334,6 +401,49 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             msg.append("\n").append(I18N.getString("prefs.supported.formats"));
             JOptionPane.showMessageDialog(ui, msg.toString(), I18N.getString("prefs.add.termbases.short"),
                 added > 0 ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private static void appendConflictLines(StringBuilder out, String termbaseName,
+                                            List<TermConflictUtils.Conflict> conflicts) {
+        for (TermConflictUtils.Conflict conflict : conflicts) {
+            TermEntry newTerm = conflict.newTerm;
+            if (conflict.isIdenticalTarget()) {
+                out.append(I18N.getString("prefs.conflict.duplicate.line",
+                    newTerm.getSourceTerm(), newTerm.getTargetTerm(), termbaseName));
+            } else {
+                out.append(I18N.getString("prefs.conflict.conflict.line",
+                    newTerm.getSourceTerm(), newTerm.getTargetTerm(),
+                    conflict.existingTerm.getTargetTerm(), termbaseName));
+            }
+        }
+    }
+
+    /** A file chosen in "Add", with what the worker found out about it. */
+    private static final class AddCandidate {
+        final File file;
+        final String filePath;
+        final TermbaseConfig.Format format;
+        List<TermEntry> terms;
+        Exception loadError;
+        final List<ExistingConflicts> conflicts = new ArrayList<>();
+        TermbaseConfig config; // set once the user accepted the file
+
+        AddCandidate(File file, String filePath, TermbaseConfig.Format format) {
+            this.file = file;
+            this.filePath = filePath;
+            this.format = format;
+        }
+    }
+
+    /** Conflicts between a candidate and one already registered termbase. */
+    private static final class ExistingConflicts {
+        final String termbaseName;
+        final List<TermConflictUtils.Conflict> conflicts;
+
+        ExistingConflicts(String termbaseName, List<TermConflictUtils.Conflict> conflicts) {
+            this.termbaseName = termbaseName;
+            this.conflicts = conflicts;
         }
     }
 
