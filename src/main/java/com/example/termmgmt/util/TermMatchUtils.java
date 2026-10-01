@@ -25,9 +25,14 @@ public class TermMatchUtils {
 
     public static Pattern buildMatchPattern(String term) {
         String escaped = Pattern.quote(term);
+        // A non-CJK term must not sit inside another word. \p{L} alone would also count Han,
+        // kana and Hangul as "letters", which blocks every Latin term glued to CJK text
+        // ("使用FEA。") - exactly the mixed-script pattern CAE documents are made of. Digits
+        // stay allowed on either side, as they always were.
+        String wordChar = "[\\p{L}&&\\P{IsHan}&&\\P{IsHiragana}&&\\P{IsKatakana}&&\\P{IsHangul}]";
         String regex = isNonDelimitedScript(term)
             ? escaped
-            : "(?<![\\p{L}])" + escaped + "(?![\\p{L}])";
+            : "(?<!" + wordChar + ")" + escaped + "(?!" + wordChar + ")";
         return Pattern.compile(regex, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     }
 

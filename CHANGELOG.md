@@ -14,6 +14,9 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - TBX saves are lossless: the file on disk is re-parsed and matched by `termEntry` id, so `descrip`, `note`, `termNote`, additional languages and the original ids survive an edit or a no-op save; only the term text of the same two langSets the loader reads is replaced. New entries get collision-free ids, deleted entries are removed, and whitespace normalisation makes repeated saves byte-identical (no more blank-line growth). The DOCTYPE's external DTD declaration is preserved; a DOCTYPE internal subset is not (known limitation).
 - Editing a term no longer overwrites changes made to the termbase file outside the plugin: the registry remembers when each cached file was last written (timestamp + size) and re-reads the file first if it changed on disk before applying the edit. Editing after the file was deleted now fails with an explicit error instead of silently recreating it.
 
+### Fixed
+- A Latin term written right next to Chinese, Japanese or Korean characters is now recognized again (e.g. `FEA` in `使用FEA。`). The word-boundary check used to treat CJK characters as letters and rejected every such occurrence; letters from other languages still block a match, and a term next to digits behaves as before.
+
 ## 1.0.12 - 2026-07-08
 
 ### Refactored

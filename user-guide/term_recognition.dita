@@ -10,6 +10,10 @@
             </step>
             <step>
                 <cmd>在顶部下拉框选择目标术语库，点击 <uicontrol>Scan</uicontrol> 扫描文档。</cmd>
+                <info>
+                    <note type="note">拉丁字母术语紧邻中日韩文字时（如“使用FEA。”中的 FEA）同样会被识别；
+                        但术语与其他拉丁字母直接相连（如 FEAx）不视为匹配。</note>
+                </info>
             </step>
             <step>
                 <cmd>点击 <uicontrol>Toggle Highlight</uicontrol> 可在文档中高亮显示匹配术语。</cmd>

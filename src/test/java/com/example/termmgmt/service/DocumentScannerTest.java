@@ -173,4 +173,14 @@ class DocumentScannerTest {
         assertEquals(1, results.size());
         assertEquals("Hello", results.get(0).sourceTerm);
     }
+
+    @Test
+    void textMode_latinTermNextToHan_isRecognized() {
+        List<TermEntry> terms = List.of(new TermEntry("FEA", "有限要素法"));
+        List<ScanResult> results = scanner.scan("使用FEA。", terms, true, Collections.emptyList());
+
+        assertEquals(1, results.size());
+        assertEquals(2, results.get(0).startOffset);
+        assertEquals(5, results.get(0).endOffset);
+    }
 }

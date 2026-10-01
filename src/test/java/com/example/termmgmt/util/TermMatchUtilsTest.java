@@ -14,6 +14,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TermMatchUtilsTest {
 
+    @Test
+    void buildMatchPattern_latinTermIsNotBlockedByAdjacentCjkCharacters() {
+        // "使用FEA。": the old (?<![\p{L}]) counted Han as a letter, so FEA never matched
+        // in mixed CJK/Latin text, which CAE documents are full of.
+        java.util.regex.Pattern p = TermMatchUtils.buildMatchPattern("FEA");
+        assertTrue(p.matcher("使用FEA。").find());
+        assertTrue(p.matcher("FEA分析").find());
+        assertTrue(p.matcher("カタカナFEAです").find());
+        // Adjacent digits keep working as before.
+        assertTrue(p.matcher("FEA2024 release").find());
+    }
+
+    @Test
+    void buildMatchPattern_latinTermStillRejectsAdjacentLatinLetters() {
+        java.util.regex.Pattern p = TermMatchUtils.buildMatchPattern("FEA");
+        assertFalse(p.matcher("CafeFEA").find());
+        assertFalse(p.matcher("FEAx").find());
+        assertTrue(p.matcher("the FEA model").find());
+    }
+
     private static Predicate<String> known(String... terms) {
         Set<String> set = Set.of(terms);
         return s -> set.contains(s.toLowerCase(Locale.ROOT));
