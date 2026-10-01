@@ -268,4 +268,128 @@ class TbxTermbaseHandlerTest {
             assertEquals(1, saved.split("id=\"" + id + "\"", -1).length - 1, id);
         }
     }
+
+    /** Entry with a custom id, DOCTYPE, a third language, and unmodelled TBX fields. */
+    private static final String RICH_TBX =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        + "<!DOCTYPE martif SYSTEM \"TBXcoreStructV02.dtd\">\n"
+        + "<martif type=\"TBX\">\n"
+        + "  <text>\n"
+        + "    <body>\n"
+        + "      <termEntry id=\"customA\">\n"
+        + "        <langSet xml:lang=\"zh-CN\">\n"
+        + "          <tig>\n"
+        + "            <term>刚度</term>\n"
+        + "            <descrip defGrp=\"1\">刚度是力与形变的比值</descrip>\n"
+        + "          </tig>\n"
+        + "        </langSet>\n"
+        + "        <langSet xml:lang=\"en-US\">\n"
+        + "          <tig>\n"
+        + "            <term>stiffness</term>\n"
+        + "            <termNote type=\"partOfSpeech\">N</termNote>\n"
+        + "            <note>preferred in NBR</note>\n"
+        + "          </tig>\n"
+        + "        </langSet>\n"
+        + "        <langSet xml:lang=\"de-DE\">\n"
+        + "          <ntig><termGrp><term>Steifigkeit</term></termGrp></ntig>\n"
+        + "        </langSet>\n"
+        + "      </termEntry>\n"
+        + "      <termEntry id=\"customB\">\n"
+        + "        <langSet xml:lang=\"zh-CN\"><tig><term>网格</term></tig></langSet>\n"
+        + "        <langSet xml:lang=\"en-US\"><ntig><termGrp><term>mesh</term></termGrp></ntig></langSet>\n"
+        + "      </termEntry>\n"
+        + "    </body>\n"
+        + "  </text>\n"
+        + "</martif>";
+
+    private TermbaseConfig writeRichConfig(String name) throws Exception {
+        Path file = tempDir.resolve(name + ".tbx");
+        Files.writeString(file, RICH_TBX);
+        return new TermbaseConfig(file.toString(), Format.TBX, true);
+    }
+
+    @Test
+    void loadTerms_shouldReadTermEntryIdIntoEntry() throws Exception {
+        TermbaseConfig config = writeRichConfig("ids_load");
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+
+        assertEquals(2, loaded.size());
+        assertEquals("customA", loaded.get(0).getEntryId());
+        assertEquals("customB", loaded.get(1).getEntryId());
+    }
+
+    @Test
+    void saveTerms_unchangedRoundTrip_keepsIdsDoctypeAndUnmodelledContent() throws Exception {
+        TermbaseConfig config = writeRichConfig("rich_keep");
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        String saved = Files.readString(Path.of(config.getFilePath()));
+        assertTrue(saved.contains("id=\"customA\""), "custom ids must survive");
+        assertTrue(saved.contains("id=\"customB\""));
+        assertTrue(saved.contains("TBXcoreStructV02.dtd"), "DOCTYPE declaration must survive");
+        assertTrue(saved.contains("<descrip"), "descrip must survive");
+        assertTrue(saved.contains("termNote"), "termNote must survive");
+        assertTrue(saved.contains("<note>preferred in NBR</note>"), "note must survive");
+        assertTrue(saved.contains("Steifigkeit"), "third language must survive");
+
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(2, reloaded.size());
+        assertEquals("刚度", reloaded.get(0).getSourceTerm());
+        assertEquals("stiffness", reloaded.get(0).getTargetTerm());
+        assertEquals("customA", reloaded.get(0).getEntryId());
+    }
+
+    @Test
+    void saveTerms_editedTerm_updatesTextInPlace_andKeepsExtraFields() throws Exception {
+        TermbaseConfig config = writeRichConfig("rich_edit");
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        loaded.get(0).setSourceTerm("弯曲刚度");
+
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals("弯曲刚度", reloaded.get(0).getSourceTerm());
+        assertEquals("customA", reloaded.get(0).getEntryId(), "the edited entry keeps its id");
+        String saved = Files.readString(Path.of(config.getFilePath()));
+        assertTrue(saved.contains("<descrip"), "editing a term must not drop the entry's other fields");
+        assertTrue(saved.contains("Steifigkeit"));
+    }
+
+    @Test
+    void saveTerms_deleteAndAdd_removesGoneNodes_andAppendsNewWithoutIdCollision() throws Exception {
+        TermbaseConfig config = writeRichConfig("rich_add_remove");
+        List<TermEntry> loaded = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+        loaded.remove(1); // customB deleted
+        loaded.add(new TermEntry("节点", "node")); // brand-new entry, no id
+
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        String saved = Files.readString(Path.of(config.getFilePath()));
+        assertFalse(saved.contains("customB"), "deleted entries must disappear");
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(2, reloaded.size());
+        assertEquals("customA", reloaded.get(0).getEntryId());
+        assertNotNull(reloaded.get(1).getEntryId());
+        assertNotEquals("customA", reloaded.get(1).getEntryId());
+        assertNotEquals("customB", reloaded.get(1).getEntryId());
+    }
+
+    @Test
+    void saveTerms_repeatedSaves_areIdempotent_andNeverGrowBlankLines() throws Exception {
+        TermbaseConfig config = writeRichConfig("rich_idempotent");
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+
+        TbxTermbaseHandler.saveTerms(config, loaded);
+        byte[] second = Files.readAllBytes(Path.of(config.getFilePath()));
+        for (int i = 0; i < 3; i++) {
+            TbxTermbaseHandler.saveTerms(config, TbxTermbaseHandler.loadTerms(config));
+        }
+        byte[] fifth = Files.readAllBytes(Path.of(config.getFilePath()));
+
+        assertEquals(second.length, fifth.length, "repeated saves must not change the file");
+        assertArrayEquals(second, fifth);
+    }
 }

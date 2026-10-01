@@ -2,23 +2,31 @@ package com.example.termmgmt.service;
 
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
+import com.example.termmgmt.util.AtomicFileWriter;
 
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import org.w3c.dom.Document;
+import org.w3c.dom.DocumentType;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.w3c.dom.NamedNodeMap;
 import java.io.*;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 
 public class TbxTermbaseHandler {
 
@@ -67,10 +75,7 @@ public class TbxTermbaseHandler {
         String filePath = config.getFilePath();
 
         try {
-            DocumentBuilderFactory dbf = newSecureDocumentBuilderFactory();
-            dbf.setNamespaceAware(false);
-            DocumentBuilder builder = dbf.newDocumentBuilder();
-            Document doc = builder.parse(new File(filePath));
+            Document doc = parseFile(filePath);
 
             NodeList termEntryNodes = doc.getElementsByTagName("termEntry");
 
@@ -78,38 +83,22 @@ public class TbxTermbaseHandler {
             String detectedTargetLang = null;
 
             for (int i = 0; i < termEntryNodes.getLength(); i++) {
-                Node termEntryNode = termEntryNodes.item(i);
+                Element termEntryNode = (Element) termEntryNodes.item(i);
                 TermEntry entry = new TermEntry();
+                String id = termEntryNode.getAttribute("id");
+                if (!id.isEmpty()) {
+                    entry.setEntryId(id);
+                }
 
-                int langSetIndex = 0;
-                NodeList langSets = termEntryNode.getChildNodes();
-                for (int j = 0; j < langSets.getLength(); j++) {
-                    Node langSet = langSets.item(j);
-                    if (langSet.getNodeType() != Node.ELEMENT_NODE || !langSet.getNodeName().equals("langSet")) {
-                        continue;
-                    }
-
-                    NamedNodeMap attrs = langSet.getAttributes();
-                    if (attrs == null) continue;
-
-                    Node langAttr = attrs.getNamedItem("xml:lang");
-                    if (langAttr == null) langAttr = attrs.getNamedItem("lang");
-                    if (langAttr == null) continue;
-
-                    String lang = langAttr.getNodeValue();
-                    if (lang == null) continue;
-
-                    String termText = getTermText(langSet);
-                    if (termText == null) continue;
-
-                    if (langSetIndex == 0) {
-                        entry.setSourceTerm(termText);
-                        if (detectedSourceLang == null) detectedSourceLang = lang;
-                    } else if (langSetIndex == 1) {
-                        entry.setTargetTerm(termText);
-                        if (detectedTargetLang == null) detectedTargetLang = lang;
-                    }
-                    langSetIndex++;
+                // Same selection the save uses, so both operate on the same pair of langSets.
+                List<Element> pair = selectLangSets(termEntryNode);
+                if (!pair.isEmpty()) {
+                    entry.setSourceTerm(getTermText(pair.get(0)));
+                    if (detectedSourceLang == null) detectedSourceLang = langOf(pair.get(0));
+                }
+                if (pair.size() > 1) {
+                    entry.setTargetTerm(getTermText(pair.get(1)));
+                    if (detectedTargetLang == null) detectedTargetLang = langOf(pair.get(1));
                 }
 
                 if (entry.getSourceTerm() != null || entry.getTargetTerm() != null) {
@@ -127,14 +116,22 @@ public class TbxTermbaseHandler {
         return terms;
     }
 
+    /**
+     * Save without losing what the plugin does not model. The file on disk is re-parsed and
+     * matched against the list by termEntry id:
+     * - matched nodes keep every descendant (descrip, note, termNote, further langSets,
+     *   ntig/termGrp structures); only the term text inside the same two langSets that
+     *   loadTerms selected is replaced;
+     * - entries without an id, or whose id is no longer on disk, get a fresh node with a
+     *   collision-free id appended to body;
+     * - disk nodes absent from the list are removed.
+     * Existing ids are never rewritten.
+     */
     public static void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
         String filePath = config.getFilePath();
 
         try {
-            DocumentBuilderFactory dbf = newSecureDocumentBuilderFactory();
-            dbf.setNamespaceAware(false);
-            DocumentBuilder builder = dbf.newDocumentBuilder();
-            Document doc = builder.parse(new File(filePath));
+            Document doc = parseFile(filePath);
 
             NodeList bodyNodes = doc.getElementsByTagName("body");
             if (bodyNodes.getLength() == 0) {
@@ -142,53 +139,218 @@ public class TbxTermbaseHandler {
             }
             Element body = (Element) bodyNodes.item(0);
 
-            // getElementsByTagName is a live list of all descendants, and loadTerms() reads
-            // termEntry elements at any depth, so remove each through its own parent
-            // (body.removeChild() throws for a non-child). Every removed entry is in
-            // `terms` and is written back below as a direct child of body.
-            NodeList existingEntryNodes = body.getElementsByTagName("termEntry");
-            while (existingEntryNodes.getLength() > 0) {
-                Node existing = existingEntryNodes.item(0);
-                existing.getParentNode().removeChild(existing);
-            }
-
             String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-CN";
             String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-US";
 
-            for (int i = 0; i < terms.size(); i++) {
-                TermEntry entry = terms.get(i);
-                Element termEntry = doc.createElement("termEntry");
-                termEntry.setAttribute("id", "tid" + (i + 1));
-
-                Element langSetSource = doc.createElement("langSet");
-                langSetSource.setAttribute("xml:lang", sourceLang);
-                Element tigSource = doc.createElement("tig");
-                Element termSource = doc.createElement("term");
-                termSource.setTextContent(entry.getSourceTerm() != null ? entry.getSourceTerm() : "");
-                tigSource.appendChild(termSource);
-                langSetSource.appendChild(tigSource);
-                termEntry.appendChild(langSetSource);
-
-                Element langSetTarget = doc.createElement("langSet");
-                langSetTarget.setAttribute("xml:lang", targetLang);
-                Element tigTarget = doc.createElement("tig");
-                Element termTarget = doc.createElement("term");
-                termTarget.setTextContent(entry.getTargetTerm() != null ? entry.getTargetTerm() : "");
-                tigTarget.appendChild(termTarget);
-                langSetTarget.appendChild(tigTarget);
-                termEntry.appendChild(langSetTarget);
-
-                body.appendChild(termEntry);
+            // Snapshot the termEntry nodes and index them by id (the live list would shift
+            // under removals, and the same id may legitimately appear on several nodes).
+            NodeList allEntryNodes = doc.getElementsByTagName("termEntry");
+            List<Element> snapshot = new ArrayList<>();
+            for (int i = 0; i < allEntryNodes.getLength(); i++) {
+                snapshot.add((Element) allEntryNodes.item(i));
+            }
+            List<Element> remaining = new ArrayList<>(snapshot);
+            Set<String> usedIds = new HashSet<>();
+            for (Element e : snapshot) {
+                String id = e.getAttribute("id");
+                if (!id.isEmpty()) usedIds.add(id);
             }
 
-            TransformerFactory tf = newSecureTransformerFactory();
-            Transformer transformer = tf.newTransformer();
-            transformer.setOutputProperty("indent", "yes");
-            DOMSource source = new DOMSource(doc);
-            StreamResult result = new StreamResult(new File(filePath));
-            transformer.transform(source, result);
+            Set<Element> kept = Collections.newSetFromMap(new IdentityHashMap<>());
+            for (TermEntry entry : terms) {
+                Element node = entry.getEntryId() == null ? null : takeUnusedNode(remaining, kept, entry.getEntryId());
+                if (node != null) {
+                    kept.add(node);
+                    updateEntryNode(doc, node, entry, sourceLang, targetLang);
+                } else {
+                    String newId = nextFreeId(usedIds);
+                    usedIds.add(newId);
+                    Element fresh = doc.createElement("termEntry");
+                    fresh.setAttribute("id", newId);
+                    appendLangSet(fresh, sourceLang, entry.getSourceTerm());
+                    appendLangSet(fresh, targetLang, entry.getTargetTerm());
+                    body.appendChild(fresh);
+                }
+            }
+
+            // On disk but no longer in the list: deleted. Remove through each node's own
+            // parent because termEntry may be nested below body.
+            for (Element e : snapshot) {
+                if (!kept.contains(e) && e.getParentNode() != null) {
+                    e.getParentNode().removeChild(e);
+                }
+            }
+
+            // Drop the whitespace-only text nodes left by pretty-printing. The transformer
+            // adds its own indentation, so keeping the old ones makes every save add another
+            // layer of blank lines. Removing them first makes repeated saves byte-identical.
+            stripWhitespaceTextNodes(doc.getDocumentElement());
+
+            Transformer transformer = newSecureTransformerFactory().newTransformer();
+            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+            transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+            DocumentType doctype = doc.getDoctype();
+            if (doctype != null) {
+                // Real TBX files reference their DTD; keep the declaration round-tripping.
+                if (doctype.getSystemId() != null) {
+                    transformer.setOutputProperty(OutputKeys.DOCTYPE_SYSTEM, doctype.getSystemId());
+                }
+                if (doctype.getPublicId() != null) {
+                    transformer.setOutputProperty(OutputKeys.DOCTYPE_PUBLIC, doctype.getPublicId());
+                }
+            }
+            // An internal subset (<!DOCTYPE ... [...]>) cannot be carried through
+            // OutputKeys; such files lose only that subset, never term data.
+
+            AtomicFileWriter.write(Path.of(filePath), out -> {
+                try {
+                    transformer.transform(new DOMSource(doc), new StreamResult(out));
+                } catch (javax.xml.transform.TransformerException e) {
+                    throw new IOException("TBX serialization failed", e);
+                }
+            });
         } catch (Exception e) {
             throw new RuntimeException("Failed to save TBX: " + filePath, e);
+        }
+    }
+
+    private static Document parseFile(String filePath) throws Exception {
+        DocumentBuilderFactory dbf = newSecureDocumentBuilderFactory();
+        dbf.setNamespaceAware(false);
+        DocumentBuilder builder = dbf.newDocumentBuilder();
+        return builder.parse(new File(filePath));
+    }
+
+    /** First node with this id that no entry has claimed yet, or null; claims remove it. */
+    private static Element takeUnusedNode(List<Element> remaining, Set<Element> kept, String id) {
+        for (Element e : remaining) {
+            if (!kept.contains(e) && id.equals(e.getAttribute("id"))) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    /** "tid1", "tid2", ... skipping anything already used on disk or earlier in this save. */
+    private static String nextFreeId(Set<String> usedIds) {
+        int n = 1;
+        String id = "tid" + n;
+        while (usedIds.contains(id)) {
+            n++;
+            id = "tid" + n;
+        }
+        return id;
+    }
+
+    /** Replace the term text in the same langSets loadTerms selected; append any missing one. */
+    private static void updateEntryNode(Document doc, Element node, TermEntry entry,
+                                        String sourceLang, String targetLang) {
+        List<Element> pair = selectLangSets(node);
+        if (!pair.isEmpty()) {
+            setTermText(pair.get(0), entry.getSourceTerm());
+        } else {
+            appendLangSet(node, sourceLang, entry.getSourceTerm());
+        }
+        if (pair.size() > 1) {
+            setTermText(pair.get(1), entry.getTargetTerm());
+        } else if (entry.getTargetTerm() != null && !entry.getTargetTerm().isEmpty()) {
+            appendLangSet(node, targetLang, entry.getTargetTerm());
+        }
+    }
+
+    private static void appendLangSet(Element parent, String lang, String termText) {
+        Document doc = parent.getOwnerDocument();
+        Element langSet = doc.createElement("langSet");
+        langSet.setAttribute("xml:lang", lang);
+        Element tig = doc.createElement("tig");
+        Element term = doc.createElement("term");
+        term.setTextContent(termText != null ? termText : "");
+        tig.appendChild(term);
+        langSet.appendChild(tig);
+        parent.appendChild(langSet);
+    }
+
+    /**
+     * The langSets that actually expose term text, in document order: index 0 is the source
+     * and index 1 the target used by both load and save, so the two never disagree.
+     */
+    private static List<Element> selectLangSets(Node termEntry) {
+        List<Element> selected = new ArrayList<>();
+        NodeList children = termEntry.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node langSet = children.item(i);
+            if (langSet.getNodeType() != Node.ELEMENT_NODE || !langSet.getNodeName().equals("langSet")) {
+                continue;
+            }
+            NamedNodeMap attrs = langSet.getAttributes();
+            if (attrs == null) continue;
+            Node langAttr = attrs.getNamedItem("xml:lang");
+            if (langAttr == null) langAttr = attrs.getNamedItem("lang");
+            if (langAttr == null || langAttr.getNodeValue() == null) continue;
+            if (getTermText(langSet) == null) continue;
+            selected.add((Element) langSet);
+        }
+        return selected;
+    }
+
+    private static String langOf(Element langSet) {
+        Node attr = langSet.getAttributeNode("xml:lang");
+        if (attr == null) attr = langSet.getAttributeNode("lang");
+        return attr != null ? attr.getNodeValue() : null;
+    }
+
+    /** Set the first term text in the langSet (tig/term or ntig/termGrp/term), as getTermText reads it. */
+    private static void setTermText(Node langSet, String text) {
+        NodeList children = langSet.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() != Node.ELEMENT_NODE) continue;
+            String name = child.getNodeName();
+            if ("tig".equals(name)) {
+                Element term = firstElementChild(child, "term");
+                if (term != null) {
+                    term.setTextContent(text != null ? text : "");
+                    return;
+                }
+            } else if ("ntig".equals(name)) {
+                Node termGrp = firstElementChild(child, "termGrp");
+                if (termGrp != null) {
+                    Element term = firstElementChild(termGrp, "term");
+                    if (term != null) {
+                        term.setTextContent(text != null ? text : "");
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    private static Element firstElementChild(Node parent, String name) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() == Node.ELEMENT_NODE && name.equals(child.getNodeName())) {
+                return (Element) child;
+            }
+        }
+        return null;
+    }
+
+    /** Recursively remove text nodes that are only whitespace; element content is untouched. */
+    private static void stripWhitespaceTextNodes(Node element) {
+        List<Node> victims = new ArrayList<>();
+        NodeList children = element.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() == Node.ELEMENT_NODE) {
+                stripWhitespaceTextNodes(child);
+            } else if ((child.getNodeType() == Node.TEXT_NODE || child.getNodeType() == Node.CDATA_SECTION_NODE)
+                    && child.getNodeValue().trim().isEmpty()) {
+                victims.add(child);
+            }
+        }
+        for (Node victim : victims) {
+            element.removeChild(victim);
         }
     }
 
@@ -211,15 +373,10 @@ public class TbxTermbaseHandler {
     }
 
     private static String getTextFromTig(Node tig) {
-        NodeList children = tig.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child.getNodeType() == Node.ELEMENT_NODE && "term".equals(child.getNodeName())) {
-                String text = child.getTextContent();
-                return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
-            }
-        }
-        return null;
+        Element term = firstElementChild(tig, "term");
+        if (term == null) return null;
+        String text = term.getTextContent();
+        return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
     }
 
     private static String getTextFromNtig(Node ntig) {
@@ -227,20 +384,11 @@ public class TbxTermbaseHandler {
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child.getNodeType() == Node.ELEMENT_NODE && "termGrp".equals(child.getNodeName())) {
-                String text = getTextFromTermGrp(child);
-                if (text != null) return text;
-            }
-        }
-        return null;
-    }
-
-    private static String getTextFromTermGrp(Node termGrp) {
-        NodeList children = termGrp.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child.getNodeType() == Node.ELEMENT_NODE && "term".equals(child.getNodeName())) {
-                String text = child.getTextContent();
-                return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
+                Element term = firstElementChild(child, "term");
+                if (term != null) {
+                    String text = term.getTextContent();
+                    if (text != null && !text.trim().isEmpty()) return text.trim();
+                }
             }
         }
         return null;
