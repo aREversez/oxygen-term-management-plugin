@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -92,5 +93,77 @@ class CsvTermbaseHandlerTest {
         assertEquals("你好", loaded.get(0).getSourceTerm());
         assertEquals("orphan", loaded.get(1).getTargetTerm());
         assertEquals("谢谢", loaded.get(2).getSourceTerm());
+    }
+
+    @Test
+    void loadTerms_shouldReadExtraColumnsIntoConfigAndEntries() throws Exception {
+        Path file = tempDir.resolve("extra.csv");
+        Files.writeString(file, "zh-cn,en-us,domain,note\n刚度,stiffness,mechanics,NBR note\n网格,mesh\n");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.CSV, true);
+
+        List<TermEntry> loaded = CsvTermbaseHandler.loadTerms(config);
+
+        assertEquals(List.of("domain", "note"), config.getExtraColumns());
+        assertEquals(2, loaded.size());
+        assertEquals(Map.of("domain", "mechanics", "note", "NBR note"), loaded.get(0).getExtraFields());
+        assertEquals(List.of("domain", "note"), List.copyOf(loaded.get(0).getExtraFields().keySet()));
+        // Row shorter than the header: the missing extra cells come back as empty strings.
+        assertEquals(Map.of("domain", "", "note", ""), loaded.get(1).getExtraFields());
+    }
+
+    @Test
+    void saveAndLoad_shouldPreserveExtraColumnsAndValues() {
+        Path file = tempDir.resolve("roundtrip.csv");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.CSV, true);
+        config.setSourceLang("zh-cn");
+        config.setTargetLang("en-us");
+        config.setExtraColumns(List.of("domain", "note"));
+
+        TermEntry withExtras = new TermEntry("刚度", "stiffness");
+        withExtras.getExtraFields().put("domain", "mechanics");
+        withExtras.getExtraFields().put("note", "NBR term");
+        TermEntry withoutExtras = new TermEntry("网格", "mesh");
+        CsvTermbaseHandler.saveTerms(config, List.of(withExtras, withoutExtras));
+
+        List<TermEntry> loaded = CsvTermbaseHandler.loadTerms(config);
+        assertEquals(2, loaded.size());
+        assertEquals(List.of("domain", "note"), config.getExtraColumns());
+        assertEquals("mechanics", loaded.get(0).getExtraFields().get("domain"));
+        assertEquals("NBR term", loaded.get(0).getExtraFields().get("note"));
+        assertEquals("", loaded.get(1).getExtraFields().get("domain"));
+    }
+
+    @Test
+    void saveTerms_shouldWriteHeaderFromExtraColumnsAndKeepBom() throws Exception {
+        Path file = tempDir.resolve("header.csv");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.CSV, true);
+        config.setSourceLang("zh-cn");
+        config.setTargetLang("en-us");
+        config.setExtraColumns(List.of("status"));
+
+        TermEntry entry = new TermEntry("刚度", "stiffness");
+        entry.getExtraFields().put("status", "preferred");
+        CsvTermbaseHandler.saveTerms(config, List.of(entry));
+
+        String content = Files.readString(file, StandardCharsets.UTF_8);
+        assertTrue(content.startsWith("\uFEFF"), "UTF-8 BOM must stay");
+        // CSVWriter quotes every field by default; strip quotes to pin the column order.
+        String normalized = content.substring(1).replace("\r\n", "\n").replace("\"", "").trim();
+        assertEquals("zh-cn,en-us,status\n刚度,stiffness,preferred", normalized);
+    }
+
+    @Test
+    void saveTerms_withTwoColumnConfig_writesNoExtraHeader() {
+        // Old files without extra columns must not gain one.
+        Path file = tempDir.resolve("plain.csv");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.CSV, true);
+        config.setSourceLang("zh-cn");
+        config.setTargetLang("en-us");
+
+        CsvTermbaseHandler.saveTerms(config, List.of(new TermEntry("a", "b")));
+
+        List<TermEntry> loaded = CsvTermbaseHandler.loadTerms(config);
+        assertTrue(config.getExtraColumns().isEmpty());
+        assertTrue(loaded.get(0).getExtraFields().isEmpty());
     }
 }
