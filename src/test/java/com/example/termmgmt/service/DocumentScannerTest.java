@@ -183,4 +183,57 @@ class DocumentScannerTest {
         assertEquals(2, results.get(0).startOffset);
         assertEquals(5, results.get(0).endOffset);
     }
+
+    @Test
+    void longestMatch_containedShorterMatchesAreDropped() {
+        // "计算弯曲刚度时": 弯曲 and 刚度 only ever occur inside 弯曲刚度 here, so the scan
+        // must report the long term alone instead of three overlapping hits.
+        List<TermEntry> terms = List.of(
+            new TermEntry("弯曲", "bending"),
+            new TermEntry("刚度", "stiffness"),
+            new TermEntry("弯曲刚度", "bending stiffness"));
+        List<ScanResult> results = scanner.scan("计算弯曲刚度时", terms, true, Collections.emptyList());
+
+        assertEquals(1, results.size());
+        assertEquals("弯曲刚度", results.get(0).sourceTerm);
+        assertEquals(2, results.get(0).startOffset);
+        assertEquals(6, results.get(0).endOffset);
+    }
+
+    @Test
+    void longestMatch_occurrenceOutsideTheLongerTermIsStillReported() {
+        // Second "弯曲" at 5..7 is not inside any longer match and must survive the filter.
+        List<TermEntry> terms = List.of(
+            new TermEntry("弯曲", "bending"),
+            new TermEntry("弯曲刚度", "bending stiffness"));
+        List<ScanResult> results = scanner.scan("弯曲刚度和弯曲", terms, true, Collections.emptyList());
+
+        assertEquals(2, results.size());
+        assertEquals("弯曲刚度", results.get(0).sourceTerm);
+        assertEquals("弯曲", results.get(1).sourceTerm);
+        assertEquals(5, results.get(1).startOffset);
+    }
+
+    @Test
+    void longestMatch_partialOverlapKeepsBoth() {
+        // 弯曲刚度 [0,4) and 刚度矩阵 [2,6) overlap without containing each other.
+        List<TermEntry> terms = List.of(
+            new TermEntry("弯曲刚度", "bending stiffness"),
+            new TermEntry("刚度矩阵", "stiffness matrix"));
+        List<ScanResult> results = scanner.scan("弯曲刚度矩阵", terms, true, Collections.emptyList());
+
+        assertEquals(2, results.size());
+    }
+
+    @Test
+    void longestMatch_identicalSpanFromDifferentEntriesKeepsAll() {
+        // Two entries whose sources differ only in case cover the exact same span;
+        // neither is longer, so both must be reported.
+        List<TermEntry> terms = List.of(
+            new TermEntry("Mesh", "网格"),
+            new TermEntry("mesh", "网格单元"));
+        List<ScanResult> results = scanner.scan("the Mesh model", terms, true, Collections.emptyList());
+
+        assertEquals(2, results.size());
+    }
 }

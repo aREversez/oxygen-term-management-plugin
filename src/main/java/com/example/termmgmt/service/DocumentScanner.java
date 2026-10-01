@@ -1,6 +1,7 @@
 package com.example.termmgmt.service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -30,7 +31,7 @@ public class DocumentScanner {
     public List<ScanResult> scan(String documentText, List<TermEntry> terms,
             boolean isTextMode, List<int[]> authorSegments) {
         Set<String> countedPositions = new HashSet<>();
-        List<ScanResult> allMatches = new ArrayList<>();
+        List<RawMatch> rawMatches = new ArrayList<>();
 
         for (TermEntry term : terms) {
             if (Thread.currentThread().isInterrupted()) break;
@@ -49,33 +50,81 @@ public class DocumentScanner {
                 int strEnd = strStart + matchTerm.length();
 
                 String posKey = sourceTerm + "@" + strStart;
-                if (!countedPositions.contains(posKey)) {
-                    countedPositions.add(posKey);
-                    if (isTextMode) {
-                        allMatches.add(new ScanResult(
-                            sourceTerm, term.getTargetTerm(), strStart, strEnd));
-                    } else {
-                        int authStart = -1, authEnd = -1;
-                        for (int[] seg : authorSegments) {
-                            int segAuth = seg[0];
-                            int segStr = seg[1];
-                            int segLen = seg[2];
-                            if (strStart >= segStr && strStart < segStr + segLen) {
-                                authStart = segAuth + (strStart - segStr);
-                            }
-                            if (strEnd >= segStr && strEnd <= segStr + segLen) {
-                                authEnd = segAuth + (strEnd - segStr);
-                            }
-                        }
-                        if (authStart >= 0 && authEnd >= 0) {
-                            allMatches.add(new ScanResult(
-                                sourceTerm, term.getTargetTerm(), authStart, authEnd));
-                        }
+                if (countedPositions.add(posKey)) {
+                    rawMatches.add(new RawMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd));
+                }
+            }
+        }
+
+        List<ScanResult> allMatches = new ArrayList<>();
+        for (RawMatch m : retainLongestMatches(rawMatches)) {
+            if (isTextMode) {
+                allMatches.add(new ScanResult(
+                    m.sourceTerm, m.targetTerm, m.strStart, m.strEnd));
+            } else {
+                int authStart = -1, authEnd = -1;
+                for (int[] seg : authorSegments) {
+                    int segAuth = seg[0];
+                    int segStr = seg[1];
+                    int segLen = seg[2];
+                    if (m.strStart >= segStr && m.strStart < segStr + segLen) {
+                        authStart = segAuth + (m.strStart - segStr);
                     }
+                    if (m.strEnd >= segStr && m.strEnd <= segStr + segLen) {
+                        authEnd = segAuth + (m.strEnd - segStr);
+                    }
+                }
+                if (authStart >= 0 && authEnd >= 0) {
+                    allMatches.add(new ScanResult(
+                        m.sourceTerm, m.targetTerm, authStart, authEnd));
                 }
             }
         }
         return allMatches;
+    }
+
+    /** One deduplicated hit still in document-string coordinates, before longest-match filtering. */
+    private static final class RawMatch {
+        final String sourceTerm;
+        final String targetTerm;
+        final int strStart;
+        final int strEnd;
+
+        RawMatch(String sourceTerm, String targetTerm, int strStart, int strEnd) {
+            this.sourceTerm = sourceTerm;
+            this.targetTerm = targetTerm;
+            this.strStart = strStart;
+            this.strEnd = strEnd;
+        }
+    }
+
+    /**
+     * Drops every match fully contained in a strictly longer one; equal spans and partial
+     * overlaps are kept. Sorting by (start asc, end desc) guarantees that a match can only
+     * ever be contained in one seen before it, so a single scan over the running maximum
+     * end is enough - O(m log m) for the sort, O(m) for the filter.
+     */
+    private static List<RawMatch> retainLongestMatches(List<RawMatch> matches) {
+        if (matches.size() < 2) return matches;
+        List<RawMatch> sorted = new ArrayList<>(matches);
+        sorted.sort(Comparator.comparingInt((RawMatch m) -> m.strStart)
+            .thenComparingInt(m -> -m.strEnd));
+        List<RawMatch> kept = new ArrayList<>(sorted.size());
+        int curMaxEnd = Integer.MIN_VALUE;
+        // Largest start among the matches seen so far that reach curMaxEnd; if a candidate
+        // starts behind it and ends no further, the longer span covers it completely.
+        int maxEndStart = Integer.MIN_VALUE;
+        for (RawMatch m : sorted) {
+            if (m.strEnd < curMaxEnd || (m.strEnd == curMaxEnd && m.strStart > maxEndStart)) {
+                continue;
+            }
+            kept.add(m);
+            if (m.strEnd >= curMaxEnd) {
+                curMaxEnd = m.strEnd;
+                maxEndStart = m.strStart;
+            }
+        }
+        return kept;
     }
 
     private static String escapeXmlEntities(String text) {
