@@ -50,6 +50,9 @@ public class TermbaseRegistry {
 
     private static final String PERSISTENCE_KEY = "com.example.termmgmt.termbase-configs";
 
+    /** OptionsStorage key of the "case sensitive matching" preference ("true"/"false"). */
+    public static final String CASE_SENSITIVE_OPTION_KEY = "com.example.termmgmt.case-sensitive";
+
     private static TermbaseRegistry instance;
 
     // Replaced wholesale, never mutated in place; volatile gives safe publication to worker threads.
@@ -57,7 +60,11 @@ public class TermbaseRegistry {
     private Map<String, List<TermEntry>> termCache; // Map from file path to terms
     private Map<String, long[]> fileStamps; // file path → {lastModified, size} when cache was filled
     private Map<String, List<TermEntry>> sourceIndex; // Map from source term text → terms (case-insensitive key)
-    private Map<String, Pattern> patternCache; // Compiled match patterns keyed by source term text
+    private Map<String, Pattern> patternCache; // Compiled match patterns keyed by source term text + case setting
+
+    // User option: distinguish upper/lower case when matching terms. Volatile because the
+    // EDT writes it from the preferences page and scan workers read it.
+    private volatile boolean caseSensitive;
 
     private List<Runnable> changeListeners;
 
@@ -384,7 +391,21 @@ public class TermbaseRegistry {
     }
 
     public synchronized Pattern getMatchPattern(String sourceTerm) {
-        return patternCache.computeIfAbsent(sourceTerm, TermMatchUtils::buildMatchPattern);
+        // The key carries the case setting, so toggling it can never hand out a pattern
+        // compiled under the previous setting.
+        boolean cs = caseSensitive;
+        return patternCache.computeIfAbsent(sourceTerm + "\u0000" + cs,
+            k -> TermMatchUtils.buildMatchPattern(sourceTerm, cs));
+    }
+
+    /** Whether term matching currently distinguishes case. */
+    public boolean isCaseSensitive() {
+        return caseSensitive;
+    }
+
+    /** Set the case-sensitivity option; takes effect for patterns compiled from now on. */
+    public void setCaseSensitive(boolean caseSensitive) {
+        this.caseSensitive = caseSensitive;
     }
 
     public synchronized List<TermEntry> getAllTerms() {

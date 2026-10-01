@@ -12,6 +12,7 @@ import ro.sync.exml.workspace.api.standalone.ViewComponentCustomizer;
 import ro.sync.exml.workspace.api.standalone.ViewInfo;
 import ro.sync.exml.workspace.api.standalone.actions.MenusAndToolbarsContributorCustomizer;
 
+import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.ui.TermManagementView;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
@@ -23,6 +24,15 @@ public class TermManagementWorkspaceAccessExtension
 
     @Override
     public void applicationStarted(StandalonePluginWorkspace workspace) {
+        // Restore the matching option so scans use it even if Preferences is never opened.
+        try {
+            String value = workspace.getOptionsStorage()
+                .getOption(TermbaseRegistry.CASE_SENSITIVE_OPTION_KEY, "false");
+            TermbaseRegistry.getInstance().setCaseSensitive(Boolean.parseBoolean(value));
+        } catch (Exception e) {
+            // Storage unavailable: keep the default (case-insensitive).
+        }
+
         workspace.addViewComponentCustomizer(new ViewComponentCustomizer() {
             @Override
             public void customizeView(ViewInfo viewInfo) {

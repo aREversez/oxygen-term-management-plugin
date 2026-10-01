@@ -34,6 +34,17 @@ class TermMatchUtilsTest {
         assertTrue(p.matcher("the FEA model").find());
     }
 
+    @Test
+    void buildMatchPattern_caseSensitiveFlagControlsCaseMatching() {
+        assertTrue(TermMatchUtils.buildMatchPattern("FEA", false).matcher("fea").find());
+        assertFalse(TermMatchUtils.buildMatchPattern("FEA", true).matcher("fea").find());
+        assertTrue(TermMatchUtils.buildMatchPattern("FEA", true).matcher("FEA").find());
+        // The single-argument overload keeps the historic case-insensitive behaviour.
+        assertTrue(TermMatchUtils.buildMatchPattern("FEA").matcher("fea").find());
+        // Boundaries keep working with the flag on.
+        assertFalse(TermMatchUtils.buildMatchPattern("FEA", true).matcher("FEAx").find());
+    }
+
     private static Predicate<String> known(String... terms) {
         Set<String> set = Set.of(terms);
         return s -> set.contains(s.toLowerCase(Locale.ROOT));

@@ -24,7 +24,8 @@
                         <uicontrol>Term Management</uicontrol>
                     </menucascade> 添加术语库。</cmd>
                 <info>支持 CSV、XLSX 和 TBX 格式。勾选术语库以启用，点击 <uicontrol>Reload</uicontrol>
-                    可在不重启的情况下更新术语库内容。</info>
+                    可在不重启的情况下更新术语库内容。勾选 <uicontrol>区分大小写匹配</uicontrol>
+                    后，英文术语不再匹配大小写不同的文本（默认关闭）。</info>
             </step>
         </steps>
     </taskbody>

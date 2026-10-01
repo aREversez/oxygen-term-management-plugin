@@ -376,13 +376,14 @@ public class TermRecognitionPanel extends JPanel {
         String capturedText = documentText;
         TermbaseConfig capturedConfig = config;
         boolean highlightSelected = highlightToggle.isSelected();
+        boolean capturedCaseSensitive = registry.isCaseSensitive();
 
         currentScanWorker = new SwingWorker<List<ScanResult>, Void>() {
             @Override
             protected List<ScanResult> doInBackground() throws Exception {
                 List<TermEntry> terms = registry.getTerms(capturedConfig);
                 DocumentScanner scanner = new DocumentScanner();
-                return scanner.scan(capturedText, terms, capturedIsTextMode, capturedSegments);
+                return scanner.scan(capturedText, terms, capturedIsTextMode, capturedSegments, capturedCaseSensitive);
             }
 
             @Override

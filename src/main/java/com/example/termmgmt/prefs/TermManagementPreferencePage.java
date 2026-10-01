@@ -40,6 +40,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
 
     private JPanel ui;
     private JTable termbaseTable;
+    private JCheckBox caseSensitiveCheck;
     private int reloadGeneration; // EDT only
     private boolean addInProgress; // EDT only
     private DefaultTableModel tableModel;
@@ -58,6 +59,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             // init() is called multiple times (e.g. after Cancel).
             // Reload from OptionsStorage to discard unsaved changes.
             registry.loadConfigs();
+            caseSensitiveCheck.setSelected(loadCaseSensitiveOption());
             reloadSettings();
         }
         return ui;
@@ -67,6 +69,8 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     public void apply(PluginWorkspace pluginWorkspace) {
         // Save termbase configurations to persistent storage
         registry.saveConfigs();
+        registry.setCaseSensitive(caseSensitiveCheck.isSelected());
+        saveCaseSensitiveOption(caseSensitiveCheck.isSelected());
     }
 
     @Override
@@ -74,6 +78,8 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         // Reset in-memory configs only — do NOT persist.
         // If Cancel is clicked, init() will reload from OptionsStorage.
         registry.setConfigs(new java.util.ArrayList<>());
+        registry.setCaseSensitive(false);
+        caseSensitiveCheck.setSelected(false);
         reloadSettings();
     }
 
@@ -91,6 +97,13 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         // Header description
         JLabel headerLabel = new JLabel(I18N.getString("prefs.add.termbases"));
         headerLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
+        // Matching option, applied on OK/Apply together with the termbase list
+        caseSensitiveCheck = new JCheckBox(I18N.getString("prefs.case-sensitive"));
+        caseSensitiveCheck.setSelected(loadCaseSensitiveOption());
+        JPanel northPanel = new JPanel(new BorderLayout());
+        northPanel.add(headerLabel, BorderLayout.NORTH);
+        northPanel.add(caseSensitiveCheck, BorderLayout.SOUTH);
 
         // Termbase table with proper model that can be updated
         String[] columns = {
@@ -130,7 +143,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         buttonPanel.add(enableBtn);
         buttonPanel.add(disableBtn);
 
-        ui.add(headerLabel, BorderLayout.NORTH);
+        ui.add(northPanel, BorderLayout.NORTH);
         ui.add(scrollPane, BorderLayout.CENTER);
         ui.add(buttonPanel, BorderLayout.SOUTH);
 
@@ -487,6 +500,27 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             if (w == null) return;
             WSOptionsStorage os = w.getOptionsStorage();
             os.setOption(LAST_TERMBASE_DIR_KEY, dir != null ? dir : "");
+        } catch (Exception e) {
+        }
+    }
+
+    /** Current "case sensitive matching" setting; defaults to off when storage is unavailable. */
+    private boolean loadCaseSensitiveOption() {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return false;
+            return Boolean.parseBoolean(
+                w.getOptionsStorage().getOption(TermbaseRegistry.CASE_SENSITIVE_OPTION_KEY, "false"));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void saveCaseSensitiveOption(boolean value) {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return;
+            w.getOptionsStorage().setOption(TermbaseRegistry.CASE_SENSITIVE_OPTION_KEY, String.valueOf(value));
         } catch (Exception e) {
         }
     }

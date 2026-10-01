@@ -24,6 +24,10 @@ public class TermMatchUtils {
     }
 
     public static Pattern buildMatchPattern(String term) {
+        return buildMatchPattern(term, false);
+    }
+
+    public static Pattern buildMatchPattern(String term, boolean caseSensitive) {
         String escaped = Pattern.quote(term);
         // A non-CJK term must not sit inside another word. \p{L} alone would also count Han,
         // kana and Hangul as "letters", which blocks every Latin term glued to CJK text
@@ -33,7 +37,8 @@ public class TermMatchUtils {
         String regex = isNonDelimitedScript(term)
             ? escaped
             : "(?<!" + wordChar + ")" + escaped + "(?!" + wordChar + ")";
-        return Pattern.compile(regex, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+        return Pattern.compile(regex,
+            caseSensitive ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     }
 
     /**

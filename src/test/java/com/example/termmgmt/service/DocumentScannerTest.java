@@ -263,4 +263,22 @@ class DocumentScannerTest {
 
         assertEquals(1, results.size());
     }
+
+    @Test
+    void caseSensitive_enabled_ignoresDifferentCase() {
+        List<TermEntry> terms = List.of(new TermEntry("FEA", "有限要素法"));
+        List<ScanResult> results = scanner.scan("FEA and fea", terms, true, Collections.emptyList(), true);
+
+        assertEquals(1, results.size());
+        assertEquals(0, results.get(0).startOffset);
+        assertEquals(3, results.get(0).endOffset);
+    }
+
+    @Test
+    void caseSensitive_oldSignatureStaysCaseInsensitive() {
+        List<TermEntry> terms = List.of(new TermEntry("FEA", "有限要素法"));
+        List<ScanResult> results = scanner.scan("FEA and fea", terms, true, Collections.emptyList());
+
+        assertEquals(2, results.size());
+    }
 }

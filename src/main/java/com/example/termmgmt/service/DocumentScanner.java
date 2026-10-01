@@ -30,6 +30,12 @@ public class DocumentScanner {
 
     public List<ScanResult> scan(String documentText, List<TermEntry> terms,
             boolean isTextMode, List<int[]> authorSegments) {
+        // Historic behaviour: matching ignores case.
+        return scan(documentText, terms, isTextMode, authorSegments, false);
+    }
+
+    public List<ScanResult> scan(String documentText, List<TermEntry> terms,
+            boolean isTextMode, List<int[]> authorSegments, boolean caseSensitive) {
         Set<String> countedPositions = new HashSet<>();
         List<RawMatch> rawMatches = new ArrayList<>();
 
@@ -40,7 +46,7 @@ public class DocumentScanner {
             if (sourceTerm == null || sourceTerm.isEmpty()) continue;
 
             String matchTerm = isTextMode ? escapeXmlEntities(sourceTerm) : sourceTerm;
-            Pattern pattern = TermMatchUtils.buildMatchPattern(matchTerm);
+            Pattern pattern = TermMatchUtils.buildMatchPattern(matchTerm, caseSensitive);
             Matcher matcher = pattern.matcher(documentText);
 
             while (matcher.find()) {
