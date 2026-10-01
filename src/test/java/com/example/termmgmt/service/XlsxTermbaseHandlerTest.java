@@ -8,9 +8,11 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -130,5 +132,112 @@ class XlsxTermbaseHandlerTest {
         assertEquals(1, loaded.size());
         assertEquals("4052", loaded.get(0).getSourceTerm());
         assertEquals("abcd", loaded.get(0).getTargetTerm());
+    }
+
+    @Test
+    void loadTerms_shouldReadExtraColumnsIntoConfigAndEntries() throws Exception {
+        Path file = tempDir.resolve("extra.xlsx");
+        try (Workbook wb = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(file.toFile())) {
+            Sheet sheet = wb.createSheet("Terms");
+            Row header = sheet.createRow(0);
+            header.createCell(0).setCellValue("zh-cn");
+            header.createCell(1).setCellValue("en-us");
+            header.createCell(2).setCellValue("domain");
+            header.createCell(3).setCellValue("note");
+            Row row1 = sheet.createRow(1);
+            row1.createCell(0).setCellValue("刚度");
+            row1.createCell(1).setCellValue("stiffness");
+            row1.createCell(2).setCellValue("mechanics");
+            row1.createCell(3).setCellValue("NBR note");
+            Row row2 = sheet.createRow(2);
+            row2.createCell(0).setCellValue("网格");
+            row2.createCell(1).setCellValue("mesh");
+            // row2 has no cells beyond column B.
+            wb.write(fos);
+        }
+
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        List<TermEntry> loaded = XlsxTermbaseHandler.loadTerms(config);
+
+        assertEquals(List.of("domain", "note"), config.getExtraColumns());
+        assertEquals(2, loaded.size());
+        assertEquals(Map.of("domain", "mechanics", "note", "NBR note"), loaded.get(0).getExtraFields());
+        // Missing cells come back as empty strings, keys still in header order.
+        assertEquals(Map.of("domain", "", "note", ""), loaded.get(1).getExtraFields());
+        assertEquals(List.of("domain", "note"), List.copyOf(loaded.get(1).getExtraFields().keySet()));
+    }
+
+    @Test
+    void saveTerms_shouldKeepOtherSheetsHeadersColumnWidthsAndExtraColumns() throws Exception {
+        Path file = tempDir.resolve("multi_sheet.xlsx");
+        try (Workbook wb = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(file.toFile())) {
+            Sheet sheet = wb.createSheet("Terms");
+            sheet.setColumnWidth(0, 7000);
+            Row header = sheet.createRow(0);
+            header.createCell(0).setCellValue("zh-cn");
+            header.createCell(1).setCellValue("en-us");
+            header.createCell(2).setCellValue("domain");
+            Row row1 = sheet.createRow(1);
+            row1.createCell(0).setCellValue("刚度");
+            row1.createCell(1).setCellValue("stiffness");
+            row1.createCell(2).setCellValue("mechanics");
+            Sheet other = wb.createSheet("Notes");
+            other.createRow(0).createCell(0).setCellValue("keep me");
+            wb.write(fos);
+        }
+
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        List<TermEntry> loaded = XlsxTermbaseHandler.loadTerms(config);
+        XlsxTermbaseHandler.saveTerms(config, loaded);
+
+        try (FileInputStream fis = new FileInputStream(file.toFile());
+             Workbook wb = new XSSFWorkbook(fis)) {
+            assertEquals(2, wb.getNumberOfSheets(), "other sheets must survive a save");
+            assertEquals("keep me", wb.getSheet("Notes").getRow(0).getCell(0).getStringCellValue());
+            Sheet terms = wb.getSheetAt(0);
+            assertEquals(7000, terms.getColumnWidth(0), "column widths must survive a save");
+            assertEquals("domain", terms.getRow(0).getCell(2).getStringCellValue());
+            assertEquals("mechanics", terms.getRow(1).getCell(2).getStringCellValue());
+        }
+    }
+
+    @Test
+    void saveAndLoad_shouldPreserveExtraColumnsAndValues() {
+        Path file = tempDir.resolve("roundtrip.xlsx");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        config.setSourceLang("zh-cn");
+        config.setTargetLang("en-us");
+        config.setExtraColumns(List.of("domain", "note"));
+
+        TermEntry withExtras = new TermEntry("刚度", "stiffness");
+        withExtras.getExtraFields().put("domain", "mechanics");
+        withExtras.getExtraFields().put("note", "NBR term");
+        XlsxTermbaseHandler.saveTerms(config, List.of(withExtras, new TermEntry("网格", "mesh")));
+
+        List<TermEntry> loaded = XlsxTermbaseHandler.loadTerms(config);
+        assertEquals(2, loaded.size());
+        assertEquals(List.of("domain", "note"), config.getExtraColumns());
+        assertEquals("mechanics", loaded.get(0).getExtraFields().get("domain"));
+        assertEquals("NBR term", loaded.get(0).getExtraFields().get("note"));
+        assertEquals("", loaded.get(1).getExtraFields().get("note"));
+    }
+
+    @Test
+    void saveTerms_shouldNotAddExtraHeaderWhenNoneExist() throws Exception {
+        Path file = tempDir.resolve("plain.xlsx");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        config.setSourceLang("zh-cn");
+        config.setTargetLang("en-us");
+        XlsxTermbaseHandler.saveTerms(config, List.of(new TermEntry("a", "b")));
+
+        try (FileInputStream fis = new FileInputStream(file.toFile());
+             Workbook wb = new XSSFWorkbook(fis)) {
+            Sheet terms = wb.getSheetAt(0);
+            assertEquals(1, wb.getNumberOfSheets());
+            assertTrue(terms.getRow(0).getLastCellNum() <= 2, "two-column files must not gain a column");
+        }
+        assertTrue(XlsxTermbaseHandler.loadTerms(config).get(0).getExtraFields().isEmpty());
     }
 }

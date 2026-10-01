@@ -10,6 +10,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `TermbaseConfig.extraColumns` remembers the header names from the third column on (runtime state, re-detected on load, never persisted).
 - New `AtomicFileWriter`: saves fill a temporary file in the target's directory and move it over the target when complete, so a failure half-way leaves the previous file untouched and no temporary file is left behind; a move blocked by another application is reported as "file in use".
 - CSV saves are lossless: columns from the third on are read into entries, written back in the original header order on save, and saves now go through `AtomicFileWriter` (UTF-8 BOM and blank-row skipping unchanged). Two-column files gain no new column.
+- XLSX saves are lossless: the original workbook is reopened and only the first sheet's data rows are rewritten, so other sheets, header-row styles and column widths survive; extra columns are read into entries and written back like CSV. Known limitation: per-cell formatting on data rows is not preserved. If the original file cannot be opened, a new workbook is written instead (logged to the plugin console).
 
 ## 1.0.12 - 2026-07-08
 

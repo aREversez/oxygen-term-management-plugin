@@ -2,13 +2,17 @@ package com.example.termmgmt.service;
 
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
+import com.example.termmgmt.util.AtomicFileWriter;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.*;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class XlsxTermbaseHandler {
 
@@ -40,6 +44,15 @@ public class XlsxTermbaseHandler {
             config.setSourceLang(sourceLang);
             config.setTargetLang(targetLang);
 
+            // Columns from the third on are not modelled as terms; remember their names and
+            // keep each row's values so a save can write them back untouched.
+            List<String> extraColumns = new ArrayList<>();
+            for (int c = 2; c < lastCell; c++) {
+                String name = getCellStringValue(headerRow.getCell(c), formatter, evaluator);
+                extraColumns.add(name != null ? name.trim() : "");
+            }
+            config.setExtraColumns(extraColumns);
+
             for (int rowNum = 1; rowNum <= sheet.getLastRowNum(); rowNum++) {
                 Row row = sheet.getRow(rowNum);
                 if (row == null) continue;
@@ -49,6 +62,13 @@ public class XlsxTermbaseHandler {
                 String tgt = getCellStringValue(row.getCell(1), formatter, evaluator);
                 entry.setSourceTerm(src != null ? src.trim() : null);
                 entry.setTargetTerm(tgt != null ? tgt.trim() : null);
+                Map<String, String> extras = new LinkedHashMap<>();
+                for (int i = 0; i < extraColumns.size(); i++) {
+                    String v = getCellStringValue(row.getCell(i + 2), formatter, evaluator);
+                    // Cells missing from a short row come back as empty strings.
+                    extras.put(extraColumns.get(i), v != null ? v : "");
+                }
+                entry.setExtraFields(extras);
                 terms.add(entry);
             }
         } catch (Exception e) {
@@ -60,29 +80,78 @@ public class XlsxTermbaseHandler {
     public static void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
         String filePath = config.getFilePath();
 
-        try (FileOutputStream fos = new FileOutputStream(filePath)) {
-            Workbook workbook = new XSSFWorkbook();
-            Sheet sheet = workbook.createSheet("Terms");
-
+        try {
+            // Reopen the original workbook so other sheets, header-row styles and column
+            // widths survive; only the first sheet's data rows are rewritten. The original
+            // is fully read into memory before anything is written, and the serialized
+            // result lands on a temp file that AtomicFileWriter moves over the target, so
+            // the file is never read and written at the same time and a half-failed save
+            // leaves the previous content intact.
             String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-cn";
             String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-us";
+            List<String> extraColumns = config.getExtraColumns();
 
-            Row headerRow = sheet.createRow(0);
-            headerRow.createCell(0).setCellValue(sourceLang);
-            headerRow.createCell(1).setCellValue(targetLang);
-
-            for (int i = 0; i < terms.size(); i++) {
-                TermEntry entry = terms.get(i);
-                Row row = sheet.createRow(i + 1);
-                row.createCell(0).setCellValue(entry.getSourceTerm() != null ? entry.getSourceTerm() : "");
-                row.createCell(1).setCellValue(entry.getTargetTerm() != null ? entry.getTargetTerm() : "");
+            Workbook workbook = null;
+            File original = new File(filePath);
+            if (original.exists()) {
+                try (InputStream is = new FileInputStream(original)) {
+                    workbook = new XSSFWorkbook(is);
+                } catch (Exception e) {
+                    System.err.println("XLSX: cannot reopen " + filePath + ", writing a new two-column workbook: " + e.getMessage());
+                }
             }
+            boolean freshWorkbook = workbook == null;
+            if (freshWorkbook) {
+                workbook = new XSSFWorkbook();
+            }
+            try {
+                Sheet sheet = workbook.getNumberOfSheets() == 0
+                    ? workbook.createSheet("Terms")
+                    : workbook.getSheetAt(0);
 
-            workbook.write(fos);
-            workbook.close();
+                Row headerRow = sheet.getRow(0);
+                if (headerRow == null) {
+                    headerRow = sheet.createRow(0);
+                }
+                setCell(headerRow, 0, sourceLang);
+                setCell(headerRow, 1, targetLang);
+                for (int i = 0; i < extraColumns.size(); i++) {
+                    setCell(headerRow, i + 2, extraColumns.get(i));
+                }
+
+                // Drop the old data rows, then write the current list. Per-cell styles on
+                // data rows are not preserved (documented limitation).
+                for (int r = sheet.getLastRowNum(); r >= 1; r--) {
+                    sheet.removeRow(sheet.getRow(r));
+                }
+                for (int i = 0; i < terms.size(); i++) {
+                    TermEntry entry = terms.get(i);
+                    Row row = sheet.createRow(i + 1);
+                    setCell(row, 0, entry.getSourceTerm() != null ? entry.getSourceTerm() : "");
+                    setCell(row, 1, entry.getTargetTerm() != null ? entry.getTargetTerm() : "");
+                    for (int c = 0; c < extraColumns.size(); c++) {
+                        String value = entry.getExtraFields().get(extraColumns.get(c));
+                        setCell(row, c + 2, value != null ? value : "");
+                    }
+                }
+
+                final Workbook toWrite = workbook;
+                AtomicFileWriter.write(Path.of(filePath), out -> toWrite.write(out));
+            } finally {
+                workbook.close();
+            }
         } catch (Exception e) {
             throw new RuntimeException("Failed to save XLSX: " + filePath, e);
         }
+    }
+
+    /** Write a string into the cell, creating it when missing; existing styles stay put. */
+    private static void setCell(Row row, int index, String value) {
+        Cell cell = row.getCell(index);
+        if (cell == null) {
+            cell = row.createCell(index);
+        }
+        cell.setCellValue(value);
     }
 
     /**
