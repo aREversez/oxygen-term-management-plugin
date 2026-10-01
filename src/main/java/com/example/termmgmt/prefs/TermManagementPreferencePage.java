@@ -365,12 +365,42 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             return;
         }
         
+        List<String> filePaths = new ArrayList<>();
         for (int row : selectedRows) {
-            String filePath = (String) tableModel.getValueAt(row, 1);
-            registry.reloadConfig(filePath);
+            filePaths.add((String) tableModel.getValueAt(row, 1));
         }
-        reloadSettings();
-        JOptionPane.showMessageDialog(ui, I18N.getString("prefs.reload.success", selectedRows.length), I18N.getString("msg.success"), JOptionPane.INFORMATION_MESSAGE);
+
+        // Reloading reads each file in full: do it off the EDT, and report a file that cannot
+        // be read (corrupt, locked, gone) instead of letting the exception escape.
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() {
+                List<String> failures = new ArrayList<>();
+                for (String filePath : filePaths) {
+                    try {
+                        registry.reloadConfig(filePath);
+                    } catch (Exception e) {
+                        failures.add(new File(filePath).getName() + ": " + e.getMessage());
+                    }
+                }
+                return failures;
+            }
+
+            @Override
+            protected void done() {
+                reloadSettings();
+                try {
+                    List<String> failures = get();
+                    if (failures.isEmpty()) {
+                        JOptionPane.showMessageDialog(ui, I18N.getString("prefs.reload.success", filePaths.size()), I18N.getString("msg.success"), JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(ui, I18N.getString("msg.failed.reload", String.join("\n", failures)), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(ui, I18N.getString("msg.failed.reload", e.getMessage()), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     private void editTermbase() {
