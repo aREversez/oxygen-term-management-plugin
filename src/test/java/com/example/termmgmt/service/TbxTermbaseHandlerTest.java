@@ -392,4 +392,151 @@ class TbxTermbaseHandlerTest {
         assertEquals(second.length, fifth.length, "repeated saves must not change the file");
         assertArrayEquals(second, fifth);
     }
+
+    // ---- Step 5 patch-plan regression tests ----
+
+    /**
+     * 5.1: A termEntry without id that carries a <descrip> must survive a no-op save
+     * (original bug: it was deleted and replaced by a fresh 2-lang node at end-of-file).
+     */
+    @Test
+    void saveTerms_noIdEntryWithDescrip_preservesContentAndPosition() throws Exception {
+        Path file = tempDir.resolve("no_id_descrip.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"first\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>first</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>first-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>KEEPME</term>"
+            + "        <descrip>Important definition</descrip>"
+            + "      </tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>keep-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(2, loaded.size());
+        assertNull(loaded.get(1).getEntryId(), "no-id entry");
+        assertEquals(1, loaded.get(1).getEntryOrdinal(), "ordinal recorded");
+
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        String saved = Files.readString(file);
+        assertTrue(saved.contains("KEEPME"), "source term survived");
+        assertTrue(saved.contains("Important definition"), "descrip must NOT be lost");
+        // Verify position: KEEPME comes after "first" in document order
+        int firstPos = saved.indexOf("first");
+        int keepPos = saved.indexOf("KEEPME");
+        assertTrue(firstPos < keepPos, "entry must stay at original document position");
+    }
+
+    /**
+     * 5.2: A termEntry that is not loadable (no term text in any langSet, only a descrip)
+     * must survive a save untouched (original bug: it was deleted because nobody claimed it).
+     */
+    @Test
+    void saveTerms_nonLoadableEntry_staysInFile() throws Exception {
+        Path file = tempDir.resolve("non_loadable.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"e1\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>abc</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>abc-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry id=\"orphan\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><descrip>ORPHAN</descrip></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(1, loaded.size(), "orphan entry is not loadable");
+
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        String saved = Files.readString(file);
+        assertTrue(saved.contains("ORPHAN"), "non-loadable entry must NOT be deleted");
+    }
+
+    /**
+     * 5.3: A 3-lang entry (zh/en/de), clearing the en target and saving then reloading
+     * must still treat en as the target (not de). Original bug: selectLangSets skipped
+     * empty terms, so de shifted to position 1 (target).
+     */
+    @Test
+    void saveTerms_threeLangClearTarget_reloadStillSelectsCorrectLanguages() throws Exception {
+        Path file = tempDir.resolve("three_lang.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"tri\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>\u7f51\u7edc</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>mesh</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"de-DE\"><tig><term>Netz</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        // Load: zh=source, en=target
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(1, loaded.size());
+        assertEquals("\u7f51\u7edc", loaded.get(0).getSourceTerm());
+        assertEquals("mesh", loaded.get(0).getTargetTerm());
+
+        // Clear target (user action)
+        loaded.get(0).setTargetTerm("");
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        // Reload: en should still be the target position (empty/null), NOT de
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(1, reloaded.size());
+        assertEquals("\u7f51\u7edc", reloaded.get(0).getSourceTerm());
+        assertNull(reloaded.get(0).getTargetTerm(),
+            "cleared target stays null; de must not shift into target position");
+        assertEquals("zh-CN", config.getSourceLang());
+        assertEquals("en-US", config.getTargetLang());
+
+        // Verify de is still present in the file
+        String saved = Files.readString(file);
+        assertTrue(saved.contains("Netz"), "third language must survive");
+    }
+
+    /**
+     * 5.5 (functional aspect): Multiple entries with same id are handled correctly.
+     * (Performance is measured manually; this test just validates correctness of Map claim.)
+     */
+    @Test
+    void saveTerms_duplicateIds_claimsNodesInDocumentOrder() throws Exception {
+        Path file = tempDir.resolve("dup_id.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"dup\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>A1</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>a1</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry id=\"dup\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>A2</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>a2</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(2, loaded.size());
+        // Both have same entryId "dup" but different ordinals
+        loaded.get(0).setSourceTerm("A1-modified");
+        loaded.get(1).setSourceTerm("A2-modified");
+
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals("A1-modified", reloaded.get(0).getSourceTerm());
+        assertEquals("A2-modified", reloaded.get(1).getSourceTerm());
+    }
 }

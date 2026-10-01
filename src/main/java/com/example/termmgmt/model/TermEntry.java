@@ -17,6 +17,11 @@ public class TermEntry {
     /** The TBX termEntry id this entry was loaded from; null for entries not on disk yet. */
     private String entryId;
     /**
+     * The 0-based document-order index of the termEntry node this entry was loaded from.
+     * Used as a fallback claim key when entryId is null; -1 means not set (new entry).
+     */
+    private int entryOrdinal = -1;
+    /**
      * The raw status value as read from the file (column text or TBX administrativeStatus
      * termNote). The handlers use it to tell "cleared since load" from "never had one",
      * and to write an unknown TBX value back verbatim on a no-op save.
@@ -54,6 +59,8 @@ public class TermEntry {
     }
     public String getEntryId() { return entryId; }
     public void setEntryId(String entryId) { this.entryId = entryId; }
+    public int getEntryOrdinal() { return entryOrdinal; }
+    public void setEntryOrdinal(int entryOrdinal) { this.entryOrdinal = entryOrdinal; }
     public String getLoadedStatusRaw() { return loadedStatusRaw; }
     public void setLoadedStatusRaw(String loadedStatusRaw) { this.loadedStatusRaw = loadedStatusRaw; }
 
@@ -105,6 +112,7 @@ public class TermEntry {
         TermEntry c = new TermEntry(sourceTerm, targetTerm, sourceFilePath);
         c.extraFields = new LinkedHashMap<>(extraFields);
         c.entryId = entryId;
+        c.entryOrdinal = entryOrdinal;
         c.loadedStatusRaw = loadedStatusRaw;
         c.statusValue = statusValue;
         return c;

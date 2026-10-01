@@ -22,11 +22,15 @@ import org.w3c.dom.NodeList;
 import org.w3c.dom.NamedNodeMap;
 import java.io.*;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class TbxTermbaseHandler {
@@ -85,33 +89,35 @@ public class TbxTermbaseHandler {
 
             for (int i = 0; i < termEntryNodes.getLength(); i++) {
                 Element termEntryNode = (Element) termEntryNodes.item(i);
+                // 5.2: skip non-loadable nodes entirely; they stay untouched on save.
+                if (!isLoadable(termEntryNode)) continue;
+
                 TermEntry entry = new TermEntry();
                 String id = termEntryNode.getAttribute("id");
                 if (!id.isEmpty()) {
                     entry.setEntryId(id);
                 }
+                entry.setEntryOrdinal(i);
 
                 // Same selection the save uses, so both operate on the same pair of langSets.
                 List<Element> pair = selectLangSets(termEntryNode);
                 if (!pair.isEmpty()) {
-                    entry.setSourceTerm(getTermText(pair.get(0)));
+                    entry.setSourceTerm(getTermTextOrNull(pair.get(0)));
                     if (detectedSourceLang == null) detectedSourceLang = langOf(pair.get(0));
                 }
                 if (pair.size() > 1) {
-                    entry.setTargetTerm(getTermText(pair.get(1)));
+                    entry.setTargetTerm(getTermTextOrNull(pair.get(1)));
                     if (detectedTargetLang == null) detectedTargetLang = langOf(pair.get(1));
                 }
 
-                if (entry.getSourceTerm() != null || entry.getTargetTerm() != null) {
-                    // Read administrativeStatus from the source langSet's tig.
-                    if (!pair.isEmpty()) {
-                        String raw = findAdministrativeStatus(pair.get(0));
-                        if (raw != null) {
-                            entry.setStatusRaw(raw);
-                        }
+                // Read administrativeStatus from the source langSet's term container.
+                if (!pair.isEmpty()) {
+                    String raw = findAdministrativeStatus(pair.get(0));
+                    if (raw != null) {
+                        entry.setStatusRaw(raw);
                     }
-                    terms.add(entry);
                 }
+                terms.add(entry);
             }
 
             if (detectedSourceLang != null) config.setSourceLang(detectedSourceLang);
@@ -157,17 +163,37 @@ public class TbxTermbaseHandler {
             for (int i = 0; i < allEntryNodes.getLength(); i++) {
                 snapshot.add((Element) allEntryNodes.item(i));
             }
-            List<Element> remaining = new ArrayList<>(snapshot);
+            // 5.5: Index by id for O(1) claiming.
+            Map<String, Deque<Element>> idMap = new HashMap<>();
             Set<String> usedIds = new HashSet<>();
             for (Element e : snapshot) {
                 String id = e.getAttribute("id");
-                if (!id.isEmpty()) usedIds.add(id);
+                if (!id.isEmpty()) {
+                    usedIds.add(id);
+                    idMap.computeIfAbsent(id, k -> new ArrayDeque<>()).addLast(e);
+                }
             }
 
             Set<Element> kept = Collections.newSetFromMap(new IdentityHashMap<>());
             for (TermEntry entry : terms) {
-                Element node = entry.getEntryId() == null ? null : takeUnusedNode(remaining, kept, entry.getEntryId());
-                if (node != null) {
+                Element node = null;
+                // Try id-based claim first; fall back to ordinal-based claim for no-id entries.
+                if (entry.getEntryId() != null) {
+                    Deque<Element> queue = idMap.get(entry.getEntryId());
+                    if (queue != null && !queue.isEmpty()) {
+                        node = queue.pollFirst();
+                    }
+                } else if (entry.getEntryOrdinal() >= 0
+                        && entry.getEntryOrdinal() < snapshot.size()) {
+                    // Claim the same document-position node if it has no id and is loadable.
+                    Element candidate = snapshot.get(entry.getEntryOrdinal());
+                    String candidateId = candidate.getAttribute("id");
+                    if (candidateId.isEmpty() && isLoadable(candidate) && !kept.contains(candidate)) {
+                        node = candidate;
+                    }
+                }
+
+                if (node != null && !kept.contains(node)) {
                     kept.add(node);
                     updateEntryNode(doc, node, entry, sourceLang, targetLang);
                 } else {
@@ -177,7 +203,6 @@ public class TbxTermbaseHandler {
                     fresh.setAttribute("id", newId);
                     appendLangSet(fresh, sourceLang, entry.getSourceTerm());
                     appendLangSet(fresh, targetLang, entry.getTargetTerm());
-                    // Write administrativeStatus for new entries with a status.
                     String statusVal = entry.getStoredStatusValue();
                     if (statusVal != null) {
                         List<Element> freshPair = selectLangSets(fresh);
@@ -189,10 +214,9 @@ public class TbxTermbaseHandler {
                 }
             }
 
-            // On disk but no longer in the list: deleted. Remove through each node's own
-            // parent because termEntry may be nested below body.
+            // 5.2: Only delete loadable unclaimed nodes; non-loadable nodes stay untouched.
             for (Element e : snapshot) {
-                if (!kept.contains(e) && e.getParentNode() != null) {
+                if (!kept.contains(e) && isLoadable(e) && e.getParentNode() != null) {
                     e.getParentNode().removeChild(e);
                 }
             }
@@ -235,16 +259,6 @@ public class TbxTermbaseHandler {
         dbf.setNamespaceAware(false);
         DocumentBuilder builder = dbf.newDocumentBuilder();
         return builder.parse(new File(filePath));
-    }
-
-    /** First node with this id that no entry has claimed yet, or null; claims remove it. */
-    private static Element takeUnusedNode(List<Element> remaining, Set<Element> kept, String id) {
-        for (Element e : remaining) {
-            if (!kept.contains(e) && id.equals(e.getAttribute("id"))) {
-                return e;
-            }
-        }
-        return null;
     }
 
     /** "tid1", "tid2", ... skipping anything already used on disk or earlier in this save. */
@@ -389,8 +403,9 @@ public class TbxTermbaseHandler {
     }
 
     /**
-     * The langSets that actually expose term text, in document order: index 0 is the source
-     * and index 1 the target used by both load and save, so the two never disagree.
+     * 5.3: The langSets that structurally expose a term element (tig/term or
+     * ntig/termGrp/term), in document order: index 0 is the source and index 1 the target
+     * used by both load and save. Selection no longer requires non-empty text.
      */
     private static List<Element> selectLangSets(Node termEntry) {
         List<Element> selected = new ArrayList<>();
@@ -405,10 +420,46 @@ public class TbxTermbaseHandler {
             Node langAttr = attrs.getNamedItem("xml:lang");
             if (langAttr == null) langAttr = attrs.getNamedItem("lang");
             if (langAttr == null || langAttr.getNodeValue() == null) continue;
-            if (getTermText(langSet) == null) continue;
+            // 5.3 fix: structural check only – langSet must contain a term element.
+            if (!hasTermElement((Element) langSet)) continue;
             selected.add((Element) langSet);
         }
         return selected;
+    }
+
+    /** Check whether a langSet structurally contains a tig/term or ntig/termGrp/term element. */
+    private static boolean hasTermElement(Element langSet) {
+        NodeList children = langSet.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() != Node.ELEMENT_NODE) continue;
+            String name = child.getNodeName();
+            if ("tig".equals(name) && firstElementChild(child, "term") != null) return true;
+            if ("ntig".equals(name)) {
+                Node termGrp = firstElementChild(child, "termGrp");
+                if (termGrp != null && firstElementChild(termGrp, "term") != null) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 5.2: A termEntry is loadable if it has at least one langSet with a non-blank term text.
+     * Used during load to decide whether to produce a TermEntry, and during save to decide
+     * whether a node on disk is "eligible for claiming". Non-loadable nodes are left untouched.
+     */
+    static boolean isLoadable(Element termEntry) {
+        List<Element> pair = selectLangSets(termEntry);
+        for (Element ls : pair) {
+            if (getTermTextOrNull(ls) != null) return true;
+        }
+        return false;
+    }
+
+    /** Get non-blank term text from a langSet, or null if blank/missing. */
+    private static String getTermTextOrNull(Element langSet) {
+        String t = getTermText(langSet);
+        return (t != null && !t.trim().isEmpty()) ? t.trim() : null;
     }
 
     private static String langOf(Element langSet) {
