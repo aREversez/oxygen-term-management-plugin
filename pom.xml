@@ -219,6 +219,16 @@
 
         <profile>
             <id>ci</id>
+            <dependencies>
+                <!-- Needed so TermbaseRegistry and I18N can be compiled and their
+                     production code paths unit-tested; provided by Oxygen at runtime. -->
+                <dependency>
+                    <groupId>ro.sync</groupId>
+                    <artifactId>oxygen-sdk</artifactId>
+                    <version>${oxygen.sdk.version}</version>
+                    <scope>provided</scope>
+                </dependency>
+            </dependencies>
             <build>
                 <plugins>
                     <plugin>
@@ -230,6 +240,7 @@
                             <release>17</release>
                             <includes>
                                 <include>com/example/termmgmt/model/**</include>
+                                <include>com/example/termmgmt/util/I18N.java</include>
                                 <include>com/example/termmgmt/util/TermMatchUtils.java</include>
                                 <include>com/example/termmgmt/util/TableRowUtils.java</include>
                                 <include>com/example/termmgmt/util/TermEntryUtils.java</include>
@@ -241,6 +252,7 @@
                                 <include>com/example/termmgmt/service/XlsxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TbxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TermbaseLoader.java</include>
+                                <include>com/example/termmgmt/service/TermbaseRegistry.java</include>
                                 <include>com/example/termmgmt/service/DocumentScanner.java</include>
                             </includes>
                         </configuration>

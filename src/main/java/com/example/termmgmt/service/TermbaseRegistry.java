@@ -17,6 +17,7 @@ import ro.sync.exml.workspace.api.options.WSOptionsStorage;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -54,6 +55,7 @@ public class TermbaseRegistry {
     // Replaced wholesale, never mutated in place; volatile gives safe publication to worker threads.
     private volatile List<TermbaseConfig> configs;
     private Map<String, List<TermEntry>> termCache; // Map from file path to terms
+    private Map<String, long[]> fileStamps; // file path → {lastModified, size} when cache was filled
     private Map<String, List<TermEntry>> sourceIndex; // Map from source term text → terms (case-insensitive key)
     private Map<String, Pattern> patternCache; // Compiled match patterns keyed by source term text
 
@@ -62,6 +64,7 @@ public class TermbaseRegistry {
     private TermbaseRegistry() {
         this.configs = new ArrayList<>();
         this.termCache = new HashMap<>();
+        this.fileStamps = new HashMap<>();
         this.sourceIndex = new HashMap<>();
         this.patternCache = new HashMap<>();
         this.changeListeners = new ArrayList<>();
@@ -239,10 +242,13 @@ public class TermbaseRegistry {
 
     public List<TermEntry> loadTerms(TermbaseConfig config) {
         List<TermEntry> terms;
-        synchronized (fileLock(config.getFilePath())) {
+        String filePath = config.getFilePath();
+        synchronized (fileLock(filePath)) {
             terms = TermbaseLoader.loadTerms(config);
+            long[] stamp = stampOf(filePath); // read after the load: this is what the cache mirrors
             synchronized (this) {
-                termCache.put(config.getFilePath(), terms);
+                termCache.put(filePath, terms);
+                putStamp(filePath, stamp);
                 rebuildSourceIndex();
             }
         }
@@ -265,8 +271,10 @@ public class TermbaseRegistry {
                 }
             }
             List<TermEntry> terms = TermbaseLoader.loadTerms(config);
+            long[] stamp = stampOf(config.getFilePath());
             synchronized (this) {
                 termCache.put(config.getFilePath(), new ArrayList<>(terms));
+                putStamp(config.getFilePath(), stamp);
                 rebuildSourceIndex();
             }
             return terms;
@@ -276,8 +284,12 @@ public class TermbaseRegistry {
     public void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
         synchronized (fileLock(config.getFilePath())) {
             TermbaseLoader.saveTerms(config, terms);
+            // Stamp after the write completed (the handlers move into place atomically),
+            // so our own save is never mistaken for an external change later.
+            long[] stamp = stampOf(config.getFilePath());
             synchronized (this) {
                 termCache.put(config.getFilePath(), new ArrayList<>(terms));
+                putStamp(config.getFilePath(), stamp);
                 rebuildSourceIndex();
             }
         }
@@ -306,22 +318,52 @@ public class TermbaseRegistry {
     public void updateTerms(TermbaseConfig config, UnaryOperator<List<TermEntry>> mutator) {
         String filePath = config.getFilePath();
         synchronized (fileLock(filePath)) {
+            long[] disk = stampOf(filePath);
+            if (disk == null) {
+                // Silently recreating a deleted termbase would lose whatever the user moved
+                // or renamed; fail loudly instead.
+                throw new RuntimeException("Termbase file no longer exists: " + filePath);
+            }
             List<TermEntry> current;
             synchronized (this) {
                 List<TermEntry> cached = termCache.get(filePath);
-                current = cached != null ? new ArrayList<>(cached) : null;
+                long[] known = fileStamps.get(filePath);
+                // Trust the cache only while the file on disk still matches what was loaded
+                // or saved: an external edit (Excel, another editor) must not be overwritten.
+                current = (cached != null && known != null && Arrays.equals(known, disk))
+                    ? new ArrayList<>(cached) : null;
             }
             if (current == null) {
                 current = new ArrayList<>(TermbaseLoader.loadTerms(config));
             }
             List<TermEntry> updated = Objects.requireNonNull(mutator.apply(current), "mutator returned null");
             TermbaseLoader.saveTerms(config, updated);
+            long[] stamp = stampOf(filePath); // after the atomic move, not before
             synchronized (this) {
                 termCache.put(filePath, new ArrayList<>(updated));
+                putStamp(filePath, stamp);
                 rebuildSourceIndex();
             }
         }
         fireTermsChanged();
+    }
+
+    /** {lastModified, size} of the file, or null when it does not exist (or cannot be read). */
+    private static long[] stampOf(String filePath) {
+        File file = new File(filePath);
+        if (!file.exists()) {
+            return null;
+        }
+        return new long[] { file.lastModified(), file.length() };
+    }
+
+    /** Call while holding the monitor; a missing stamp makes every cached list look stale. */
+    private void putStamp(String filePath, long[] stamp) {
+        if (stamp != null) {
+            fileStamps.put(filePath, stamp);
+        } else {
+            fileStamps.remove(filePath);
+        }
     }
 
     public void reloadConfig(String filePath) {
@@ -336,6 +378,7 @@ public class TermbaseRegistry {
 
     public synchronized void clearCache() {
         termCache.clear();
+        fileStamps.clear();
         sourceIndex.clear();
         patternCache.clear();
     }
