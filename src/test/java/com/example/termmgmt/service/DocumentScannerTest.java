@@ -281,4 +281,16 @@ class DocumentScannerTest {
 
         assertEquals(2, results.size());
     }
+
+    @Test
+    void textMode_markupTagsAndAttributesAreNotScanned() {
+        // "table" appears as the element name and as text; only the text occurrence counts.
+        // Before masking, the raw "<table …>" tag was matched too.
+        List<TermEntry> terms = List.of(new TermEntry("table", "表格"));
+        String text = "<table frame=\"all\"><title>Table of mesh</title></table>";
+        List<ScanResult> results = scanner.scan(text, terms, true, Collections.emptyList());
+
+        assertEquals(1, results.size());
+        assertEquals(text.indexOf("Table"), results.get(0).startOffset);
+    }
 }

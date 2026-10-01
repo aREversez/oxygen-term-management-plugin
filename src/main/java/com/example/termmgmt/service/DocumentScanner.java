@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 
 import com.example.termmgmt.model.TermEntry;
 
+import com.example.termmgmt.util.MarkupMasker;
 import com.example.termmgmt.util.TermMatchUtils;
 
 public class DocumentScanner {
@@ -38,6 +39,13 @@ public class DocumentScanner {
             boolean isTextMode, List<int[]> authorSegments, boolean caseSensitive) {
         Set<String> countedPositions = new HashSet<>();
         List<RawMatch> rawMatches = new ArrayList<>();
+
+        // In text mode the editor hands over the raw file including markup; blank the
+        // markup out (offset-preserving) so tags, attributes, comments and PIs can never
+        // produce term hits. Author mode receives already-extracted text and is untouched.
+        if (isTextMode) {
+            documentText = MarkupMasker.mask(documentText);
+        }
 
         for (TermEntry term : terms) {
             if (Thread.currentThread().isInterrupted()) break;
