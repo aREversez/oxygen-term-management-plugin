@@ -1,6 +1,7 @@
 package com.example.termmgmt.service;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.util.AtomicFileWriter;
 
@@ -102,6 +103,13 @@ public class TbxTermbaseHandler {
                 }
 
                 if (entry.getSourceTerm() != null || entry.getTargetTerm() != null) {
+                    // Read administrativeStatus from the source langSet's tig.
+                    if (!pair.isEmpty()) {
+                        String raw = findAdministrativeStatus(pair.get(0));
+                        if (raw != null) {
+                            entry.setStatusRaw(raw);
+                        }
+                    }
                     terms.add(entry);
                 }
             }
@@ -169,6 +177,14 @@ public class TbxTermbaseHandler {
                     fresh.setAttribute("id", newId);
                     appendLangSet(fresh, sourceLang, entry.getSourceTerm());
                     appendLangSet(fresh, targetLang, entry.getTargetTerm());
+                    // Write administrativeStatus for new entries with a status.
+                    String statusVal = entry.getStoredStatusValue();
+                    if (statusVal != null) {
+                        List<Element> freshPair = selectLangSets(fresh);
+                        if (!freshPair.isEmpty()) {
+                            setAdministrativeStatus(freshPair.get(0), toTbxValue(statusVal));
+                        }
+                    }
                     body.appendChild(fresh);
                 }
             }
@@ -242,6 +258,97 @@ public class TbxTermbaseHandler {
         return id;
     }
 
+    /**
+     * Convert a stored status value (which may be the short CSV form like "preferred" or
+     * an already-TBX form like "deprecatedTerm-admn-sts" or an unknown string) into the
+     * TBX-Basic administrativeStatus domain value.
+     */
+    private static String toTbxValue(String storedValue) {
+        TermStatus ts = TermStatus.parse(storedValue);
+        return ts != null ? ts.tbxValue() : storedValue;
+    }
+
+    /**
+     * The termNote type="administrativeStatus" text inside the langSet's first tig, or null
+     * if absent. Used during load to populate TermEntry.loadedStatusRaw.
+     */
+    private static String findAdministrativeStatus(Element langSet) {
+        NodeList children = langSet.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() != Node.ELEMENT_NODE || !"tig".equals(child.getNodeName())) continue;
+            Element tig = (Element) child;
+            NodeList tigChildren = tig.getChildNodes();
+            for (int j = 0; j < tigChildren.getLength(); j++) {
+                Node tn = tigChildren.item(j);
+                if (tn.getNodeType() != Node.ELEMENT_NODE || !"termNote".equals(tn.getNodeName())) continue;
+                if ("administrativeStatus".equals(((Element) tn).getAttribute("type"))) {
+                    String text = tn.getTextContent();
+                    return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Set or remove the termNote type="administrativeStatus" in the langSet's tig.
+     * If statusValue is non-null, writes it (creating the element if needed).
+     * If statusValue is null, leaves the tig untouched (preserves existing unknown values).
+     */
+    private static void setAdministrativeStatus(Element langSet, String statusValue) {
+        if (statusValue == null) return;
+        // Find the first tig.
+        Element tig = null;
+        NodeList children = langSet.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() == Node.ELEMENT_NODE && "tig".equals(child.getNodeName())) {
+                tig = (Element) child;
+                break;
+            }
+        }
+        if (tig == null) return;
+        // Look for existing termNote type="administrativeStatus".
+        Element existing = null;
+        NodeList tigChildren = tig.getChildNodes();
+        for (int j = 0; j < tigChildren.getLength(); j++) {
+            Node tn = tigChildren.item(j);
+            if (tn.getNodeType() != Node.ELEMENT_NODE || !"termNote".equals(tn.getNodeName())) continue;
+            if ("administrativeStatus".equals(((Element) tn).getAttribute("type"))) {
+                existing = (Element) tn;
+                break;
+            }
+        }
+        if (existing != null) {
+            existing.setTextContent(statusValue);
+        } else {
+            Document doc = langSet.getOwnerDocument();
+            Element termNote = doc.createElement("termNote");
+            termNote.setAttribute("type", "administrativeStatus");
+            termNote.setTextContent(statusValue);
+            tig.appendChild(termNote);
+        }
+    }
+
+    /** Remove the termNote type="administrativeStatus" from the langSet's tig, if present. */
+    private static void removeAdministrativeStatus(Element langSet) {
+        NodeList children = langSet.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() != Node.ELEMENT_NODE || !"tig".equals(child.getNodeName())) continue;
+            Element tig = (Element) child;
+            NodeList tigChildren = tig.getChildNodes();
+            for (int j = tigChildren.getLength() - 1; j >= 0; j--) {
+                Node tn = tigChildren.item(j);
+                if (tn.getNodeType() != Node.ELEMENT_NODE || !"termNote".equals(tn.getNodeName())) continue;
+                if ("administrativeStatus".equals(((Element) tn).getAttribute("type"))) {
+                    tig.removeChild(tn);
+                }
+            }
+        }
+    }
+
     /** Replace the term text in the same langSets loadTerms selected; append any missing one. */
     private static void updateEntryNode(Document doc, Element node, TermEntry entry,
                                         String sourceLang, String targetLang) {
@@ -250,11 +357,22 @@ public class TbxTermbaseHandler {
             setTermText(pair.get(0), entry.getSourceTerm());
         } else {
             appendLangSet(node, sourceLang, entry.getSourceTerm());
+            // Re-select to get the newly appended langSet.
+            pair = selectLangSets(node);
         }
         if (pair.size() > 1) {
             setTermText(pair.get(1), entry.getTargetTerm());
         } else if (entry.getTargetTerm() != null && !entry.getTargetTerm().isEmpty()) {
             appendLangSet(node, targetLang, entry.getTargetTerm());
+        }
+        // Handle administrativeStatus termNote.
+        if (!pair.isEmpty()) {
+            String statusVal = entry.getStoredStatusValue();
+            if (statusVal != null) {
+                setAdministrativeStatus(pair.get(0), toTbxValue(statusVal));
+            }
+            // If statusVal is null, leave existing termNote untouched (preserves unknown values
+            // on noop save, and entries that never had a status simply don't get one added).
         }
     }
 

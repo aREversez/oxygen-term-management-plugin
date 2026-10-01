@@ -52,6 +52,7 @@ public class XlsxTermbaseHandler {
                 extraColumns.add(name != null ? name.trim() : "");
             }
             config.setExtraColumns(extraColumns);
+            int statusCol = CsvTermbaseHandler.findStatusColumn(extraColumns);
 
             for (int rowNum = 1; rowNum <= sheet.getLastRowNum(); rowNum++) {
                 Row row = sheet.getRow(rowNum);
@@ -69,6 +70,11 @@ public class XlsxTermbaseHandler {
                     extras.put(extraColumns.get(i), v != null ? v : "");
                 }
                 entry.setExtraFields(extras);
+                if (statusCol >= 0) {
+                    String v = getCellStringValue(row.getCell(statusCol + 2), formatter, evaluator);
+                    v = v != null ? v.trim() : "";
+                    entry.setStatusRaw(v.isEmpty() ? null : v);
+                }
                 terms.add(entry);
             }
         } catch (Exception e) {
@@ -89,7 +95,13 @@ public class XlsxTermbaseHandler {
             // leaves the previous content intact.
             String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-cn";
             String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-us";
-            List<String> extraColumns = config.getExtraColumns();
+            List<String> extraColumns = new ArrayList<>(config.getExtraColumns());
+            // Append "status" column if entries carry a status but no column exists yet.
+            boolean appendStatus = CsvTermbaseHandler.findStatusColumn(extraColumns) < 0
+                                    && CsvTermbaseHandler.hasStatusColumn(terms);
+            if (appendStatus) {
+                extraColumns.add(TermEntry.STATUS_FIELD);
+            }
 
             Workbook workbook = null;
             File original = new File(filePath);
@@ -130,7 +142,16 @@ public class XlsxTermbaseHandler {
                     setCell(row, 0, entry.getSourceTerm() != null ? entry.getSourceTerm() : "");
                     setCell(row, 1, entry.getTargetTerm() != null ? entry.getTargetTerm() : "");
                     for (int c = 0; c < extraColumns.size(); c++) {
-                        String value = entry.getExtraFields().get(extraColumns.get(c));
+                        String colName = extraColumns.get(c);
+                        String value;
+                        if (TermEntry.STATUS_FIELD.equalsIgnoreCase(colName)) {
+                            value = entry.getStoredStatusValue();
+                            if (value == null) {
+                                value = entry.getExtraFields().get(colName);
+                            }
+                        } else {
+                            value = entry.getExtraFields().get(colName);
+                        }
                         setCell(row, c + 2, value != null ? value : "");
                     }
                 }

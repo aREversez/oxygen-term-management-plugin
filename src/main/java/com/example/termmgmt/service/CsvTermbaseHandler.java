@@ -44,6 +44,7 @@ public class CsvTermbaseHandler {
                 extraColumns.add(headers[i].trim());
             }
             config.setExtraColumns(extraColumns);
+            int statusCol = findStatusColumn(extraColumns);
 
             String[] line;
             while ((line = csvReader.readNext()) != null) {
@@ -67,6 +68,11 @@ public class CsvTermbaseHandler {
                     extras.put(extraColumns.get(i), col < line.length && line[col] != null ? line[col] : "");
                 }
                 entry.setExtraFields(extras);
+                if (statusCol >= 0) {
+                    int col = statusCol + 2;
+                    String v = col < line.length && line[col] != null ? line[col].trim() : "";
+                    entry.setStatusRaw(v.isEmpty() ? null : v);
+                }
                 terms.add(entry);
             }
         } catch (Exception e) {
@@ -78,6 +84,26 @@ public class CsvTermbaseHandler {
 
     private static boolean isBlank(String s) {
         return s == null || s.isEmpty();
+    }
+
+    /** Index within extraColumns of the "status" column, case-insensitive; -1 when absent. */
+    static int findStatusColumn(List<String> extraColumns) {
+        for (int i = 0; i < extraColumns.size(); i++) {
+            if (TermEntry.STATUS_FIELD.equalsIgnoreCase(extraColumns.get(i))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Whether any entry carries a status value to write (a file nobody edited gains no column). */
+    static boolean hasStatusColumn(List<TermEntry> terms) {
+        for (TermEntry entry : terms) {
+            if (entry.getStoredStatusValue() != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
@@ -93,21 +119,40 @@ public class CsvTermbaseHandler {
                 String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-us";
                 List<String> extraColumns = config.getExtraColumns();
 
-                String[] headers = new String[2 + extraColumns.size()];
+                String[] headers = new String[2 + extraColumns.size() + (hasStatusColumn(terms) ? 1 : 0)];
                 headers[0] = sourceLang;
                 headers[1] = targetLang;
                 for (int i = 0; i < extraColumns.size(); i++) {
                     headers[i + 2] = extraColumns.get(i);
                 }
+                boolean appendStatus = findStatusColumn(extraColumns) < 0 && hasStatusColumn(terms);
+                if (appendStatus) {
+                    headers[headers.length - 1] = TermEntry.STATUS_FIELD;
+                }
                 csvWriter.writeNext(headers);
 
                 for (TermEntry entry : terms) {
-                    String[] row = new String[2 + extraColumns.size()];
+                    String[] row = new String[headers.length];
                     row[0] = entry.getSourceTerm() != null ? entry.getSourceTerm() : "";
                     row[1] = entry.getTargetTerm() != null ? entry.getTargetTerm() : "";
+                    int statusIdx = findStatusColumn(extraColumns);
                     for (int i = 0; i < extraColumns.size(); i++) {
-                        String value = entry.getExtraFields().get(extraColumns.get(i));
+                        String value;
+                        if (i == statusIdx) {
+                            value = entry.getStoredStatusValue();
+                            if (value == null) {
+                                // Fall back to extraFields for entries that carry the value
+                                // there without having gone through setStatusRaw (legacy path).
+                                value = entry.getExtraFields().get(extraColumns.get(i));
+                            }
+                        } else {
+                            value = entry.getExtraFields().get(extraColumns.get(i));
+                        }
                         row[i + 2] = value != null ? value : "";
+                    }
+                    if (appendStatus) {
+                        String value = entry.getStoredStatusValue();
+                        row[row.length - 1] = value != null ? value : "";
                     }
                     csvWriter.writeNext(row);
                 }

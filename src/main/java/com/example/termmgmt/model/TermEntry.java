@@ -16,6 +16,18 @@ public class TermEntry {
     private Map<String, String> extraFields = new LinkedHashMap<>();
     /** The TBX termEntry id this entry was loaded from; null for entries not on disk yet. */
     private String entryId;
+    /**
+     * The raw status value as read from the file (column text or TBX administrativeStatus
+     * termNote). The handlers use it to tell "cleared since load" from "never had one",
+     * and to write an unknown TBX value back verbatim on a no-op save.
+     */
+    private String loadedStatusRaw;
+    /**
+     * The status chosen through {@link #setStatus}, kept beside extraFields rather than
+     * inside them: the storage mapping (column / termNote, casing, TBX domain values)
+     * belongs to the handlers, and null means "not edited since load".
+     */
+    private String statusValue;
 
     public TermEntry() {}
 
@@ -42,6 +54,48 @@ public class TermEntry {
     }
     public String getEntryId() { return entryId; }
     public void setEntryId(String entryId) { this.entryId = entryId; }
+    public String getLoadedStatusRaw() { return loadedStatusRaw; }
+    public void setLoadedStatusRaw(String loadedStatusRaw) { this.loadedStatusRaw = loadedStatusRaw; }
+
+    /** The status key the CSV/XLSX handlers look for among the column headers. */
+    public static final String STATUS_FIELD = "status";
+
+    /**
+     * The maturity status parsed from the stored value, or null when unset, empty or not
+     * one of the known values (an unknown value stays in the file untouched). Treat null
+     * as preferred; {@link #getRawStatus()} reveals the unknown text for the UI to show.
+     */
+    public TermStatus getStatus() {
+        return TermStatus.parse(getRawStatus());
+    }
+
+    /** The effective raw status value: the edited choice if any, else what the file held. */
+    public String getRawStatus() {
+        return statusValue != null ? statusValue : loadedStatusRaw;
+    }
+
+    /**
+     * The status value the handlers should write: the edited choice, an unknown loaded
+     * value kept as it was, or "" when a loaded status was cleared. Null means the entry
+     * never had a status - the handler must then write nothing.
+     */
+    public String getStoredStatusValue() {
+        return statusValue != null ? statusValue : (loadedStatusRaw != null ? loadedStatusRaw : null);
+    }
+
+    /**
+     * Chooses the status; the canonical lower-case value is stored, null clears it back to
+     * "unset" (which handlers write as an empty value for files that already carry one).
+     */
+    public void setStatus(TermStatus status) {
+        this.statusValue = status == null ? null : status.value();
+    }
+
+    /** Replaces the effective raw value verbatim (used by handlers when loading files). */
+    public void setStatusRaw(String raw) {
+        this.loadedStatusRaw = raw;
+        this.statusValue = null;
+    }
 
     /**
      * Deep copy: extraFields is duplicated (not shared) and entryId carried over, so an
@@ -51,6 +105,8 @@ public class TermEntry {
         TermEntry c = new TermEntry(sourceTerm, targetTerm, sourceFilePath);
         c.extraFields = new LinkedHashMap<>(extraFields);
         c.entryId = entryId;
+        c.loadedStatusRaw = loadedStatusRaw;
+        c.statusValue = statusValue;
         return c;
     }
 
