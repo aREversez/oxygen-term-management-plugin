@@ -23,7 +23,10 @@ public class DocumentScanner {
      * every scan, so only a static cache actually avoids recompiling every term. The key
      * carries the literal text and the case setting; a pattern depends on nothing else
      * (text-mode patterns key on the escaped term, author-mode on the raw one).
+     * Capped at 50 000 entries: when exceeded, the entire cache is cleared (next scan
+     * recompiles; results are unaffected).
      */
+    private static final int PATTERN_CACHE_LIMIT = 50_000;
     private static final Map<String, Pattern> PATTERN_CACHE = new ConcurrentHashMap<>();
 
     public static class ScanResult {
@@ -76,6 +79,10 @@ public class DocumentScanner {
 
             String matchTerm = isTextMode ? escapeXmlEntities(sourceTerm) : sourceTerm;
             String cacheKey = (caseSensitive ? "s" : "i") + "\u0000" + matchTerm;
+            // 9.4: Cap cache size to prevent unbounded growth across a session.
+            if (PATTERN_CACHE.size() >= PATTERN_CACHE_LIMIT) {
+                PATTERN_CACHE.clear();
+            }
             Pattern pattern = PATTERN_CACHE.computeIfAbsent(
                 cacheKey, k -> TermMatchUtils.buildMatchPattern(matchTerm, caseSensitive));
             boolean needBoundary = TermMatchUtils.boundaryNeeded(matchTerm);

@@ -7,6 +7,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Set;
 
 /**
  * Writes a file by filling a temporary file in the target's own directory and moving it over
@@ -38,6 +41,8 @@ public final class AtomicFileWriter {
         Path parent = (dir != null) ? dir : Path.of(".");
         Path tmp = Files.createTempFile(parent, target.getFileName() + ".", ".tmp");
         try {
+            // 9.1: Preserve original file permissions on POSIX systems.
+            preservePermissions(target, tmp);
             try (OutputStream out = new java.io.BufferedOutputStream(
                     Files.newOutputStream(tmp, StandardOpenOption.WRITE))) {
                 content.write(out);
@@ -48,7 +53,11 @@ public final class AtomicFileWriter {
             } catch (AtomicMoveNotSupportedException e) {
                 // File system (or cross-device target) cannot do it atomically; a plain
                 // replace is still all-or-nothing enough here because the content is complete.
-                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                try {
+                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e2) {
+                    throw moveFailure(target, e2);
+                }
             } catch (IOException e) {
                 throw moveFailure(target, e);
             }
@@ -77,5 +86,20 @@ public final class AtomicFileWriter {
             return new IOException("File is read-only, cannot save: " + target, cause);
         }
         return cause;
+    }
+
+    /**
+     * 9.1: On POSIX file systems, copy the target's permissions to the temp file so the
+     * atomic move does not silently change them. Non-POSIX systems (Windows) skip.
+     */
+    private static void preservePermissions(Path target, Path tmp) {
+        try {
+            if (Files.exists(target)) {
+                Set<PosixFilePermission> perms = Files.getPosixFilePermissions(target);
+                Files.setPosixFilePermissions(tmp, perms);
+            }
+        } catch (UnsupportedOperationException | IOException e) {
+            // Non-POSIX FS or permission unavailable; skip silently.
+        }
     }
 }

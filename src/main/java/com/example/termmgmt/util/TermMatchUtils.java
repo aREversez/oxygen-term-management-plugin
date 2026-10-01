@@ -23,10 +23,10 @@ public class TermMatchUtils {
         });
     }
 
-    public static Pattern buildMatchPattern(String term) {
-        return buildMatchPattern(term, false);
-    }
-
+    /**
+     * Build a literal match pattern for the term. Word-boundary enforcement lives in
+     * {@link #acceptAtBoundary}, not in the regex; the pattern is a plain literal.
+     */
     public static Pattern buildMatchPattern(String term, boolean caseSensitive) {
         // Plain literal: word-boundary enforcement lives in acceptAtBoundary, not in the
         // regex. A boundary class that excludes CJK scripts cannot be written as a fast

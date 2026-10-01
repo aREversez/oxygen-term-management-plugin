@@ -6,7 +6,6 @@ import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.model.TermbaseConfig.Format;
 import com.example.termmgmt.util.I18N;
-import com.example.termmgmt.util.TermMatchUtils;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -27,7 +26,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.UnaryOperator;
-import java.util.regex.Pattern;
 import java.util.Locale;
 
 import javax.swing.SwingUtilities;
@@ -60,7 +58,6 @@ public class TermbaseRegistry {
     private Map<String, List<TermEntry>> termCache; // Map from file path to terms
     private Map<String, long[]> fileStamps; // file path → {lastModified, size} when cache was filled
     private Map<String, List<TermEntry>> sourceIndex; // Map from source term text → terms (case-insensitive key)
-    private Map<String, Pattern> patternCache; // Compiled match patterns keyed by source term text + case setting
 
     // User option: distinguish upper/lower case when matching terms. Volatile because the
     // EDT writes it from the preferences page and scan workers read it.
@@ -73,7 +70,6 @@ public class TermbaseRegistry {
         this.termCache = new HashMap<>();
         this.fileStamps = new HashMap<>();
         this.sourceIndex = new HashMap<>();
-        this.patternCache = new HashMap<>();
         this.changeListeners = new ArrayList<>();
     }
 
@@ -222,7 +218,7 @@ public class TermbaseRegistry {
 
     // ---- Term cache & source index ----
 
-    // Thread safety: termCache, sourceIndex and patternCache are shared between the EDT and
+    // Thread safety: termCache, sourceIndex are shared between the EDT and
     // SwingWorker threads, so every access goes through this object's monitor. File I/O is
     // deliberately done outside that monitor so a slow disk never blocks readers, and
     // listeners are notified outside it.
@@ -413,15 +409,6 @@ public class TermbaseRegistry {
         termCache.clear();
         fileStamps.clear();
         sourceIndex.clear();
-        patternCache.clear();
-    }
-
-    public synchronized Pattern getMatchPattern(String sourceTerm) {
-        // The key carries the case setting, so toggling it can never hand out a pattern
-        // compiled under the previous setting.
-        boolean cs = caseSensitive;
-        return patternCache.computeIfAbsent(sourceTerm + "\u0000" + cs,
-            k -> TermMatchUtils.buildMatchPattern(sourceTerm, cs));
     }
 
     /** Whether term matching currently distinguishes case. */

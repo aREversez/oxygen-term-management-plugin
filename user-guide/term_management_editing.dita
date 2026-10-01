@@ -20,6 +20,18 @@
                     可恢复原始排序。</cmd>
             </step>
         </steps>
+        <section>
+            <title>状态字段（成熟度）</title>
+            <p>每个术语可带有成熟度状态：<uicontrol>preferred</uicontrol>（优选）、<uicontrol>admitted</uicontrol>（容许）或
+                <uicontrol>deprecated</uicontrol>（弃用）。状态在术语库面板以只读列显示，可在新增/编辑对话框的下拉框中设置，也可被清除。</p>
+            <p>不同存储格式下状态的<b>作用范围略有差异</b>，设置时请留意：</p>
+            <ul>
+                <li><b>CSV / XLSX</b>：状态是<b>整行</b>的属性，占用一个名为 <codeph>status</codeph> 的列；只有当至少一个条目带有状态时，该列才会被写入文件。</li>
+                <li><b>TBX</b>：状态绑定在<b>源语言词</b>上，以 <codeph>termNote type="administrativeStatus"</codeph> 表示；同一 <codeph>termEntry</codeph> 的目标语言词不单独携带状态。</li>
+            </ul>
+            <p>因此，同一个状态值换用不同格式保存时，其作用对象可能不同。将状态清除后，CSV/XLSX 写入空单元格，TBX 则删除对应的 <codeph>termNote</codeph>。</p>
+            <p>识别面板中，<uicontrol>deprecated</uicontrol> 词条在作者模式下以红色高亮（其余为黄色），且即使被更长的匹配包含也始终报出，以提醒用户避免使用弃用术语。</p>
+        </section>
         <postreq>
             <note type="tip">若术语库文件被其他程序（如 Excel）占用，请先关闭该程序，否则无法保存修改。</note>
         </postreq>

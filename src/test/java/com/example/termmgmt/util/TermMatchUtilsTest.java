@@ -16,7 +16,7 @@ class TermMatchUtilsTest {
 
     /** The production matching contract: literal pattern hits filtered by the boundary rule. */
     private static boolean matches(String term, String text) {
-        java.util.regex.Matcher m = TermMatchUtils.buildMatchPattern(term).matcher(text);
+        java.util.regex.Matcher m = TermMatchUtils.buildMatchPattern(term, false).matcher(text);
         while (m.find()) {
             if (!TermMatchUtils.boundaryNeeded(term)
                 || TermMatchUtils.acceptAtBoundary(text, m.start(), m.end())) {
@@ -59,9 +59,7 @@ class TermMatchUtilsTest {
         assertTrue(TermMatchUtils.buildMatchPattern("FEA", false).matcher("fea").find());
         assertFalse(TermMatchUtils.buildMatchPattern("FEA", true).matcher("fea").find());
         assertTrue(TermMatchUtils.buildMatchPattern("FEA", true).matcher("FEA").find());
-        // The single-argument overload keeps the historic case-insensitive behaviour.
-        assertTrue(TermMatchUtils.buildMatchPattern("FEA").matcher("fea").find());
-        // Boundaries keep working with the flag on: the literal hits, the boundary rejects.
+        assertTrue(TermMatchUtils.buildMatchPattern("FEA", false).matcher("FEAx").find());
         assertTrue(TermMatchUtils.buildMatchPattern("FEA", true).matcher("FEAx").find());
         assertTrue(TermMatchUtils.boundaryNeeded("FEA"));
         assertFalse(TermMatchUtils.acceptAtBoundary("FEAx", 0, 3));
