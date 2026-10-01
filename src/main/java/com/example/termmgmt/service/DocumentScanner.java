@@ -61,8 +61,11 @@ public class DocumentScanner {
         // In text mode the editor hands over the raw file including markup; blank the
         // markup out (offset-preserving) so tags, attributes, comments and PIs can never
         // produce term hits. Author mode receives already-extracted text and is untouched.
+        List<int[]> entityRanges = null;
         if (isTextMode) {
             documentText = MarkupMasker.mask(documentText);
+            // 8.1: Pre-scan entity ranges to reject matches inside &...; references.
+            entityRanges = MarkupMasker.findEntityRanges(documentText);
         }
 
         for (TermEntry term : terms) {
@@ -86,6 +89,11 @@ public class DocumentScanner {
                 // The pattern is a plain literal for speed; the word-boundary rule lives
                 // here, checked on code points so letters outside the BMP count too.
                 if (needBoundary && !TermMatchUtils.acceptAtBoundary(documentText, strStart, strEnd)) {
+                    continue;
+                }
+                // 8.1: Reject match that falls strictly inside an entity reference.
+                if (entityRanges != null && !entityRanges.isEmpty()
+                        && MarkupMasker.isInsideEntity(strStart, strEnd, entityRanges)) {
                     continue;
                 }
 
@@ -145,9 +153,9 @@ public class DocumentScanner {
 
     /**
      * Drops every match fully contained in a strictly longer one; equal spans and partial
-     * overlaps are kept. Sorting by (start asc, end desc) guarantees that a match can only
-     * ever be contained in one seen before it, so a single scan over the running maximum
-     * end is enough - O(m log m) for the sort, O(m) for the filter.
+     * overlaps are kept. 8.2: DEPRECATED matches are always retained (never swallowed by a
+     * longer non-deprecated match) but do not update the running maximum, so they don't
+     * affect containment checks for subsequent non-deprecated matches.
      */
     private static List<RawMatch> retainLongestMatches(List<RawMatch> matches) {
         if (matches.size() < 2) return matches;
@@ -160,6 +168,11 @@ public class DocumentScanner {
         // starts behind it and ends no further, the longer span covers it completely.
         int maxEndStart = Integer.MIN_VALUE;
         for (RawMatch m : sorted) {
+            // 8.2: Deprecated terms are always reported, even when contained in a longer match.
+            if (m.status == TermStatus.DEPRECATED) {
+                kept.add(m);
+                continue; // do NOT update curMaxEnd
+            }
             if (m.strEnd < curMaxEnd || (m.strEnd == curMaxEnd && m.strStart > maxEndStart)) {
                 continue;
             }

@@ -1,6 +1,7 @@
 package com.example.termmgmt.service;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.service.DocumentScanner.ScanResult;
 import org.junit.jupiter.api.Test;
 
@@ -312,7 +313,7 @@ class DocumentScannerTest {
     void patternReuse_caseSensitiveAndInsensitiveScansDoNotLeakIntoEachOther() {
         // Both settings compile the same source term; a shared pattern cache must keep
         // them strictly apart, in either call order and across scanner instances.
-        List<TermEntry> terms = List.of(new TermEntry("FEA", "有限要素法"));
+        List<TermEntry> terms = List.of(new TermEntry("FEA", "\u6709\u9650\u8981\u7d20\u6cd5"));
         String text = "FEA and fea";
 
         assertEquals(1, scanner.scan(text, terms, true, Collections.emptyList(), true).size());
@@ -322,5 +323,79 @@ class DocumentScannerTest {
         // Author mode compiles the unescaped term and must not reuse the text-mode pattern.
         List<int[]> fullCover = List.of(new int[]{0, 0, text.length()});
         assertEquals(2, scanner.scan(text, terms, false, fullCover, false).size());
+    }
+
+    // ---- Step 8 patch-plan regression tests ----
+
+    /**
+     * 8.1: Terms that are entity names (amp, lt, gt, quot, apos) must NOT match inside
+     * entity references in text mode.
+     */
+    @Test
+    void textMode_entityNameTerms_doNotMatchInsideEntityReferences() {
+        String text = "<p>A &amp; B, x &lt; y, 5 &gt; 2, say &quot;hi&quot;, it&apos;s</p>";
+        // Masking removes the tags; entities remain.
+        List<TermEntry> terms = List.of(
+            new TermEntry("amp", "A"),
+            new TermEntry("lt", "L"),
+            new TermEntry("gt", "G"),
+            new TermEntry("quot", "Q"),
+            new TermEntry("apos", "P"),
+            new TermEntry("x41", "H")
+        );
+        List<ScanResult> results = scanner.scan(text, terms, true, Collections.emptyList());
+        assertEquals(0, results.size(),
+            "entity-name terms must not match inside &...; references");
+    }
+
+    /**
+     * 8.1: Terms containing special characters that span across an entity reference
+     * (e.g. R&D matches R&amp;D) must still match.
+     */
+    @Test
+    void textMode_termCoveringEntity_fullyMatches() {
+        String text = "company R&amp;D dept";
+        List<TermEntry> terms = List.of(new TermEntry("R&D", "\u7814\u53d1"));
+        List<ScanResult> results = scanner.scan(text, terms, true, Collections.emptyList());
+        assertEquals(1, results.size());
+        assertEquals("R&D", results.get(0).sourceTerm);
+    }
+
+    /**
+     * 8.2: A deprecated term (load) contained within a longer match (load case) is
+     * still reported (warning is not swallowed).
+     */
+    @Test
+    void longestMatch_deprecatedTerm_isAlwaysRetained() {
+        TermEntry loadTerm = new TermEntry("load", "\u52a0\u8f7d");
+        loadTerm.setStatus(TermStatus.DEPRECATED);
+        TermEntry loadCase = new TermEntry("load case", "\u5de5\u51b5");
+        List<TermEntry> terms = List.of(loadTerm, loadCase);
+        String text = "the load case is fixed";
+
+        List<ScanResult> results = scanner.scan(text, terms, true, Collections.emptyList());
+        // Both "load" (deprecated) and "load case" should appear
+        boolean hasDeprecated = results.stream().anyMatch(
+            r -> "load".equals(r.sourceTerm) && r.status == TermStatus.DEPRECATED);
+        boolean hasLonger = results.stream().anyMatch(
+            r -> "load case".equals(r.sourceTerm));
+        assertTrue(hasDeprecated, "deprecated 'load' must be reported even inside 'load case'");
+        assertTrue(hasLonger, "'load case' must also be reported");
+    }
+
+    /**
+     * 8.2: A non-deprecated term swallowed by a longer one is still dropped (existing behavior).
+     */
+    @Test
+    void longestMatch_nonDeprecated_stillDroppedWhenContained() {
+        TermEntry loadTerm = new TermEntry("load", "\u52a0\u8f7d");
+        // no status set → not deprecated
+        TermEntry loadCase = new TermEntry("load case", "\u5de5\u51b5");
+        List<TermEntry> terms = List.of(loadTerm, loadCase);
+        String text = "the load case is fixed";
+
+        List<ScanResult> results = scanner.scan(text, terms, true, Collections.emptyList());
+        assertEquals(1, results.size(), "non-deprecated 'load' inside 'load case' should be dropped");
+        assertEquals("load case", results.get(0).sourceTerm);
     }
 }

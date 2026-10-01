@@ -1,5 +1,8 @@
 package com.example.termmgmt.util;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Blanks XML markup out of a document string so a text scan only sees character data.
  * Every markup construct is replaced by spaces of exactly the same length, so all
@@ -96,5 +99,46 @@ public final class MarkupMasker {
         for (int i = from; i < to; i++) {
             chars[i] = ' ';
         }
+    }
+
+    /**
+     * 8.1: Find all XML entity reference ranges in the text.
+     * Each range is an int[]{start, end} where the entity (including & and ;) spans.
+     * Recognized forms: &ampname;, &#123;, &#x1F;
+     */
+    public static List<int[]> findEntityRanges(String text) {
+        List<int[]> ranges = new ArrayList<>();
+        int n = text.length();
+        int i = 0;
+        while (i < n) {
+            if (text.charAt(i) != '&') { i++; continue; }
+            int j = i + 1;
+            if (j < n && text.charAt(j) == '#') {
+                j++;
+                if (j < n && (text.charAt(j) == 'x' || text.charAt(j) == 'X')) j++;
+                while (j < n && Character.isLetterOrDigit(text.charAt(j))) j++;
+            } else {
+                while (j < n && Character.isLetterOrDigit(text.charAt(j))) j++;
+            }
+            if (j < n && text.charAt(j) == ';') {
+                ranges.add(new int[]{i, j + 1});
+                i = j + 1;
+            } else {
+                i++;
+            }
+        }
+        return ranges;
+    }
+
+    /**
+     * 8.1: Whether the span [start, end) falls strictly inside an entity reference
+     * (entity starts before match AND entity ends after match). A match that fully
+     * covers an entity (e.g., term "R&D" matching "R&amp;D") is NOT rejected.
+     */
+    public static boolean isInsideEntity(int start, int end, List<int[]> entities) {
+        for (int[] ent : entities) {
+            if (ent[0] < start && end < ent[1]) return true;
+        }
+        return false;
     }
 }
