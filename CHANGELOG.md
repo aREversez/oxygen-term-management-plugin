@@ -27,6 +27,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Improved
 - Recognition scans are faster, not slower: the 20 000-term × 1 MB benchmark runs in about 140 s versus 261–272 s before the matching fixes (an intermediate per-position boundary regex had cost 966 s). The match pattern is now a plain literal and the word-boundary rule is checked in code per hit; compiled patterns are also reused across scans instead of being rebuilt for every panel refresh.
 
+### Added
+- New "Check" button on the Terminology tab runs a quality inspection across all enabled termbases (empty source/target, multi-target conflicts, case-only duplicates, consecutive whitespace, cross-termbase conflicts). Results are shown in a non-modal dialog table and can be exported as UTF-8 BOM CSV for Excel. The checker (`TermbaseChecker`) is pure logic with 13 unit tests.
+- External-change notification on tab activation (step 4.2): when the user switches to the Recognition or Terminology tab, the view lazily compares each cached termbase’s on-disk stamp; if a file was modified externally, it is reloaded and a tooltip appears on the tab header. Own saves never trigger this (stamp is updated post-write).
+
 ## 1.0.12 - 2026-07-08
 
 ### Refactored

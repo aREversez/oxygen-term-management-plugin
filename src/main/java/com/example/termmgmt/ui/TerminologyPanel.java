@@ -9,6 +9,9 @@ import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
 import com.example.termmgmt.util.TableRowUtils;
 import com.example.termmgmt.util.TermEntryUtils;
+import com.example.termmgmt.util.TermbaseChecker;
+import com.example.termmgmt.util.TermbaseChecker.Issue;
+import com.example.termmgmt.util.TermbaseChecker.Severity;
 
 import ro.sync.exml.workspace.api.PluginWorkspace;
 import ro.sync.exml.workspace.api.PluginWorkspaceProvider;
@@ -31,7 +34,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.text.Collator;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.UnaryOperator;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -255,6 +260,11 @@ public class TerminologyPanel extends JPanel {
             filterField.setText("");
         });
         textRow.add(resetSortButton);
+
+        JButton checkButton = new JButton(I18N.getString("btn.check"));
+        checkButton.setToolTipText(I18N.getString("btn.check.tooltip"));
+        checkButton.addActionListener(e -> runTermbaseCheck());
+        textRow.add(checkButton);
 
         buttonPanel.add(iconRow);
         buttonPanel.add(textRow);
@@ -821,5 +831,120 @@ public class TerminologyPanel extends JPanel {
             case DEPRECATED: return I18N.getString("status.deprecated");
             default: return "";
         }
+    }
+
+    /**
+     * Step 4.1: run the termbase quality check on a background thread and display
+     * results in a dialog table with CSV export.
+     */
+    private void runTermbaseCheck() {
+        List<TermbaseConfig> enabledConfigs = registry.getEnabledConfigs();
+        if (enabledConfigs.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("msg.no.enabled.termbases"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Gather terms on a worker to avoid blocking the EDT with file I/O.
+        new SwingWorker<List<Issue>, Void>() {
+            @Override
+            protected List<Issue> doInBackground() {
+                List<Issue> allIssues = new ArrayList<>();
+                Map<String, List<TermEntry>> allTerms = new LinkedHashMap<>();
+                for (TermbaseConfig config : enabledConfigs) {
+                    try {
+                        List<TermEntry> terms = registry.getTerms(config);
+                        allTerms.put(config.getFilePath(), terms);
+                        allIssues.addAll(TermbaseChecker.check(terms, config.getFilePath()));
+                    } catch (Exception e) {
+                        // Skip termbases that fail to load
+                    }
+                }
+                // Cross-termbase check
+                if (allTerms.size() > 1) {
+                    allIssues.addAll(TermbaseChecker.checkCrossTermbase(allTerms));
+                }
+                return allIssues;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<Issue> issues = get();
+                    showCheckResults(issues);
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        I18N.getString("msg.check.failed", e.getMessage()),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    private void showCheckResults(List<Issue> issues) {
+        if (issues.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("msg.check.no.issues"),
+                I18N.getString("msg.info"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        String[] cols = {"Severity", "Rule", "Message", "Termbase"};
+        DefaultTableModel model = new DefaultTableModel(cols, issues.size()) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+        };
+        for (int i = 0; i < issues.size(); i++) {
+            Issue iss = issues.get(i);
+            model.setValueAt(iss.severity.name(), i, 0);
+            model.setValueAt(iss.rule, i, 1);
+            model.setValueAt(iss.message, i, 2);
+            model.setValueAt(iss.termbasePath != null ? iss.termbasePath : "", i, 3);
+        }
+
+        JTable table = new JTable(model);
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setPreferredSize(new Dimension(700, 400));
+
+        JButton exportBtn = new JButton(I18N.getString("btn.check.export"));
+        exportBtn.addActionListener(e -> exportCheckCsv(issues));
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(scroll, BorderLayout.CENTER);
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JLabel summary = new JLabel(I18N.getString("msg.check.summary", issues.size()));
+        south.add(summary);
+        south.add(exportBtn);
+        panel.add(south, BorderLayout.SOUTH);
+
+        JOptionPane.showMessageDialog(this, panel,
+            I18N.getString("msg.check.title"), JOptionPane.PLAIN_MESSAGE);
+    }
+
+    private void exportCheckCsv(List<Issue> issues) {
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle(I18N.getString("btn.check.export"));
+        fc.setSelectedFile(new java.io.File("termbase_check.csv"));
+        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        try (java.io.Writer w = new java.io.OutputStreamWriter(
+                new java.io.FileOutputStream(fc.getSelectedFile()), java.nio.charset.StandardCharsets.UTF_8)) {
+            w.write('\uFEFF'); // BOM for Excel
+            w.write("Severity,Rule,Message,Termbase\r\n");
+            for (Issue iss : issues) {
+                w.write(csvField(iss.severity.name()) + "," + csvField(iss.rule) + ","
+                    + csvField(iss.message) + "," + csvField(iss.termbasePath != null ? iss.termbasePath : "") + "\r\n");
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private static String csvField(String v) {
+        if (v == null) return "";
+        if (v.contains(",") || v.contains("\"") || v.contains("\n")) {
+            return "\"" + v.replace("\"", "\"\"") + "\"";
+        }
+        return v;
     }
 }

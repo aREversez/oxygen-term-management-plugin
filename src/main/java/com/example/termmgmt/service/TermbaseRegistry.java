@@ -383,6 +383,19 @@ public class TermbaseRegistry {
         }
     }
 
+    /**
+     * Step 4.2: check whether a cached termbase file was modified externally since the
+     * last load or save. Returns true if the on-disk stamp differs from what the cache holds.
+     * Does NOT reload anything; the caller decides whether to reload and notify.
+     */
+    public synchronized boolean isExternallyModified(String filePath) {
+        long[] known = fileStamps.get(filePath);
+        if (known == null) return false; // not cached, nothing to compare
+        long[] disk = stampOf(filePath);
+        if (disk == null) return true;   // file deleted
+        return !java.util.Arrays.equals(known, disk);
+    }
+
     public synchronized void clearCache() {
         termCache.clear();
         fileStamps.clear();

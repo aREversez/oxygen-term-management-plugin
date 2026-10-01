@@ -7,6 +7,7 @@ import ro.sync.exml.workspace.api.standalone.StandalonePluginWorkspace;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.List;
 
 public class TermManagementView extends JPanel {
 
@@ -63,13 +64,36 @@ public class TermManagementView extends JPanel {
         tabbedPane.addChangeListener(e -> {
             JComponent sel = (JComponent) tabbedPane.getSelectedComponent();
             if (sel == recognitionPanel) {
+                checkExternalChanges();
                 recognitionPanel.refreshTermbaseList();
                 recognitionPanel.autoScan();
             } else if (sel == terminologyPanel) {
+                checkExternalChanges();
                 terminologyPanel.refreshTermbaseList();
             }
         });
         add(tabbedPane, BorderLayout.CENTER);
+    }
+
+    /**
+     * Step 4.2: lazily check whether any enabled termbase file was modified externally.
+     * If so, reload it and show a non-modal status bar message once.
+     */
+    private void checkExternalChanges() {
+        List<TermbaseConfig> enabled = registry.getEnabledConfigs();
+        boolean anyReloaded = false;
+        for (TermbaseConfig config : enabled) {
+            if (registry.isExternallyModified(config.getFilePath())) {
+                registry.reloadConfig(config.getFilePath());
+                anyReloaded = true;
+            }
+        }
+        if (anyReloaded) {
+            // Show a non-modal hint; Oxygen's workspace typically has a status bar.
+            // For portability, use a tooltip-style label in the tab header area.
+            tabbedPane.setToolTipTextAt(tabbedPane.getSelectedIndex(),
+                I18N.getString("msg.external.reload.notify"));
+        }
     }
 
     /**

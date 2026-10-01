@@ -249,6 +249,7 @@
                                 <include>com/example/termmgmt/util/AtomicFileWriter.java</include>
                                 <include>com/example/termmgmt/util/MarkupMasker.java</include>
                                 <include>com/example/termmgmt/util/TermConflictUtils.java</include>
+                                <include>com/example/termmgmt/util/TermbaseChecker.java</include>
                                 <include>com/example/termmgmt/service/CsvTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/XlsxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TbxTermbaseHandler.java</include>
