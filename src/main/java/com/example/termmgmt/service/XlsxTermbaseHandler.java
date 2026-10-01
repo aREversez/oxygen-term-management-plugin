@@ -105,11 +105,13 @@ public class XlsxTermbaseHandler {
 
             Workbook workbook = null;
             File original = new File(filePath);
-            if (original.exists()) {
+            if (original.exists() && original.length() > 0) {
+                // 5.4: File exists and has content – must be parseable or we throw.
                 try (InputStream is = new FileInputStream(original)) {
                     workbook = new XSSFWorkbook(is);
                 } catch (Exception e) {
-                    System.err.println("XLSX: cannot reopen " + filePath + ", writing a new two-column workbook: " + e.getMessage());
+                    throw new IOException("XLSX: cannot open existing file " + filePath
+                        + "; refusing to overwrite it. " + e.getMessage(), e);
                 }
             }
             boolean freshWorkbook = workbook == null;

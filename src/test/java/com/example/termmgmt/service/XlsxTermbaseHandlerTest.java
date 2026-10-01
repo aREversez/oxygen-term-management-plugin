@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -239,5 +240,27 @@ class XlsxTermbaseHandlerTest {
             assertTrue(terms.getRow(0).getLastCellNum() <= 2, "two-column files must not gain a column");
         }
         assertTrue(XlsxTermbaseHandler.loadTerms(config).get(0).getExtraFields().isEmpty());
+    }
+
+    /**
+     * 5.4: If an existing non-empty XLSX file cannot be parsed, saveTerms must throw and
+     * the file must remain unchanged (original bug: silently overwrote with a new workbook).
+     */
+    @Test
+    void saveTerms_corruptExistingFile_throwsAndPreservesOriginalBytes() throws Exception {
+        Path file = tempDir.resolve("corrupt.xlsx");
+        byte[] garbage = new byte[]{0x50, 0x4B, 0x03, 0x04, (byte)0xFF, (byte)0xFE, 0x00, 0x00};
+        Files.write(file, garbage);
+
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        config.setSourceLang("zh-cn");
+        config.setTargetLang("en-us");
+
+        assertThrows(Exception.class, () ->
+            XlsxTermbaseHandler.saveTerms(config, List.of(new TermEntry("a", "b"))));
+
+        // Original bytes must be untouched
+        assertArrayEquals(garbage, Files.readAllBytes(file),
+            "a corrupt XLSX must not be silently overwritten");
     }
 }
