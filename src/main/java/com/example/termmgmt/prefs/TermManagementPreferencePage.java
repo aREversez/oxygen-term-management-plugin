@@ -44,6 +44,11 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     private boolean addInProgress; // EDT only
     private DefaultTableModel tableModel;
     private TermbaseRegistry registry;
+    // Kept as fields so addTermbase() can grey them out while the background load runs;
+    // their handlers mutate the shared TermbaseConfig objects the worker reads from.
+    private JButton removeBtn;
+    private JButton enableBtn;
+    private JButton disableBtn;
 
     @Override
     public JComponent init(PluginWorkspace pluginWorkspace) {
@@ -106,9 +111,9 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         JButton addBtn = new JButton(I18N.getString("prefs.add"));
         JButton reloadBtn = new JButton(I18N.getString("prefs.reload"));
         JButton editBtn = new JButton(I18N.getString("prefs.edit"));
-        JButton removeBtn = new JButton(I18N.getString("prefs.remove"));
-        JButton enableBtn = new JButton(I18N.getString("prefs.enable"));
-        JButton disableBtn = new JButton(I18N.getString("prefs.disable"));
+        removeBtn = new JButton(I18N.getString("prefs.remove"));
+        enableBtn = new JButton(I18N.getString("prefs.enable"));
+        disableBtn = new JButton(I18N.getString("prefs.disable"));
         
         // Wire up button click handlers
         addBtn.addActionListener(e -> addTermbase());
@@ -269,7 +274,22 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         // Reading the files and comparing them with the enabled termbases is the slow part;
         // do all of it on a worker. The questions to the user stay on the EDT, in the same
         // order as before, and are answered from the results computed here.
+        //
+        // Snapshot which termbases are enabled now, so the worker never reads the mutable
+        // `enabled` field of a TermbaseConfig the EDT could flip from an Enable/Disable click.
+        // The row-index buttons are also disabled below as a belt-and-suspenders guard: they
+        // would rebuild the table and shift indices while the worker is still referring to
+        // the configs it captured above.
+        final java.util.Set<String> enabledPaths = new java.util.HashSet<>();
+        for (TermbaseConfig c : configs) {
+            if (c.isEnabled()) {
+                enabledPaths.add(c.getFilePath());
+            }
+        }
         addInProgress = true;
+        removeBtn.setEnabled(false);
+        enableBtn.setEnabled(false);
+        disableBtn.setEnabled(false);
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
@@ -282,7 +302,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                         continue;
                     }
                     for (TermbaseConfig existingConfig : configs) {
-                        if (!existingConfig.isEnabled()) continue;
+                        if (!enabledPaths.contains(existingConfig.getFilePath())) continue;
                         if (existingConfig.getFilePath().equals(candidate.filePath)) continue;
                         try {
                             List<TermConflictUtils.Conflict> found = TermConflictUtils.findConflicts(
@@ -304,6 +324,9 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                     completeAddTermbases(candidates, duplicateCount, skippedCount);
                 } finally {
                     addInProgress = false;
+                    removeBtn.setEnabled(true);
+                    enableBtn.setEnabled(true);
+                    disableBtn.setEnabled(true);
                 }
             }
         }.execute();

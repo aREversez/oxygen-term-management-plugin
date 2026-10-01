@@ -140,6 +140,12 @@ public class TermbaseSearchPanel extends JPanel {
         searchField.setText(searchTerm);
         tableModel.setRowCount(0);
 
+        // Bump the generation unconditionally, before any early return. A previously started
+        // worker must be invalidated even when this call bails out (e.g. no enabled termbases)
+        // without launching a replacement, otherwise its done() would see the generation still
+        // match and refill the table we just cleared with stale results.
+        final int generation = ++searchGeneration;
+
         List<TermbaseConfig> enabledConfigs = registry.getEnabledConfigs();
         if (enabledConfigs.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -150,7 +156,6 @@ public class TermbaseSearchPanel extends JPanel {
 
         // Loading a termbase that is not cached reads the whole file, so the search runs on a
         // worker. Only the newest search may fill the table.
-        final int generation = ++searchGeneration;
         final String lowerSearch = searchTerm.toLowerCase(Locale.ROOT);
         new SwingWorker<SearchOutcome, Void>() {
             @Override
