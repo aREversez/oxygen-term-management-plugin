@@ -4,6 +4,7 @@ import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.model.TermbaseConfig.Format;
+import com.example.termmgmt.util.TermEntryUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -283,21 +284,41 @@ class TermStatusTest {
     }
 
     /**
-     * 6.2: Dialog confirm logic extracted as a testable condition:
-     * Preferred on an entry with no prior status should NOT write.
+     * 6.2: The dialog's status decision is a real production function (TermEntryUtils
+     * .resolveDialogStatus), shared by the Swing dialog and this test - no shadow logic.
      */
     @Test
-    void dialog_preferredOnStatuslessEntry_doesNotCallSetStatus() {
-        TermEntry entry = new TermEntry("a", "b");
-        assertNull(entry.getStoredStatusValue());
-        // Simulating what the dialog does: idx==0, originalStored==null → skip.
-        // The assertion is that getStoredStatusValue() stays null.
-        int idx = 0;
-        String original = entry.getStoredStatusValue();
-        if (!(idx == 0 && original == null)) {
-            entry.setStatus(TermStatus.PREFERRED);
-        }
-        assertNull(entry.getStoredStatusValue(), "status should remain unset");
+    void dialog_preferredOnStatuslessEntry_resolvesToNull() {
+        assertNull(TermEntryUtils.resolveDialogStatus(0, null),
+            "Preferred on an entry that never had a status must write nothing");
+    }
+
+    @Test
+    void dialog_statusSelection_matrix() {
+        assertEquals(TermStatus.PREFERRED, TermEntryUtils.resolveDialogStatus(0, "deprecated"),
+            "Preferred on an entry that already had a status is applied");
+        assertEquals(TermStatus.ADMITTED, TermEntryUtils.resolveDialogStatus(1, null));
+        assertEquals(TermStatus.DEPRECATED, TermEntryUtils.resolveDialogStatus(2, null));
+        assertEquals(TermStatus.PREFERRED, TermEntryUtils.resolveDialogStatus(0, "preferred"));
+    }
+
+    /**
+     * 6.2 end-to-end: a no-op dialog confirm (Preferred on a status-less entry) must not add a
+     * status column to a CSV that had none. Uses the same resolveDialogStatus the dialog calls.
+     */
+    @Test
+    void dialog_preferredOnStatusless_csvGainsNoColumn() throws Exception {
+        Path file = tempDir.resolve("dlg_nocsv.csv");
+        Files.writeString(file, "zh-cn,en-us\nFEA,x\n");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.CSV, true);
+        List<TermEntry> loaded = CsvTermbaseHandler.loadTerms(config);
+
+        TermStatus toApply = TermEntryUtils.resolveDialogStatus(0, loaded.get(0).getStoredStatusValue());
+        if (toApply != null) loaded.get(0).setStatus(toApply);
+        CsvTermbaseHandler.saveTerms(config, loaded);
+
+        assertFalse(Files.readString(file).contains("status"),
+            "a no-op dialog confirm must not add a status column");
     }
 
     /**
@@ -331,5 +352,61 @@ class TermStatusTest {
         List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
         assertEquals(TermStatus.ADMITTED, reloaded.get(0).getStatus(),
             "status in ntig/termGrp must be writable");
+    }
+
+    /**
+     * 6.3: ntig/termGrp - clearing the status removes the administrativeStatus termNote.
+     */
+    @Test
+    void tbx_ntigTermGrp_clearStatus_removesTermNote() throws Exception {
+        Path file = tempDir.resolve("ntig_clear.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"nt1\">\n"
+            + "      <langSet xml:lang=\"zh-CN\">\n"
+            + "        <ntig><termGrp><term>\u7f51\u683c</term>"
+            + "<termNote type=\"administrativeStatus\">deprecatedTerm-admn-sts</termNote>"
+            + "</termGrp></ntig>\n"
+            + "      </langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><ntig><termGrp><term>mesh</term></termGrp></ntig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> loaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(TermStatus.DEPRECATED, loaded.get(0).getStatus());
+
+        loaded.get(0).setStatus(null); // clear
+        TbxTermbaseHandler.saveTerms(config, loaded);
+
+        String saved = Files.readString(file);
+        assertFalse(saved.contains("administrativeStatus"),
+            "cleared ntig status must delete the termNote");
+        assertTrue(saved.contains("ntig"), "the ntig structure itself must survive");
+        assertNull(TbxTermbaseHandler.loadTerms(config).get(0).getStatus());
+    }
+
+    /**
+     * 6.1 (XLSX): set a status, clear it, save and reload -> no status; the cell is written empty.
+     */
+    @Test
+    void xlsx_clearStatus_writesEmptyCellAndReloadsAsNull() throws Exception {
+        Path file = tempDir.resolve("clear.xlsx");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        config.setSourceLang("zh-cn");
+        config.setTargetLang("en-us");
+        config.setExtraColumns(List.of("status"));
+        TermEntry e = new TermEntry("FEA", "x");
+        e.setStatus(TermStatus.DEPRECATED);
+        XlsxTermbaseHandler.saveTerms(config, List.of(e));
+        assertEquals(TermStatus.DEPRECATED, XlsxTermbaseHandler.loadTerms(config).get(0).getStatus());
+
+        List<TermEntry> loaded = XlsxTermbaseHandler.loadTerms(config);
+        loaded.get(0).setStatus(null); // clear
+        XlsxTermbaseHandler.saveTerms(config, loaded);
+
+        List<TermEntry> reloaded = XlsxTermbaseHandler.loadTerms(config);
+        assertNull(reloaded.get(0).getStatus(), "cleared XLSX status reloads as unset");
     }
 }

@@ -263,4 +263,25 @@ class XlsxTermbaseHandlerTest {
         assertArrayEquals(garbage, Files.readAllBytes(file),
             "a corrupt XLSX must not be silently overwritten");
     }
+
+    /**
+     * 5.4: A 0-byte file (the new-termbase flow creates one before the first save) is not
+     * "existing content": saveTerms must build a fresh workbook instead of throwing.
+     */
+    @Test
+    void saveTerms_zeroSizeExistingFile_createsNewWorkbook() throws Exception {
+        Path file = tempDir.resolve("zero.xlsx");
+        Files.write(file, new byte[0]);
+
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        config.setSourceLang("zh-cn");
+        config.setTargetLang("en-us");
+
+        XlsxTermbaseHandler.saveTerms(config, List.of(new TermEntry("a", "b")));
+
+        List<TermEntry> loaded = XlsxTermbaseHandler.loadTerms(config);
+        assertEquals(1, loaded.size());
+        assertEquals("a", loaded.get(0).getSourceTerm());
+        assertEquals("b", loaded.get(0).getTargetTerm());
+    }
 }

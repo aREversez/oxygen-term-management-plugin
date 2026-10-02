@@ -4,6 +4,7 @@ import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
+import com.example.termmgmt.util.TermEntryUtils;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -138,16 +139,13 @@ public class TermEntryDialog extends JDialog {
         termEntry.setTargetTerm(target);
 
         // Map combo selection to TermStatus.
-        // 6.2: If combo shows Preferred (index 0) and the entry never had a status, skip.
+        // 6.2: Preferred (index 0) on an entry that never had a status writes nothing, so a
+        // plain confirm cannot introduce a status column / termNote. The decision lives in
+        // TermEntryUtils.resolveDialogStatus so it is unit-testable without a Swing dialog.
         int idx = statusCombo.getSelectedIndex();
-        if (idx == 0 && originalStoredStatus == null) {
-            // No status was ever set; don't introduce one.
-        } else if (idx == 1) {
-            termEntry.setStatus(TermStatus.ADMITTED);
-        } else if (idx == 2) {
-            termEntry.setStatus(TermStatus.DEPRECATED);
-        } else {
-            termEntry.setStatus(TermStatus.PREFERRED);
+        TermStatus toApply = TermEntryUtils.resolveDialogStatus(idx, originalStoredStatus);
+        if (toApply != null) {
+            termEntry.setStatus(toApply);
         }
 
         // Update note field if it was shown

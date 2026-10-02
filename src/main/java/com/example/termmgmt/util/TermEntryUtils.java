@@ -1,6 +1,7 @@
 package com.example.termmgmt.util;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.model.TermStatus;
 
 import java.util.Collection;
 import java.util.List;
@@ -142,5 +143,27 @@ public final class TermEntryUtils {
             terms.set(idx, merged);
         }
         return true;
+    }
+
+    /**
+     * 6.2: The status the Add/Edit dialog should apply, given the dropdown index and the
+     * entry's stored status at the moment the dialog opened. Index 0 is Preferred, 1 Admitted,
+     * 2 Deprecated. Returns {@code null} when nothing must be written: choosing Preferred
+     * (index 0) on an entry that never had a status must not introduce one, otherwise a plain
+     * confirm would add a {@code status} column to a CSV/XLSX or a {@code termNote} to a TBX
+     * file that had none. Callers apply the result only when non-null.
+     */
+    public static TermStatus resolveDialogStatus(int comboIndex, String originalStoredStatus) {
+        if (comboIndex == 0 && originalStoredStatus == null) {
+            return null;
+        }
+        switch (comboIndex) {
+            case 1:
+                return TermStatus.ADMITTED;
+            case 2:
+                return TermStatus.DEPRECATED;
+            default:
+                return TermStatus.PREFERRED;
+        }
     }
 }
