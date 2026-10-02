@@ -244,6 +244,15 @@ public class TermbaseRegistry {
     }
 
     public List<TermEntry> loadTerms(TermbaseConfig config) {
+        return loadTerms(config, null);
+    }
+
+    /**
+     * Package-private seam for tests: {@code midLoadProbe}, when non-null, runs after the file
+     * has been read but before the post-load stamp is taken, so a test can simulate a
+     * modification landing during the load window.
+     */
+    List<TermEntry> loadTerms(TermbaseConfig config, Runnable midLoadProbe) {
         List<TermEntry> terms;
         String filePath = config.getFilePath();
         synchronized (fileLock(filePath)) {
@@ -251,10 +260,9 @@ public class TermbaseRegistry {
             // the (potentially stale) data with the post-load stamp.
             long[] preStamp = stampOf(filePath);
             terms = TermbaseLoader.loadTerms(config);
+            if (midLoadProbe != null) midLoadProbe.run();
             long[] postStamp = stampOf(filePath);
-            // Use pre-load stamp if unchanged; if changed during load, use postStamp
-            // so the next check detects the file differs from what we cached.
-            long[] stamp = java.util.Arrays.equals(preStamp, postStamp) ? preStamp : postStamp;
+            long[] stamp = chooseCachedStamp(preStamp, postStamp);
             synchronized (this) {
                 termCache.put(filePath, terms);
                 putStamp(filePath, stamp);
@@ -262,6 +270,19 @@ public class TermbaseRegistry {
             }
         }
         return terms;
+    }
+
+    /**
+     * 7.3: Which stamp to record for a freshly loaded list. When the file did not change during
+     * the read, pre and post match and either value records the cache as fresh. When they differ
+     * the file was modified while it was being read, so the loaded content may be a torn read and
+     * must NOT be trusted: recording the current (post) stamp would make the cache look fresh and
+     * the next updateTerms would skip reloading and clobber that change. Returning the pre-load
+     * stamp - which now differs from the file on disk - marks the cache stale so the next write
+     * path reloads.
+     */
+    static long[] chooseCachedStamp(long[] pre, long[] post) {
+        return java.util.Arrays.equals(pre, post) ? post : pre;
     }
 
     public List<TermEntry> getTerms(TermbaseConfig config) {
@@ -283,7 +304,7 @@ public class TermbaseRegistry {
             long[] preStamp = stampOf(config.getFilePath());
             List<TermEntry> terms = TermbaseLoader.loadTerms(config);
             long[] postStamp = stampOf(config.getFilePath());
-            long[] stamp = java.util.Arrays.equals(preStamp, postStamp) ? preStamp : postStamp;
+            long[] stamp = chooseCachedStamp(preStamp, postStamp);
             synchronized (this) {
                 termCache.put(config.getFilePath(), new ArrayList<>(terms));
                 putStamp(config.getFilePath(), stamp);

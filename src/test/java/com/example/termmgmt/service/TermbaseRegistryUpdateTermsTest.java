@@ -110,4 +110,50 @@ class TermbaseRegistryUpdateTermsTest {
         assertTrue(saved.contains("Mesh Element"), "the edit must land on the reloaded list");
         assertTrue(saved.contains("附加"), "the external row must survive");
     }
+
+    /**
+     * 7.3 (pure decision): when the file changed during the load, the recorded stamp must be
+     * the stale pre-load value so the cache is not trusted; an unchanged load records a fresh one.
+     * (The pre-fix code recorded the post-load stamp here, making the torn read look fresh.)
+     */
+    @Test
+    void chooseCachedStamp_changedDuringLoad_recordsPreSoCacheIsStale() {
+        long[] pre = { 1000L, 10L };
+        long[] post = { 2000L, 20L };
+        assertArrayEquals(pre, TermbaseRegistry.chooseCachedStamp(pre, post),
+            "a change during load must record the stale pre-load stamp");
+        // Unchanged load: pre equals post, the recorded stamp equals the file on disk (fresh).
+        assertArrayEquals(pre, TermbaseRegistry.chooseCachedStamp(pre, pre),
+            "an unchanged load records a fresh stamp");
+    }
+
+    /**
+     * 7.3 (end-to-end): an edit that lands during the load window must mark the cache stale, so
+     * the next updateTerms reloads instead of clobbering it with the half-read content.
+     */
+    @Test
+    void loadTerms_fileModifiedDuringLoad_marksCacheStale_andNextUpdateReloads() throws Exception {
+        TermbaseConfig config = csvConfig("midload", "zh-cn,en-us\n\u7f51\u683c,mesh\n");
+        // The probe writes a new row after the file is read but before the post-load stamp,
+        // deterministically simulating a modification landing mid-load.
+        registry.loadTerms(config, () -> {
+            try {
+                Files.writeString(Path.of(config.getFilePath()),
+                    "zh-cn,en-us\n\u7f51\u683c,mesh\n\u8282\u70b9,node\n");
+            } catch (java.io.IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        assertTrue(registry.isExternallyModified(config.getFilePath()),
+            "a change landing during load must mark the cache stale");
+
+        registry.updateTerms(config, terms -> {
+            terms.add(new TermEntry("\u521a\u5ea6", "stiffness"));
+            return terms;
+        });
+        String saved = Files.readString(Path.of(config.getFilePath()));
+        assertTrue(saved.contains("node"), "the mid-load external row must survive");
+        assertTrue(saved.contains("stiffness"), "the plugin edit must still be applied");
+    }
 }
