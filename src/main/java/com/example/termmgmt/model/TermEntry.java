@@ -28,6 +28,15 @@ public class TermEntry {
      */
     private volatile int entryOrdinal = -1;
     /**
+     * A fingerprint (source and target text) of the termEntry node this entry was last
+     * loaded from or saved to; TBX only, null when the entry is not on disk. An ordinal claim
+     * is only honoured when the node at that position still carries this fingerprint, so an
+     * ordinal gone stale (an entry kept in an undo snapshot while its neighbours were
+     * removed, say) can never attach the entry to somebody else's node. Built by the
+     * handler; callers treat it as opaque.
+     */
+    private volatile String persistedFingerprint;
+    /**
      * The raw status value as read from the file (column text or TBX administrativeStatus
      * termNote). The handlers use it to tell "cleared since load" from "never had one",
      * and to write an unknown TBX value back verbatim on a no-op save.
@@ -67,6 +76,8 @@ public class TermEntry {
     public void setEntryId(String entryId) { this.entryId = entryId; }
     public int getEntryOrdinal() { return entryOrdinal; }
     public void setEntryOrdinal(int entryOrdinal) { this.entryOrdinal = entryOrdinal; }
+    public String getPersistedFingerprint() { return persistedFingerprint; }
+    public void setPersistedFingerprint(String persistedFingerprint) { this.persistedFingerprint = persistedFingerprint; }
     public String getLoadedStatusRaw() { return loadedStatusRaw; }
     public void setLoadedStatusRaw(String loadedStatusRaw) { this.loadedStatusRaw = loadedStatusRaw; }
 
@@ -119,6 +130,7 @@ public class TermEntry {
         c.extraFields = new LinkedHashMap<>(extraFields);
         c.entryId = entryId;
         c.entryOrdinal = entryOrdinal;
+        c.persistedFingerprint = persistedFingerprint;
         c.loadedStatusRaw = loadedStatusRaw;
         c.statusValue = statusValue;
         return c;

@@ -706,9 +706,11 @@ class TbxTermbaseHandlerTest {
 
         String[] beforeId = new String[list.size()];
         int[] beforeOrd = new int[list.size()];
+        String[] beforeFp = new String[list.size()];
         for (int i = 0; i < list.size(); i++) {
             beforeId[i] = list.get(i).getEntryId();
             beforeOrd[i] = list.get(i).getEntryOrdinal();
+            beforeFp[i] = list.get(i).getPersistedFingerprint();
         }
 
         java.io.File f = file.toFile();
@@ -724,7 +726,122 @@ class TbxTermbaseHandlerTest {
         for (int i = 0; i < list.size(); i++) {
             assertEquals(beforeId[i], list.get(i).getEntryId(), "entryId unchanged after failed write");
             assertEquals(beforeOrd[i], list.get(i).getEntryOrdinal(), "entryOrdinal unchanged after failed write");
+            assertEquals(beforeFp[i], list.get(i).getPersistedFingerprint(), "fingerprint unchanged after failed write");
         }
+    }
+
+    /** Three loadable no-id entries; each carries a distinctive descrip inside its source tig. */
+    private TermbaseConfig writeThreeNoIdEntries(String name) throws Exception {
+        Path file = tempDir.resolve(name);
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>A</term><descrip>DEF-A</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>a-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>B</term><descrip>DEF-B</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>b-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>C</term><descrip>DEF-C</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>c-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        return new TermbaseConfig(file.toString(), Format.TBX, true);
+    }
+
+    /**
+     * 12.1 repro: the panel keeps the full pre-delete list as an undo snapshot. Deleting A
+     * saves [B, C] (refreshing only those two entries' ordinals); undo then saves the whole
+     * snapshot, in which A still carries its load-time ordinal 0 - now B's position. Bug: A
+     * claimed B's node (DEF-B), B fell through to a fresh node and DEF-B ended up under A.
+     */
+    @Test
+    void saveTerms_undoSnapshotAfterDelete_noIdEntries_descripsStayWithTheirEntries() throws Exception {
+        TermbaseConfig config = writeThreeNoIdEntries("undo_snapshot.tbx");
+        List<TermEntry> all = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+        List<TermEntry> snapshot = new java.util.ArrayList<>(all);   // what undoDelete holds on to
+
+        List<TermEntry> afterDelete = new java.util.ArrayList<>(all);
+        afterDelete.remove(0);                                        // user deletes A
+        TbxTermbaseHandler.saveTerms(config, afterDelete);
+        TbxTermbaseHandler.saveTerms(config, snapshot);               // undo: whole snapshot
+
+        java.util.Map<String, String> id = new java.util.HashMap<>();
+        java.util.Map<String, String> desc = new java.util.HashMap<>();
+        readNodeMarkers(Path.of(config.getFilePath()), id, desc);
+        assertEquals(3, id.size(), "A is back, B and C are still there");
+        assertEquals("DEF-B", desc.get("B"), "B must keep its own description");
+        assertEquals("DEF-C", desc.get("C"), "C must keep its own description");
+        assertEquals("", desc.get("A"), "A is re-created as a plain node (its old content went with the delete)");
+    }
+
+    /**
+     * 12.1: two no-id nodes share a source term but have different targets and descrips. The
+     * first one is deleted and restored from the snapshot. The restored entry's stale ordinal
+     * points at the second node, whose source text matches - the target must tell them apart.
+     */
+    @Test
+    void saveTerms_undoSnapshot_duplicateSourceNodes_keepOwnDescrips() throws Exception {
+        Path file = tempDir.resolve("undo_dup_source.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>X</term><descrip>DEF-1</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>first</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>X</term><descrip>DEF-2</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>second</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+        List<TermEntry> all = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+        List<TermEntry> snapshot = new java.util.ArrayList<>(all);
+        List<TermEntry> afterDelete = new java.util.ArrayList<>(all);
+        afterDelete.remove(0);
+        TbxTermbaseHandler.saveTerms(config, afterDelete);
+        TbxTermbaseHandler.saveTerms(config, snapshot);
+
+        // Read each node's target text next to its descrip: "second" must still own DEF-2.
+        javax.xml.parsers.DocumentBuilder db = javax.xml.parsers.DocumentBuilderFactory
+            .newInstance().newDocumentBuilder();
+        org.w3c.dom.NodeList nodes = db.parse(file.toFile()).getElementsByTagName("termEntry");
+        java.util.Map<String, String> targetToDescrip = new java.util.HashMap<>();
+        for (int i = 0; i < nodes.getLength(); i++) {
+            org.w3c.dom.Element te = (org.w3c.dom.Element) nodes.item(i);
+            org.w3c.dom.NodeList terms = te.getElementsByTagName("term");
+            org.w3c.dom.NodeList d = te.getElementsByTagName("descrip");
+            targetToDescrip.put(terms.item(1).getTextContent().trim(),
+                d.getLength() > 0 ? d.item(0).getTextContent().trim() : "");
+        }
+        assertEquals(2, nodes.getLength());
+        assertEquals("DEF-2", targetToDescrip.get("second"), "the surviving node keeps its description");
+        assertEquals("", targetToDescrip.get("first"), "the restored entry is a plain node");
+    }
+
+    /** 12.2: a successful save refreshes the fingerprint to what is now on disk. */
+    @Test
+    void saveTerms_refreshesPersistedFingerprint_toWhatWasWritten() throws Exception {
+        TermbaseConfig config = writeThreeNoIdEntries("fingerprint_refresh.tbx");
+        List<TermEntry> list = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+        String loaded = list.get(1).getPersistedFingerprint();
+        assertNotNull(loaded, "load records the fingerprint");
+
+        list.get(1).setTargetTerm("b-edited");
+        assertEquals(loaded, list.get(1).getPersistedFingerprint(), "an edit alone does not touch it");
+        TbxTermbaseHandler.saveTerms(config, list);
+        assertNotEquals(loaded, list.get(1).getPersistedFingerprint(), "the save moves it to the new text");
+
+        // A brand-new entry has no fingerprint until it is written.
+        TermEntry added = new TermEntry("D", "d-en");
+        assertNull(added.getPersistedFingerprint());
+        list.add(added);
+        TbxTermbaseHandler.saveTerms(config, list);
+        assertNotNull(added.getPersistedFingerprint());
+        assertEquals(added.getPersistedFingerprint(), added.copy().getPersistedFingerprint(),
+            "copy() carries the fingerprint");
     }
 
     /**
@@ -788,6 +905,121 @@ class TbxTermbaseHandlerTest {
                 }
                 case 2: { // EDIT_TARGET
                     if (!list.isEmpty()) list.get(rnd.nextInt(list.size())).setTargetTerm("T" + counter);
+                    break;
+                }
+                default: { // EDIT_SOURCE
+                    if (!list.isEmpty()) {
+                        TermEntry e = list.get(rnd.nextInt(list.size()));
+                        String ns = "E" + counter;
+                        e.setSourceTerm(ns);
+                        if (marker.containsKey(e)) expectedSource.put(e, ns);
+                    }
+                    break;
+                }
+            }
+
+            TbxTermbaseHandler.saveTerms(config, list);
+
+            java.util.Map<String, String> id = new java.util.HashMap<>();
+            java.util.Map<String, String> desc = new java.util.HashMap<>();
+            int total = inspectNodes(file, id, desc);
+            String raw = Files.readString(file);
+            // (B) non-loadable nodes survive
+            assertTrue(raw.contains("ORPHAN-1"), "orphan 1 lost at step " + step);
+            assertTrue(raw.contains("ORPHAN-2"), "orphan 2 lost at step " + step);
+            // (C) count
+            assertEquals(list.size() + 2, total, "node count wrong at step " + step);
+            // (A) markers + (D) id stability, for every tracked original entry still in the list
+            for (TermEntry e : list) {
+                if (!marker.containsKey(e)) continue;
+                String src = expectedSource.get(e);
+                assertTrue(desc.containsKey(src), "entry lost at step " + step + " (source " + src + ")");
+                assertEquals(marker.get(e), desc.get(src), "descrip drifted at step " + step);
+                String nowId = id.get(src);
+                String prev = lastId.get(e);
+                if (prev == null) lastId.put(e, nowId);
+                else assertEquals(prev, nowId, "id changed at step " + step);
+            }
+        }
+    }
+
+    /**
+     * 12.3: same random walk as above, plus an operation that deletes an entry, saves, and then
+     * restores the whole pre-delete snapshot (what the panel's undo did). Surviving entries must
+     * never swap or lose their content; the restored entry comes back as a plain node.
+     */
+    @Test
+    void saveTerms_randomSequenceWithUndoRestore_invariantsHold() throws Exception {
+        for (long seed = 1; seed <= 12; seed++) {
+            walkWithUndoRestore(seed);
+        }
+    }
+
+    private void walkWithUndoRestore(long seed) throws Exception {
+        Path file = tempDir.resolve("random_seq_undo_" + seed + ".tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry><langSet xml:lang=\"zh-CN\"><tig><term>S0</term><descrip>D0</descrip></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>S0-en</term></tig></langSet></termEntry>\n"
+            + "    <termEntry><langSet xml:lang=\"zh-CN\"><tig><term>S1</term><descrip>D1</descrip></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>S1-en</term></tig></langSet></termEntry>\n"
+            + "    <termEntry id=\"orphan1\"><langSet xml:lang=\"zh-CN\"><descrip>ORPHAN-1</descrip></langSet></termEntry>\n"
+            + "    <termEntry><langSet xml:lang=\"zh-CN\"><tig><term>S3</term><descrip>D3</descrip></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>S3-en</term></tig></langSet></termEntry>\n"
+            + "    <termEntry><langSet xml:lang=\"zh-CN\"><tig><term>S4</term><descrip>D4</descrip></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>S4-en</term></tig></langSet></termEntry>\n"
+            + "    <termEntry><langSet xml:lang=\"zh-CN\"><descrip>ORPHAN-2</descrip></langSet></termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+        List<TermEntry> list = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+        assertEquals(4, list.size(), "two orphans are not loadable");
+
+        // Track original entries by object identity: expected source text and expected descrip.
+        java.util.Map<TermEntry, String> marker = new java.util.IdentityHashMap<>();
+        java.util.Map<TermEntry, String> expectedSource = new java.util.IdentityHashMap<>();
+        java.util.Map<TermEntry, String> lastId = new java.util.IdentityHashMap<>();
+        String[] origSrc = { "S0", "S1", "S3", "S4" };
+        String[] origDesc = { "D0", "D1", "D3", "D4" };
+        for (int i = 0; i < list.size(); i++) {
+            marker.put(list.get(i), origDesc[i]);
+            expectedSource.put(list.get(i), origSrc[i]);
+        }
+
+        java.util.Random rnd = new java.util.Random(seed);
+        int counter = 0;
+        for (int step = 0; step < 40; step++) {
+            int op = rnd.nextInt(5);
+            counter++;
+            switch (op) {
+                case 0: { // ADD
+                    TermEntry e = new TermEntry("A" + counter, "At" + counter);
+                    list.add(e);
+                    break;
+                }
+                case 1: { // DELETE
+                    if (!list.isEmpty()) {
+                        TermEntry e = list.remove(rnd.nextInt(list.size()));
+                        marker.remove(e);
+                        expectedSource.remove(e);
+                        lastId.remove(e);
+                    }
+                    break;
+                }
+                case 2: { // EDIT_TARGET
+                    if (!list.isEmpty()) list.get(rnd.nextInt(list.size())).setTargetTerm("T" + counter);
+                    break;
+                }
+                case 4: { // DELETE then UNDO: restore the whole pre-delete snapshot, as the panel did
+                    if (!list.isEmpty()) {
+                        List<TermEntry> snapshot = new java.util.ArrayList<>(list);
+                        TermEntry gone = list.remove(rnd.nextInt(list.size()));
+                        TbxTermbaseHandler.saveTerms(config, list);   // the delete is saved
+                        list.clear();
+                        list.addAll(snapshot);                        // undo puts the snapshot back
+                        // The deleted node's own content went with the delete; the entry returns
+                        // as a plain node under a new id.
+                        if (marker.containsKey(gone)) { marker.put(gone, ""); lastId.remove(gone); }
+                    }
                     break;
                 }
                 default: { // EDIT_SOURCE

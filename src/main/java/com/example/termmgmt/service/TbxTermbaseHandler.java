@@ -31,6 +31,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public class TbxTermbaseHandler {
@@ -105,6 +106,7 @@ public class TbxTermbaseHandler {
                     entry.setSourceTerm(getTermTextOrNull(pair.get(0)));
                     if (detectedSourceLang == null) detectedSourceLang = langOf(pair.get(0));
                 }
+                entry.setPersistedFingerprint(nodeFingerprint(termEntryNode));
                 if (pair.size() > 1) {
                     entry.setTargetTerm(getTermTextOrNull(pair.get(1)));
                     if (detectedTargetLang == null) detectedTargetLang = langOf(pair.get(1));
@@ -197,9 +199,14 @@ public class TbxTermbaseHandler {
                 } else if (entry.getEntryOrdinal() >= 0
                         && entry.getEntryOrdinal() < snapshot.size()) {
                     // Claim the same document-position node if it has no id and is loadable.
+                    // 12: the ordinal is only a position hint. It may be stale (an entry held in
+                    // an undo snapshot, for one), so the node must still carry the source and
+                    // target text this entry last had on disk; otherwise it is someone else's.
                     Element candidate = snapshot.get(entry.getEntryOrdinal());
                     String candidateId = candidate.getAttribute("id");
-                    if (candidateId.isEmpty() && isLoadable(candidate) && !kept.contains(candidate)) {
+                    if (candidateId.isEmpty() && isLoadable(candidate) && !kept.contains(candidate)
+                            && Objects.equals(nodeFingerprint(candidate),
+                                    entry.getPersistedFingerprint())) {
                         node = candidate;
                     }
                 }
@@ -245,7 +252,8 @@ public class TbxTermbaseHandler {
                 TermEntry entry = nodeToEntry.get(node);
                 if (entry == null) continue;
                 String id = node.getAttribute("id");
-                writeBack.add(new Object[] { entry, i, id.isEmpty() ? null : id });
+                writeBack.add(new Object[] { entry, i, id.isEmpty() ? null : id,
+                        nodeFingerprint(node) });
             }
 
             // Drop the whitespace-only text nodes left by pretty-printing. The transformer
@@ -291,6 +299,7 @@ public class TbxTermbaseHandler {
                         + " out of range for " + nodeCount + " nodes");
                 }
                 entry.setEntryOrdinal(ordinal);
+                entry.setPersistedFingerprint((String) w[3]);
                 if (w[2] != null) {
                     entry.setEntryId((String) w[2]);
                 }
@@ -493,6 +502,20 @@ public class TbxTermbaseHandler {
             }
         }
         return false;
+    }
+
+    /**
+     * Source and target text of a termEntry node, read exactly as loadTerms reads them (same
+     * langSet selection, same blank-to-null rule), so a load-time and a save-time value are
+     * comparable. Null for a node without any langSet. The NUL separator cannot occur in XML
+     * text, so two different pairs never produce the same string.
+     */
+    private static String nodeFingerprint(Element termEntry) {
+        List<Element> pair = selectLangSets(termEntry);
+        if (pair.isEmpty()) return null;
+        String source = getTermTextOrNull(pair.get(0));
+        String target = pair.size() > 1 ? getTermTextOrNull(pair.get(1)) : null;
+        return (source == null ? "" : source) + "\u0000" + (target == null ? "" : target);
     }
 
     /**
