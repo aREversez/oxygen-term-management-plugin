@@ -623,8 +623,12 @@ public class TerminologyPanel extends JPanel {
         }
 
         // Confirm deletion
-        int confirm = JOptionPane.showConfirmDialog(this,
-            I18N.getString("msg.confirm.delete", selectedRows.length, config.getFileName()),
+        String confirmMessage = I18N.getString("msg.confirm.delete", selectedRows.length, config.getFileName());
+        if (config.getFormat() == TermbaseConfig.Format.TBX) {
+            // A TBX entry holds more than the two terms; undo can only bring the terms back.
+            confirmMessage += "\n\n" + I18N.getString("msg.confirm.delete.tbx.note");
+        }
+        int confirm = JOptionPane.showConfirmDialog(this, confirmMessage,
             I18N.getString("msg.confirm.delete.title"), JOptionPane.OK_CANCEL_OPTION);
 
         if (confirm == JOptionPane.OK_OPTION) {
