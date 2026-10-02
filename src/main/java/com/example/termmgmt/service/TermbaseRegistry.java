@@ -258,10 +258,10 @@ public class TermbaseRegistry {
         synchronized (fileLock(filePath)) {
             // 7.3: Read stamp BEFORE loading; if it changes during load, don't cache
             // the (potentially stale) data with the post-load stamp.
-            long[] preStamp = stampOf(filePath);
+            long[] preStamp = stampReader.apply(filePath);
             terms = TermbaseLoader.loadTerms(config);
             if (midLoadProbe != null) midLoadProbe.run();
-            long[] postStamp = stampOf(filePath);
+            long[] postStamp = stampReader.apply(filePath);
             long[] stamp = chooseCachedStamp(preStamp, postStamp);
             synchronized (this) {
                 termCache.put(filePath, terms);
@@ -301,9 +301,9 @@ public class TermbaseRegistry {
                 }
             }
             // 7.3: Read stamp before loading.
-            long[] preStamp = stampOf(config.getFilePath());
+            long[] preStamp = stampReader.apply(config.getFilePath());
             List<TermEntry> terms = TermbaseLoader.loadTerms(config);
-            long[] postStamp = stampOf(config.getFilePath());
+            long[] postStamp = stampReader.apply(config.getFilePath());
             long[] stamp = chooseCachedStamp(preStamp, postStamp);
             synchronized (this) {
                 termCache.put(config.getFilePath(), new ArrayList<>(terms));
@@ -327,7 +327,7 @@ public class TermbaseRegistry {
             TermbaseLoader.saveTerms(config, terms);
             // Stamp after the write completed (the handlers move into place atomically),
             // so our own save is never mistaken for an external change later.
-            long[] stamp = stampOf(config.getFilePath());
+            long[] stamp = stampReader.apply(config.getFilePath());
             synchronized (this) {
                 termCache.put(config.getFilePath(), new ArrayList<>(terms));
                 putStamp(config.getFilePath(), stamp);
@@ -359,7 +359,7 @@ public class TermbaseRegistry {
     public void updateTerms(TermbaseConfig config, UnaryOperator<List<TermEntry>> mutator) {
         String filePath = config.getFilePath();
         synchronized (fileLock(filePath)) {
-            long[] disk = stampOf(filePath);
+            long[] disk = stampReader.apply(filePath);
             if (disk == null) {
                 // Silently recreating a deleted termbase would lose whatever the user moved
                 // or renamed; fail loudly instead.
@@ -379,7 +379,7 @@ public class TermbaseRegistry {
             }
             List<TermEntry> updated = Objects.requireNonNull(mutator.apply(current), "mutator returned null");
             TermbaseLoader.saveTerms(config, updated);
-            long[] stamp = stampOf(filePath); // after the atomic move, not before
+            long[] stamp = stampReader.apply(filePath); // after the atomic move, not before
             synchronized (this) {
                 termCache.put(filePath, new ArrayList<>(updated));
                 putStamp(filePath, stamp);
@@ -387,6 +387,14 @@ public class TermbaseRegistry {
             }
         }
         fireTermsChanged();
+    }
+
+    /** How file stamps are read; replaceable in tests (see {@link #setStampReader}). */
+    private volatile java.util.function.Function<String, long[]> stampReader = TermbaseRegistry::stampOf;
+
+    /** Test hook: swap how file stamps are read. Pass null to restore the real reader. */
+    void setStampReader(java.util.function.Function<String, long[]> reader) {
+        this.stampReader = reader != null ? reader : TermbaseRegistry::stampOf;
     }
 
     /** {lastModified, size} of the file, or null when it does not exist (or cannot be read). */
@@ -429,7 +437,7 @@ public class TermbaseRegistry {
             known = fileStamps.get(filePath);
         }
         if (known == null) return false; // not cached, nothing to compare
-        long[] disk = stampOf(filePath);
+        long[] disk = stampReader.apply(filePath);
         if (disk == null) return true;   // file deleted
         return !java.util.Arrays.equals(known, disk);
     }

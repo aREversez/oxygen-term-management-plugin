@@ -1,6 +1,7 @@
 package com.example.termmgmt.ui;
 
 import com.example.termmgmt.model.TermbaseConfig;
+import com.example.termmgmt.service.ExternalChangeCheck;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.util.I18N;
 import ro.sync.exml.workspace.api.standalone.StandalonePluginWorkspace;
@@ -92,21 +93,18 @@ public class TermManagementView extends JPanel {
         new SwingWorker<Boolean, Void>() {
             @Override
             protected Boolean doInBackground() {
-                List<TermbaseConfig> enabled = registry.getEnabledConfigs();
-                boolean anyReloaded = false;
-                for (TermbaseConfig config : enabled) {
-                    if (registry.isExternallyModified(config.getFilePath())) {
-                        registry.reloadConfig(config.getFilePath());
-                        anyReloaded = true;
-                    }
-                }
-                return anyReloaded;
+                return ExternalChangeCheck.reloadModified(new ExternalChangeCheck.Source() {
+                    @Override public List<TermbaseConfig> enabledConfigs() { return registry.getEnabledConfigs(); }
+                    @Override public boolean isExternallyModified(String filePath) { return registry.isExternallyModified(filePath); }
+                    @Override public void reload(String filePath) { registry.reloadConfig(filePath); }
+                });
             }
             @Override
             protected void done() {
                 checkingExternal.set(false);
                 try {
-                    if (Boolean.TRUE.equals(get()) && tabbedPane.getSelectedIndex() == tabAtStart) {
+                    if (ExternalChangeCheck.shouldNotify(Boolean.TRUE.equals(get()), tabAtStart,
+                            tabbedPane.getSelectedIndex())) {
                         tabbedPane.setToolTipTextAt(tabAtStart,
                             I18N.getString("msg.external.reload.notify"));
                     }

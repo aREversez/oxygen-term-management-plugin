@@ -256,6 +256,7 @@
                                 <include>com/example/termmgmt/service/TermbaseLoader.java</include>
                                 <include>com/example/termmgmt/service/TermbaseRegistry.java</include>
                                 <include>com/example/termmgmt/service/DocumentScanner.java</include>
+                                <include>com/example/termmgmt/service/ExternalChangeCheck.java</include>
                             </includes>
                         </configuration>
                     </plugin>

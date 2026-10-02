@@ -217,4 +217,28 @@ class TermbaseRegistryUpdateTermsTest {
         assertEquals(List.of("A", "B", "C", "EXT"), savedSources(config),
             "the external edit must not be overwritten by the undo, and the deleted term is restored");
     }
+
+    // ---- 15: the staleness check must not do file I/O while holding the registry lock ----
+
+    @Test
+    void isExternallyModified_readsTheDiskStampOutsideTheRegistryLock() throws Exception {
+        TermbaseConfig config = csvConfig("lock_free_stamp", "zh-cn,en-us\nA,a\n");
+        registry.loadTerms(config);                       // cached, so a known stamp exists
+
+        java.util.concurrent.atomic.AtomicBoolean heldLock = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        registry.setStampReader(path -> {
+            reads.incrementAndGet();
+            if (Thread.holdsLock(registry)) heldLock.set(true);
+            return new long[] { 1L, 1L };
+        });
+        try {
+            assertTrue(registry.isExternallyModified(config.getFilePath()), "a different stamp means modified");
+        } finally {
+            registry.setStampReader(null);
+        }
+
+        assertEquals(1, reads.get());
+        assertFalse(heldLock.get(), "the disk stamp must be read without holding the registry monitor");
+    }
 }
