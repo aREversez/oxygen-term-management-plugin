@@ -83,6 +83,94 @@ public final class TermEntryUtils {
         return removed;
     }
 
+    /** One entry taken out by a delete, with the position it had in the list just before it. */
+    public static final class RemovedEntry {
+        private final int index;
+        private final TermEntry entry;
+
+        RemovedEntry(int index, TermEntry entry) {
+            this.index = index;
+            this.entry = entry;
+        }
+
+        /** Position in the list as it was before the delete started. */
+        public int getIndex() { return index; }
+
+        /** A private copy of the removed entry, extra fields and status included. */
+        public TermEntry getEntry() { return entry; }
+    }
+
+    /**
+     * Like {@link #removeEntries}, but also records what was removed and where it sat, so the
+     * delete can be undone by putting just those entries back (see {@link #reinsertRemoved}).
+     * Positions refer to the list as it is when this method is called, before anything is
+     * removed; the result is ordered by position, lowest first. Entries not found are skipped.
+     */
+    public static List<RemovedEntry> removeEntriesRecording(List<TermEntry> terms,
+                                                            Collection<TermEntry> targets) {
+        java.util.Set<Integer> taken = new java.util.HashSet<>();
+        for (TermEntry target : targets) {
+            // Same lookup as removeEntries, but never resolve two targets to the same slot.
+            int idx = -1;
+            for (int i = 0; i < terms.size(); i++) {
+                if (terms.get(i) == target && !taken.contains(i)) { idx = i; break; }
+            }
+            if (idx < 0) {
+                for (int i = 0; i < terms.size(); i++) {
+                    TermEntry e = terms.get(i);
+                    if (e != null && !taken.contains(i)
+                            && Objects.equals(e.getSourceTerm(), target.getSourceTerm())
+                            && Objects.equals(e.getTargetTerm(), target.getTargetTerm())) {
+                        idx = i;
+                        break;
+                    }
+                }
+            }
+            if (idx >= 0) {
+                taken.add(idx);
+            }
+        }
+        List<RemovedEntry> recorded = new java.util.ArrayList<>();
+        for (int idx : new java.util.TreeSet<>(taken)) {
+            recorded.add(new RemovedEntry(idx, terms.get(idx).copy()));
+        }
+        // Remove from the back so earlier positions stay valid.
+        List<Integer> descending = new java.util.ArrayList<>(new java.util.TreeSet<>(taken));
+        java.util.Collections.reverse(descending);
+        for (int idx : descending) {
+            terms.remove(idx);
+        }
+        return recorded;
+    }
+
+    /**
+     * Undo of {@link #removeEntriesRecording}: puts the recorded entries back into the list as
+     * it is NOW, each at its old position (or at the end if the list has become shorter),
+     * leaving every other entry - added, edited or changed on disk since - as it is.
+     *
+     * An entry whose source and target already occur in the list is not inserted again (the
+     * user may have re-added it by hand). The restored copies carry no claim on any file
+     * node (no TBX id, ordinal or fingerprint), so a save writes them as new nodes instead of
+     * matching them to whatever now occupies their old position.
+     *
+     * @return how many entries were put back
+     */
+    public static int reinsertRemoved(List<TermEntry> terms, List<RemovedEntry> removed) {
+        int restored = 0;
+        for (RemovedEntry r : removed) {
+            if (indexOfEntry(terms, r.getEntry()) >= 0) {
+                continue;
+            }
+            TermEntry back = r.getEntry().copy();
+            back.setEntryId(null);
+            back.setEntryOrdinal(-1);
+            back.setPersistedFingerprint(null);
+            terms.add(Math.min(r.getIndex(), terms.size()), back);
+            restored++;
+        }
+        return restored;
+    }
+
     /**
      * 7.4: Merge-style replace. Finds {@code original} in {@code terms}; if matched by identity,
      * replaces with {@code userEdited} directly. If matched only by value (the list was reloaded

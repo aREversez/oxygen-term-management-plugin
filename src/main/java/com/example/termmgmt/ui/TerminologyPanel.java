@@ -64,8 +64,9 @@ public class TerminologyPanel extends JPanel {
     private TermbaseConfig currentConfig;
     private JButton undoButton;
 
-    // Undo support: one-step snapshot for delete
-    private List<TermEntry> undoSnapshot;
+    // Undo support: the entries removed by the last delete, with their old positions. Undo puts
+    // just these back into the current list; it never rewrites the file from an old copy.
+    private List<TermEntryUtils.RemovedEntry> undoRemoved;
     private TermbaseConfig undoConfig;
 
     public TerminologyPanel(TermbaseRegistry registry) {
@@ -628,11 +629,6 @@ public class TerminologyPanel extends JPanel {
 
         if (confirm == JOptionPane.OK_OPTION) {
             try {
-                // Save undo snapshot before modifying
-                undoSnapshot = new ArrayList<>(registry.getTerms(config));
-                undoConfig = config;
-                undoButton.setEnabled(true);
-
                 // Identify the selected entries, not their rows: the delete is applied to the
                 // list as it is when it runs, which may already contain other changes.
                 List<TermEntry> selected = new ArrayList<>();
@@ -641,9 +637,19 @@ public class TerminologyPanel extends JPanel {
                         selected.add(currentTerms.get(modelRow));
                     }
                 }
+                // Filled by the mutator on the registry's thread; read on the EDT only after the
+                // update has completed, which is when undo becomes available (a failed delete
+                // leaves nothing to undo).
+                List<TermEntryUtils.RemovedEntry> removed = new ArrayList<>();
                 updateAndReloadAsync(config, terms -> {
-                    TermEntryUtils.removeEntries(terms, selected);
+                    removed.clear();
+                    removed.addAll(TermEntryUtils.removeEntriesRecording(terms, selected));
                     return terms;
+                }, () -> {
+                    if (removed.isEmpty()) return;   // nothing was deleted; keep any earlier undo
+                    undoRemoved = removed;
+                    undoConfig = config;
+                    undoButton.setEnabled(true);
                 });
             } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
@@ -654,42 +660,40 @@ public class TerminologyPanel extends JPanel {
     }
 
     private void undoDelete() {
-        if (undoSnapshot == null || undoConfig == null) {
+        if (undoRemoved == null || undoConfig == null) {
             undoButton.setEnabled(false);
             return;
         }
         TermbaseConfig config = undoConfig;
-        List<TermEntry> snapshot = undoSnapshot;
-        undoSnapshot = null;
-        undoConfig = null;
-        undoButton.setEnabled(false);
+        List<TermEntryUtils.RemovedEntry> removed = undoRemoved;
+        undoButton.setEnabled(false);   // no second click while this one is running
 
-        new SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() throws Exception {
-                registry.saveTerms(config, snapshot);
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    get();
-                    // If the current combo selection matches undoConfig, reload display
-                    if (termbaseComboBox.getSelectedItem() != null
-                            && ((TermbaseConfig) termbaseComboBox.getSelectedItem()).getFilePath()
-                                .equals(config.getFilePath())) {
-                        loadTermbaseTerms();
-                    }
-                    JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        I18N.getString("msg.delete.undone"), I18N.getString("btn.undo"), JOptionPane.INFORMATION_MESSAGE);
-                } catch (Exception e) {
-                    String message = getFileLockedMessage(e, config);
-                    JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+        // Applied to the list as it is now (re-read from disk if the file changed), so terms
+        // added or edited since the delete, here or in another program, are left alone.
+        registry.updateTermsAsync(config, terms -> {
+            TermEntryUtils.reinsertRemoved(terms, removed);
+            return terms;
+        }).whenComplete((ignored, error) -> SwingUtilities.invokeLater(() -> {
+            if (error == null) {
+                if (undoRemoved == removed) {   // not replaced by a newer delete meanwhile
+                    undoRemoved = null;
+                    undoConfig = null;
                 }
+                // If the current combo selection matches the termbase, reload the display
+                if (termbaseComboBox.getSelectedItem() != null
+                        && ((TermbaseConfig) termbaseComboBox.getSelectedItem()).getFilePath()
+                            .equals(config.getFilePath())) {
+                    loadTermbaseTerms();
+                }
+                JOptionPane.showMessageDialog(TerminologyPanel.this,
+                    I18N.getString("msg.delete.undone"), I18N.getString("btn.undo"), JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                // Keep the undo data so the user can try again (file locked, say).
+                undoButton.setEnabled(undoRemoved == removed);
+                JOptionPane.showMessageDialog(TerminologyPanel.this,
+                    getFileLockedMessage(error, config), I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
             }
-        }.execute();
+        }));
     }
 
     /**
@@ -746,9 +750,16 @@ public class TerminologyPanel extends JPanel {
      * overwriting it.
      */
     private void updateAndReloadAsync(TermbaseConfig config, UnaryOperator<List<TermEntry>> mutator) {
+        updateAndReloadAsync(config, mutator, null);
+    }
+
+    /** As above; {@code onSuccess} (may be null) runs on the EDT after a successful update. */
+    private void updateAndReloadAsync(TermbaseConfig config, UnaryOperator<List<TermEntry>> mutator,
+                                      Runnable onSuccess) {
         registry.updateTermsAsync(config, mutator).whenComplete((ignored, error) ->
             SwingUtilities.invokeLater(() -> {
                 if (error == null) {
+                    if (onSuccess != null) onSuccess.run();
                     loadTermbaseTerms();
                 } else {
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
@@ -778,15 +789,6 @@ public class TerminologyPanel extends JPanel {
                 }
             }
         }.execute();
-    }
-
-    private void safeSaveTerms(TermbaseConfig config, List<TermEntry> terms) {
-        try {
-            registry.saveTerms(config, terms);
-        } catch (Exception ex) {
-            String message = getFileLockedMessage(ex, config);
-            JOptionPane.showMessageDialog(this, message, I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
-        }
     }
 
     private String getFileLockedMessage(Throwable ex, TermbaseConfig config) {

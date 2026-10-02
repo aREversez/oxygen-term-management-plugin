@@ -314,6 +314,14 @@ public class TermbaseRegistry {
         }
     }
 
+    /**
+     * Writes {@code terms} as the complete content of the termbase file and makes it the
+     * cached list. This overwrites whatever is on disk and does NOT check whether the file
+     * changed since it was loaded, so it is only safe where nothing else can have touched the
+     * file (for example writing a brand-new termbase). Anything that edits an existing
+     * termbase must go through {@link #updateTerms}/{@link #updateTermsAsync}, which re-read
+     * a changed file before applying the change.
+     */
     public void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
         synchronized (fileLock(config.getFilePath())) {
             TermbaseLoader.saveTerms(config, terms);

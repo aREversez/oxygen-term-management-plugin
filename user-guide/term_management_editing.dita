@@ -13,7 +13,7 @@
                 <cmd><b>修改词条</b>：直接双击表格单元格进行编辑，修改后按回车键自动保存。</cmd>
             </step>
             <step>
-                <cmd><b>删除词条</b>：选中一行或多行，点击删除。支持使用 <uicontrol>Undo</uicontrol> 撤销最近一次删除操作。</cmd>
+                <cmd><b>删除词条</b>：选中一行或多行，点击删除。支持使用 <uicontrol>Undo</uicontrol> 撤销最近一次删除操作：撤销只把被删除的词条放回原来的位置，删除之后新增或修改的内容、以及其他程序对文件的修改都会保留。只有删除成功后才能撤销。</cmd>
             </step>
             <step>
                 <cmd><b>快速定位</b>：使用表格上方的筛选框输入关键字进行过滤，点击 <uicontrol>Reset Sort</uicontrol>

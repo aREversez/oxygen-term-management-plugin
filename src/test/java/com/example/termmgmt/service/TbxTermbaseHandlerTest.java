@@ -845,6 +845,42 @@ class TbxTermbaseHandlerTest {
     }
 
     /**
+     * 13: the panel's delete/undo flow on a TBX file, with the same list-reuse the registry
+     * does: delete B, add a term, then undo by re-inserting only B. The term added after the
+     * delete must still be there, A and C keep their descrips, and B returns as a plain node.
+     */
+    @Test
+    void deleteThenAddThenUndo_reinsertOnly_keepsLaterAdditionAndNeighbours() throws Exception {
+        TermbaseConfig config = writeThreeNoIdEntries("undo_reinsert.tbx");
+        List<TermEntry> list = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+
+        List<com.example.termmgmt.util.TermEntryUtils.RemovedEntry> removed =
+            com.example.termmgmt.util.TermEntryUtils.removeEntriesRecording(list, List.of(list.get(1)));
+        TbxTermbaseHandler.saveTerms(config, list);                 // delete saved
+
+        list.add(new TermEntry("D", "d-en"));                       // user adds a term afterwards
+        TbxTermbaseHandler.saveTerms(config, list);
+
+        com.example.termmgmt.util.TermEntryUtils.reinsertRemoved(list, removed);
+        TbxTermbaseHandler.saveTerms(config, list);                 // undo saved
+
+        java.util.Map<String, String> id = new java.util.HashMap<>();
+        java.util.Map<String, String> desc = new java.util.HashMap<>();
+        readNodeMarkers(Path.of(config.getFilePath()), id, desc);
+        assertEquals(4, id.size(), "A, B (restored), C and the later D");
+        assertEquals("DEF-A", desc.get("A"));
+        assertEquals("DEF-C", desc.get("C"));
+        assertEquals("", desc.get("B"), "B is back as a plain node");
+        assertTrue(id.containsKey("D"), "the term added after the delete must survive the undo");
+
+        // And the file reloads to the expected order: A, B (back in place), C, D.
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(List.of("A", "C", "D", "B"),
+            reloaded.stream().map(TermEntry::getSourceTerm).collect(java.util.stream.Collectors.toList()),
+            "TBX saves append new nodes, so the restored node follows the existing ones");
+    }
+
+    /**
      * 10.3: random add / delete / edit sequence on one reused list (fixed seed), saving after
      * every step without ever reloading. Invariants checked each step:
      * - each surviving original entry's node keeps its own <descrip> marker (no drift, no loss);

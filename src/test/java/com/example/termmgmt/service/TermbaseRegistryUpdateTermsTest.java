@@ -3,6 +3,7 @@ package com.example.termmgmt.service;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.model.TermbaseConfig.Format;
+import com.example.termmgmt.util.TermEntryUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -155,5 +156,65 @@ class TermbaseRegistryUpdateTermsTest {
         String saved = Files.readString(Path.of(config.getFilePath()));
         assertTrue(saved.contains("node"), "the mid-load external row must survive");
         assertTrue(saved.contains("stiffness"), "the plugin edit must still be applied");
+    }
+
+    /** First column of every data row of the saved CSV, quotes and BOM stripped. */
+    private static List<String> savedSources(TermbaseConfig config) throws Exception {
+        List<String> out = new ArrayList<>();
+        String[] lines = Files.readString(Path.of(config.getFilePath())).replace("\uFEFF", "").split("\\R");
+        for (int i = 1; i < lines.length; i++) {            // line 0 is the header
+            if (lines[i].isBlank()) continue;
+            String first = lines[i].split(",", 2)[0];
+            out.add(first.replace("\"", "").trim());
+        }
+        return out;
+    }
+
+    // ---- 13: undo goes through updateTerms and re-inserts only what was deleted ----------
+
+    @Test
+    void undoDelete_afterALaterAddition_keepsTheAdditionAndRestoresTheDeletedTerm() throws Exception {
+        TermbaseConfig config = csvConfig("undo_later_add", "zh-cn,en-us\nA,a\nB,b\nC,c\n");
+        registry.loadTerms(config);
+
+        List<TermEntryUtils.RemovedEntry> removed = new ArrayList<>();
+        registry.updateTerms(config, terms -> {
+            removed.addAll(TermEntryUtils.removeEntriesRecording(terms, List.of(terms.get(1))));
+            return terms;
+        });
+        registry.updateTerms(config, terms -> {          // the user adds a term after deleting
+            terms.add(new TermEntry("D", "d"));
+            return terms;
+        });
+        registry.updateTerms(config, terms -> {          // undo
+            TermEntryUtils.reinsertRemoved(terms, removed);
+            return terms;
+        });
+
+        assertEquals(List.of("A", "B", "C", "D"), savedSources(config),
+            "B is back between A and C, and the term added after the delete survived the undo");
+    }
+
+    @Test
+    void undoDelete_afterAnExternalEdit_keepsTheExternalEdit() throws Exception {
+        TermbaseConfig config = csvConfig("undo_external", "zh-cn,en-us\nA,a\nB,b\nC,c\n");
+        registry.loadTerms(config);
+
+        List<TermEntryUtils.RemovedEntry> removed = new ArrayList<>();
+        registry.updateTerms(config, terms -> {
+            removed.addAll(TermEntryUtils.removeEntriesRecording(terms, List.of(terms.get(1))));
+            return terms;
+        });
+
+        // Another program adds a row to the file between the delete and the undo.
+        Files.writeString(Path.of(config.getFilePath()), "zh-cn,en-us\nA,a\nC,c\nEXT,ext\n");
+
+        registry.updateTerms(config, terms -> {
+            TermEntryUtils.reinsertRemoved(terms, removed);
+            return terms;
+        });
+
+        assertEquals(List.of("A", "B", "C", "EXT"), savedSources(config),
+            "the external edit must not be overwritten by the undo, and the deleted term is restored");
     }
 }
