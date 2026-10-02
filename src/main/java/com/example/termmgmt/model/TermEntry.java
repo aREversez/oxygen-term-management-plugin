@@ -14,13 +14,19 @@ public class TermEntry {
      * in file order; never null. Entries must survive a save with these intact.
      */
     private Map<String, String> extraFields = new LinkedHashMap<>();
-    /** The TBX termEntry id this entry was loaded from; null for entries not on disk yet. */
-    private String entryId;
     /**
-     * The 0-based document-order index of the termEntry node this entry was loaded from.
-     * Used as a fallback claim key when entryId is null; -1 means not set (new entry).
+     * The TBX termEntry id this entry was loaded from (or, after a save, the id written to
+     * disk); null for entries not on disk yet. Volatile: the writer thread refreshes it in
+     * {@code TbxTermbaseHandler.saveTerms} while the EDT reads the same objects.
      */
-    private int entryOrdinal = -1;
+    private volatile String entryId;
+    /**
+     * The 0-based document-order index of the termEntry node this entry maps to. Used as a
+     * fallback claim key when entryId is null; -1 means not set (new entry). Refreshed on
+     * every successful TBX save so a reused list never carries a stale ordinal. Volatile for
+     * the same cross-thread reason as {@link #entryId}.
+     */
+    private volatile int entryOrdinal = -1;
     /**
      * The raw status value as read from the file (column text or TBX administrativeStatus
      * termNote). The handlers use it to tell "cleared since load" from "never had one",

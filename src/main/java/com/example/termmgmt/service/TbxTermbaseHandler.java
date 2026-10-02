@@ -140,6 +140,14 @@ public class TbxTermbaseHandler {
      *   collision-free id appended to body;
      * - disk nodes absent from the list are removed.
      * Existing ids are never rewritten.
+     *
+     * Side effect on the passed list (step 10): after the file has been written successfully,
+     * every {@link TermEntry} that maps to a node in the saved document has its
+     * {@code entryOrdinal} refreshed to that node's final document-order index and, when the
+     * node carries an id, its {@code entryId} refreshed to that id (including ids minted for
+     * brand-new entries). This keeps a reused, never-reloaded list self-consistent so the next
+     * save claims the right nodes instead of drifting on stale ordinals. On a failed write the
+     * entries are left untouched, so memory never diverges from an unchanged disk file.
      */
     public static void saveTerms(TermbaseConfig config, List<TermEntry> terms) {
         String filePath = config.getFilePath();
@@ -175,6 +183,9 @@ public class TbxTermbaseHandler {
             }
 
             Set<Element> kept = Collections.newSetFromMap(new IdentityHashMap<>());
+            // 10.2: Remember which final node each entry landed in (claimed or freshly
+            // created), so after a successful write we can refresh its ordinal/id in memory.
+            Map<Element, TermEntry> nodeToEntry = new IdentityHashMap<>();
             for (TermEntry entry : terms) {
                 Element node = null;
                 // Try id-based claim first; fall back to ordinal-based claim for no-id entries.
@@ -195,6 +206,7 @@ public class TbxTermbaseHandler {
 
                 if (node != null && !kept.contains(node)) {
                     kept.add(node);
+                    nodeToEntry.put(node, entry);
                     updateEntryNode(doc, node, entry, sourceLang, targetLang);
                 } else {
                     String newId = nextFreeId(usedIds);
@@ -211,6 +223,7 @@ public class TbxTermbaseHandler {
                         }
                     }
                     body.appendChild(fresh);
+                    nodeToEntry.put(fresh, entry);
                 }
             }
 
@@ -219,6 +232,20 @@ public class TbxTermbaseHandler {
                 if (!kept.contains(e) && isLoadable(e) && e.getParentNode() != null) {
                     e.getParentNode().removeChild(e);
                 }
+            }
+
+            // 10.2: The DOM is now final (additions appended, removals done). Walk the live
+            // termEntry list in document order and record, for each entry, the index and id of
+            // the node it ended up in. Applied to the entries only once the write succeeds, so
+            // a failed save leaves their claiming info at the last known-good values.
+            NodeList finalNodes = doc.getElementsByTagName("termEntry");
+            List<Object[]> writeBack = new ArrayList<>();
+            for (int i = 0; i < finalNodes.getLength(); i++) {
+                Element node = (Element) finalNodes.item(i);
+                TermEntry entry = nodeToEntry.get(node);
+                if (entry == null) continue;
+                String id = node.getAttribute("id");
+                writeBack.add(new Object[] { entry, i, id.isEmpty() ? null : id });
             }
 
             // Drop the whitespace-only text nodes left by pretty-printing. The transformer
@@ -249,6 +276,25 @@ public class TbxTermbaseHandler {
                     throw new IOException("TBX serialization failed", e);
                 }
             });
+
+            // 10.2: Write reached the disk successfully - now refresh the entries' claiming
+            // info. Doing it here (not earlier) guarantees memory and disk never diverge when
+            // the write throws. The final node count is the guard bound for the assertion.
+            int nodeCount = finalNodes.getLength();
+            for (Object[] w : writeBack) {
+                TermEntry entry = (TermEntry) w[0];
+                int ordinal = (Integer) w[1];
+                // 10.2 #6: cheap consistency guard - the ordinal is by construction a valid
+                // final index; a violation means the write-back and DOM drifted apart.
+                if (ordinal >= nodeCount) {
+                    System.err.println("TBX save: entry ordinal " + ordinal
+                        + " out of range for " + nodeCount + " nodes");
+                }
+                entry.setEntryOrdinal(ordinal);
+                if (w[2] != null) {
+                    entry.setEntryId((String) w[2]);
+                }
+            }
         } catch (Exception e) {
             throw new RuntimeException("Failed to save TBX: " + filePath, e);
         }

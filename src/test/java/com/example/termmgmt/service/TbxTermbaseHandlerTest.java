@@ -539,4 +539,316 @@ class TbxTermbaseHandlerTest {
         assertEquals("A1-modified", reloaded.get(0).getSourceTerm());
         assertEquals("A2-modified", reloaded.get(1).getSourceTerm());
     }
+
+    // ---- Step 10 patch-plan regression tests: claiming info must survive a save ----
+
+    /** Parse the file and, for every loadable termEntry, map its source term to the termEntry id
+     *  and to the text of the first &lt;descrip&gt; found inside the node (empty string if none). */
+    private static void readNodeMarkers(Path file, java.util.Map<String, String> sourceToId,
+            java.util.Map<String, String> sourceToDescrip) throws Exception {
+        javax.xml.parsers.DocumentBuilder db = javax.xml.parsers.DocumentBuilderFactory
+            .newInstance().newDocumentBuilder();
+        org.w3c.dom.Document doc = db.parse(file.toFile());
+        org.w3c.dom.NodeList nodes = doc.getElementsByTagName("termEntry");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            org.w3c.dom.Element te = (org.w3c.dom.Element) nodes.item(i);
+            org.w3c.dom.NodeList lsList = te.getElementsByTagName("langSet");
+            String source = null;
+            for (int j = 0; j < lsList.getLength(); j++) {
+                org.w3c.dom.NodeList terms = ((org.w3c.dom.Element) lsList.item(j)).getElementsByTagName("term");
+                if (terms.getLength() > 0) {
+                    String t = terms.item(0).getTextContent();
+                    if (t != null && !t.trim().isEmpty()) { source = t.trim(); break; }
+                }
+            }
+            if (source == null) continue; // non-loadable node: skipped
+            String id = te.getAttribute("id");
+            org.w3c.dom.NodeList d = te.getElementsByTagName("descrip");
+            String descrip = d.getLength() > 0 ? d.item(0).getTextContent().trim() : "";
+            sourceToId.put(source, id);
+            sourceToDescrip.put(source, descrip);
+        }
+    }
+
+    /**
+     * 10.1 repro one: three no-id entries A/B/C each carry a distinctive &lt;descrip&gt;. After
+     * deleting A and saving, editing B and saving AGAIN on the same reused list (never reloaded)
+     * must not scramble the descriptions. Bug: stale entryOrdinal made B claim C's node, so
+     * DEF-B was lost and DEF-C migrated onto the edited entry.
+     */
+    @Test
+    void saveTerms_reusedListAfterDelete_descripsStayWithCorrectEntries() throws Exception {
+        Path file = tempDir.resolve("ordinal_drift.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>A</term><descrip>DEF-A</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>a-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>B</term><descrip>DEF-B</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>b-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>C</term><descrip>DEF-C</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>c-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> list = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+        assertEquals(3, list.size());
+        // Step 1: delete A, save (list reused after this, never reloaded).
+        list.remove(0);
+        TbxTermbaseHandler.saveTerms(config, list);
+        // Step 2: edit B's translation, save again on the SAME list objects.
+        list.get(0).setTargetTerm("B-edited");
+        TbxTermbaseHandler.saveTerms(config, list);
+
+        java.util.Map<String, String> id = new java.util.HashMap<>();
+        java.util.Map<String, String> desc = new java.util.HashMap<>();
+        readNodeMarkers(file, id, desc);
+        assertEquals("DEF-B", desc.get("B"), "B must keep its own description");
+        assertEquals("DEF-C", desc.get("C"), "C must keep its own description");
+        assertEquals(2, id.size(), "only B and C remain");
+    }
+
+    /**
+     * 10.1 repro two: a freshly added entry gets an id on the first save; editing it and saving
+     * again on the reused list must keep that id. Bug: the assigned id was never written back to
+     * the TermEntry, so the second save treated it as new, deleted the tid1 node and minted tid2.
+     */
+    @Test
+    void saveTerms_reusedList_newEntryIdStableAcrossSaves() throws Exception {
+        Path file = tempDir.resolve("id_stability.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\"><body></body></martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> list = new java.util.ArrayList<>();
+        TermEntry e = new TermEntry("x", "y");
+        list.add(e);
+        TbxTermbaseHandler.saveTerms(config, list);
+        // Write-back side effect: the entry now knows its on-disk id.
+        assertEquals("tid1", e.getEntryId(), "save must write the assigned id back to the entry");
+
+        // Edit and save AGAIN without reloading.
+        e.setTargetTerm("y2");
+        TbxTermbaseHandler.saveTerms(config, list);
+
+        java.util.Map<String, String> id = new java.util.HashMap<>();
+        java.util.Map<String, String> desc = new java.util.HashMap<>();
+        readNodeMarkers(file, id, desc);
+        assertEquals(1, id.size(), "still exactly one node");
+        assertEquals("tid1", id.get("x"), "id must not change between saves");
+        assertEquals("tid1", e.getEntryId());
+
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals("y2", reloaded.get(0).getTargetTerm());
+    }
+
+    /**
+     * 10.3: add three new entries, save, then edit the second and save again on the reused
+     * list. The three node ids and their document order must be stable across both saves.
+     */
+    @Test
+    void saveTerms_addThreeThenEditSecond_idsAndOrderStable() throws Exception {
+        Path file = tempDir.resolve("multi_add.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\"><body></body></martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> list = new java.util.ArrayList<>();
+        list.add(new TermEntry("n1", "e1"));
+        list.add(new TermEntry("n2", "e2"));
+        list.add(new TermEntry("n3", "e3"));
+        TbxTermbaseHandler.saveTerms(config, list);
+        java.util.List<String> ids1 = new java.util.ArrayList<>();
+        for (TermEntry e : list) ids1.add(e.getEntryId());
+        assertEquals(java.util.Arrays.asList("tid1", "tid2", "tid3"), ids1);
+
+        list.get(1).setTargetTerm("e2-edited");
+        TbxTermbaseHandler.saveTerms(config, list);
+        java.util.List<String> ids2 = new java.util.ArrayList<>();
+        for (TermEntry e : list) ids2.add(e.getEntryId());
+        assertEquals(ids1, ids2, "ids stable across the second save");
+
+        List<TermEntry> r = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(3, r.size());
+        assertEquals("n1", r.get(0).getSourceTerm());
+        assertEquals("n2", r.get(1).getSourceTerm());
+        assertEquals("e2-edited", r.get(1).getTargetTerm());
+        assertEquals("n3", r.get(2).getSourceTerm());
+    }
+
+    /**
+     * 10.3: when the write fails, the entries' entryOrdinal / entryId must stay at their
+     * previous values - memory must not diverge from an unchanged file. A read-only target
+     * makes the atomic move fail.
+     */
+    @Test
+    void saveTerms_writeFails_claimingInfoUnchanged() throws Exception {
+        Path file = tempDir.resolve("write_fail.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"e1\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>S1</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>t1</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry>\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>S2</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>t2</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+        List<TermEntry> list = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+
+        String[] beforeId = new String[list.size()];
+        int[] beforeOrd = new int[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            beforeId[i] = list.get(i).getEntryId();
+            beforeOrd[i] = list.get(i).getEntryOrdinal();
+        }
+
+        java.io.File f = file.toFile();
+        boolean originalWritable = f.canWrite();
+        f.setWritable(false);
+        try {
+            list.get(0).setTargetTerm("boom");
+            assertThrows(RuntimeException.class, () -> TbxTermbaseHandler.saveTerms(config, list));
+        } finally {
+            f.setWritable(originalWritable);
+        }
+
+        for (int i = 0; i < list.size(); i++) {
+            assertEquals(beforeId[i], list.get(i).getEntryId(), "entryId unchanged after failed write");
+            assertEquals(beforeOrd[i], list.get(i).getEntryOrdinal(), "entryOrdinal unchanged after failed write");
+        }
+    }
+
+    /**
+     * 10.3: random add / delete / edit sequence on one reused list (fixed seed), saving after
+     * every step without ever reloading. Invariants checked each step:
+     * - each surviving original entry's node keeps its own <descrip> marker (no drift, no loss);
+     * - both non-loadable nodes always survive;
+     * - total termEntry count == list size + 2 non-loadable;
+     * - a node's id never changes once an entry has been saved with it.
+     */
+    @Test
+    void saveTerms_randomSequence_reusedList_invariantsHold() throws Exception {
+        Path file = tempDir.resolve("random_seq.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"i0\"><langSet xml:lang=\"zh-CN\"><tig><term>S0</term><descrip>D0</descrip></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>S0-en</term></tig></langSet></termEntry>\n"
+            + "    <termEntry><langSet xml:lang=\"zh-CN\"><tig><term>S1</term><descrip>D1</descrip></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>S1-en</term></tig></langSet></termEntry>\n"
+            + "    <termEntry id=\"orphan1\"><langSet xml:lang=\"zh-CN\"><descrip>ORPHAN-1</descrip></langSet></termEntry>\n"
+            + "    <termEntry id=\"i3\"><langSet xml:lang=\"zh-CN\"><tig><term>S3</term><descrip>D3</descrip></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>S3-en</term></tig></langSet></termEntry>\n"
+            + "    <termEntry><langSet xml:lang=\"zh-CN\"><tig><term>S4</term><descrip>D4</descrip></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>S4-en</term></tig></langSet></termEntry>\n"
+            + "    <termEntry><langSet xml:lang=\"zh-CN\"><descrip>ORPHAN-2</descrip></langSet></termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+        List<TermEntry> list = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+        assertEquals(4, list.size(), "two orphans are not loadable");
+
+        // Track original entries by object identity: expected source text and expected descrip.
+        java.util.Map<TermEntry, String> marker = new java.util.IdentityHashMap<>();
+        java.util.Map<TermEntry, String> expectedSource = new java.util.IdentityHashMap<>();
+        java.util.Map<TermEntry, String> lastId = new java.util.IdentityHashMap<>();
+        String[] origSrc = { "S0", "S1", "S3", "S4" };
+        String[] origDesc = { "D0", "D1", "D3", "D4" };
+        for (int i = 0; i < list.size(); i++) {
+            marker.put(list.get(i), origDesc[i]);
+            expectedSource.put(list.get(i), origSrc[i]);
+        }
+
+        java.util.Random rnd = new java.util.Random(20261002L);
+        int counter = 0;
+        for (int step = 0; step < 40; step++) {
+            int op = rnd.nextInt(4);
+            counter++;
+            switch (op) {
+                case 0: { // ADD
+                    TermEntry e = new TermEntry("A" + counter, "At" + counter);
+                    list.add(e);
+                    break;
+                }
+                case 1: { // DELETE
+                    if (!list.isEmpty()) {
+                        TermEntry e = list.remove(rnd.nextInt(list.size()));
+                        marker.remove(e);
+                        expectedSource.remove(e);
+                        lastId.remove(e);
+                    }
+                    break;
+                }
+                case 2: { // EDIT_TARGET
+                    if (!list.isEmpty()) list.get(rnd.nextInt(list.size())).setTargetTerm("T" + counter);
+                    break;
+                }
+                default: { // EDIT_SOURCE
+                    if (!list.isEmpty()) {
+                        TermEntry e = list.get(rnd.nextInt(list.size()));
+                        String ns = "E" + counter;
+                        e.setSourceTerm(ns);
+                        if (marker.containsKey(e)) expectedSource.put(e, ns);
+                    }
+                    break;
+                }
+            }
+
+            TbxTermbaseHandler.saveTerms(config, list);
+
+            java.util.Map<String, String> id = new java.util.HashMap<>();
+            java.util.Map<String, String> desc = new java.util.HashMap<>();
+            int total = inspectNodes(file, id, desc);
+            String raw = Files.readString(file);
+            // (B) non-loadable nodes survive
+            assertTrue(raw.contains("ORPHAN-1"), "orphan 1 lost at step " + step);
+            assertTrue(raw.contains("ORPHAN-2"), "orphan 2 lost at step " + step);
+            // (C) count
+            assertEquals(list.size() + 2, total, "node count wrong at step " + step);
+            // (A) markers + (D) id stability, for every tracked original entry still in the list
+            for (TermEntry e : list) {
+                if (!marker.containsKey(e)) continue;
+                String src = expectedSource.get(e);
+                assertTrue(desc.containsKey(src), "entry lost at step " + step + " (source " + src + ")");
+                assertEquals(marker.get(e), desc.get(src), "descrip drifted at step " + step);
+                String nowId = id.get(src);
+                String prev = lastId.get(e);
+                if (prev == null) lastId.put(e, nowId);
+                else assertEquals(prev, nowId, "id changed at step " + step);
+            }
+        }
+    }
+
+    /** Like readNodeMarkers but also returns the total termEntry node count (incl. non-loadable). */
+    private static int inspectNodes(Path file, java.util.Map<String, String> sourceToId,
+            java.util.Map<String, String> sourceToDescrip) throws Exception {
+        javax.xml.parsers.DocumentBuilder db = javax.xml.parsers.DocumentBuilderFactory
+            .newInstance().newDocumentBuilder();
+        org.w3c.dom.Document doc = db.parse(file.toFile());
+        org.w3c.dom.NodeList nodes = doc.getElementsByTagName("termEntry");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            org.w3c.dom.Element te = (org.w3c.dom.Element) nodes.item(i);
+            org.w3c.dom.NodeList lsList = te.getElementsByTagName("langSet");
+            String source = null;
+            for (int j = 0; j < lsList.getLength(); j++) {
+                org.w3c.dom.NodeList terms = ((org.w3c.dom.Element) lsList.item(j)).getElementsByTagName("term");
+                if (terms.getLength() > 0) {
+                    String t = terms.item(0).getTextContent();
+                    if (t != null && !t.trim().isEmpty()) { source = t.trim(); break; }
+                }
+            }
+            if (source == null) continue;
+            sourceToId.put(source, te.getAttribute("id"));
+            org.w3c.dom.NodeList d = te.getElementsByTagName("descrip");
+            sourceToDescrip.put(source, d.getLength() > 0 ? d.item(0).getTextContent().trim() : "");
+        }
+        return nodes.getLength();
+    }
 }
