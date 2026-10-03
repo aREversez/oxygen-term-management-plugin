@@ -367,7 +367,16 @@ public class TerminologyPanel extends JPanel {
      * Load terms for the selected termbase.
      */
     public void loadTermbaseTerms() {
-        currentConfig = (TermbaseConfig) termbaseComboBox.getSelectedItem();
+        TermbaseConfig newConfig = (TermbaseConfig) termbaseComboBox.getSelectedItem();
+        // The 2-second external-change probe can reload a termbase and fire this while the user
+        // has rows selected for a delete or edit; rebuilding the table below would silently drop
+        // that selection. Remember the selected entries first so the rebuild can put them back.
+        // Selection only carries over within the same termbase - switching termbases starts clean.
+        boolean sameTermbase = newConfig != null && currentConfig != null
+            && newConfig.getFilePath().equals(currentConfig.getFilePath());
+        List<TermEntry> selectedBefore = sameTermbase ? captureSelectedEntries() : java.util.Collections.emptyList();
+
+        currentConfig = newConfig;
         if (currentConfig == null) {
             currentTerms = new ArrayList<>();
             tableModel.setRowCount(0);
@@ -390,6 +399,47 @@ public class TerminologyPanel extends JPanel {
                 term.getTargetTerm() != null ? term.getTargetTerm() : "",
                 st
             });
+        }
+        restoreTableSelection(selectedBefore);
+    }
+
+    /** The entries currently selected in the table, resolved through the row sorter (sort/filter safe). */
+    private List<TermEntry> captureSelectedEntries() {
+        List<TermEntry> out = new ArrayList<>();
+        for (int view : termTable.getSelectedRows()) {
+            int model = termTable.convertRowIndexToModel(view);
+            if (model >= 0 && model < currentTerms.size()) {
+                out.add(currentTerms.get(model));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Re-select the rows whose (source, target) match the previously selected entries so a
+     * background reload does not drop a multi-row selection. Entries the external edit removed
+     * are simply not re-selected; a row hidden by the filter maps to view -1 and is skipped.
+     */
+    private void restoreTableSelection(List<TermEntry> previouslySelected) {
+        if (previouslySelected == null || previouslySelected.isEmpty()) {
+            return;
+        }
+        List<TermEntry> pending = new ArrayList<>(previouslySelected);
+        termTable.clearSelection();
+        for (int model = 0; model < currentTerms.size() && !pending.isEmpty(); model++) {
+            TermEntry row = currentTerms.get(model);
+            for (int p = 0; p < pending.size(); p++) {
+                TermEntry wanted = pending.get(p);
+                if (java.util.Objects.equals(row.getSourceTerm(), wanted.getSourceTerm())
+                    && java.util.Objects.equals(row.getTargetTerm(), wanted.getTargetTerm())) {
+                    int view = termTable.convertRowIndexToView(model);
+                    if (view >= 0) {
+                        termTable.addRowSelectionInterval(view, view);
+                    }
+                    pending.remove(p);
+                    break;
+                }
+            }
         }
     }
 

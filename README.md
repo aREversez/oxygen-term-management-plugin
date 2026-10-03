@@ -76,6 +76,7 @@ When text is selected in the editor, right-click to access the **Term Management
 - **Remove** termbase(s) from the list (does not delete the file)
 - **Enable / Disable** termbases without removing them
 - **Reload** termbase from disk (multi-select supported)
+- **Automatic external-change detection** — while the Recognition or Terminology tab is on screen, the plugin re-checks the termbase files every 2 seconds; a file edited by another program is reloaded in the background and reported through Oxygen's bottom status bar (no modal dialog), and the rows you had selected are kept across the refresh
 - **Edit** opens termbase file in system default application
 - Configurations are persisted via Oxygen's `WSOptionsStorage` as a JSON string (serialized with Gson)
 

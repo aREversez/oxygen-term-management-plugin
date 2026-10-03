@@ -109,11 +109,9 @@ public class TermManagementView extends JPanel {
      * (docked away) or another tab is showing, matching the scope of the tab-switch checks.
      */
     private void pollExternalChanges() {
-        if (!isShowing()) {
-            return;
-        }
         Component sel = tabbedPane.getSelectedComponent();
-        if (sel != recognitionPanel && sel != terminologyPanel) {
+        boolean watchedTab = sel == recognitionPanel || sel == terminologyPanel;
+        if (!ExternalChangeCheck.shouldProbe(isShowing(), watchedTab)) {
             return;
         }
         checkExternalChanges(false);

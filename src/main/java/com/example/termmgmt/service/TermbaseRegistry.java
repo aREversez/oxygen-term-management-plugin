@@ -428,18 +428,25 @@ public class TermbaseRegistry {
     /**
      * Step 4.2 / 7.1: check whether a cached termbase file was modified externally since the
      * last load or save. Returns true if the on-disk stamp differs from what the cache holds.
-     * Reads the disk stamp outside the registry lock to avoid blocking other threads.
      * Does NOT reload anything; the caller decides whether to reload and notify.
+     *
+     * <p>Both stamp reads happen while holding the per-file lock (still outside the registry
+     * monitor). A save takes that same lock, writes the file and only then refreshes the recorded
+     * stamp; without the lock the periodic probe could land in the gap between the write and the
+     * stamp update and mistake our own in-progress save for an external change. Holding the lock
+     * makes the probe wait for the save to finish, at which point the stamps already agree.
      */
     public boolean isExternallyModified(String filePath) {
-        long[] known;
-        synchronized (this) {
-            known = fileStamps.get(filePath);
+        synchronized (fileLock(filePath)) {
+            long[] known;
+            synchronized (this) {
+                known = fileStamps.get(filePath);
+            }
+            if (known == null) return false; // not cached, nothing to compare
+            long[] disk = stampReader.apply(filePath);
+            if (disk == null) return true;   // file deleted
+            return !java.util.Arrays.equals(known, disk);
         }
-        if (known == null) return false; // not cached, nothing to compare
-        long[] disk = stampReader.apply(filePath);
-        if (disk == null) return true;   // file deleted
-        return !java.util.Arrays.equals(known, disk);
     }
 
     public synchronized void clearCache() {

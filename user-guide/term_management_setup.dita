@@ -24,7 +24,7 @@
                         <uicontrol>Term Management</uicontrol>
                     </menucascade> 添加术语库。</cmd>
                 <info>支持 CSV、XLSX 和 TBX 格式。勾选术语库以启用，点击 <uicontrol>Reload</uicontrol>
-                    可在不重启的情况下更新术语库内容。勾选 <uicontrol>区分大小写匹配</uicontrol>
+                    可在不重启的情况下更新术语库内容。即使不手动 Reload，只要插件面板可见且停留在术语识别或术语管理标签页，插件每 2 秒会自动检测术语库文件是否被其他程序修改并在后台重新加载，同时在 Oxygen 底部状态栏给出提示。勾选 <uicontrol>区分大小写匹配</uicontrol>
                     后，英文术语不再匹配大小写不同的文本（默认关闭）。</info>
             </step>
         </steps>

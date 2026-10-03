@@ -46,6 +46,17 @@ public final class ExternalChangeCheck {
     }
 
     /**
+     * Whether the periodic probe should run a check right now. It only makes sense while the
+     * plugin panel is actually on screen ({@code panelShowing}) and one of the watched tabs -
+     * Recognition or Terminology, {@code watchedTabSelected} - is the one showing; a hidden panel
+     * or the search tab has nothing to refresh. Kept as a pure predicate so the timing decision
+     * can be reasoned about and tested without Swing, the same reason the rest of this class is.
+     */
+    public static boolean shouldProbe(boolean panelShowing, boolean watchedTabSelected) {
+        return panelShowing && watchedTabSelected;
+    }
+
+    /**
      * Called on every tab switch and at the start of every user-initiated check (not by the
      * periodic background probe, which must leave its own earlier hint standing): clears the
      * hint on every tab so a hint left by a previous pass cannot survive into this one, even

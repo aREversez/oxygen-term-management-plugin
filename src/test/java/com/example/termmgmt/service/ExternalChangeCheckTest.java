@@ -63,6 +63,17 @@ class ExternalChangeCheckTest {
     }
 
     @Test
+    void shouldProbe_onlyWhilePanelVisibleAndAWatchedTabIsShowing() {
+        assertTrue(ExternalChangeCheck.shouldProbe(true, true),
+            "a visible watched tab is exactly when the periodic probe should run");
+        assertFalse(ExternalChangeCheck.shouldProbe(false, true),
+            "a hidden (docked-away) panel must not poll");
+        assertFalse(ExternalChangeCheck.shouldProbe(true, false),
+            "the search tab has nothing termbase-related to refresh");
+        assertFalse(ExternalChangeCheck.shouldProbe(false, false));
+    }
+
+    @Test
     void clearAllTooltips_clearsEveryTabOnce_atTheStartOfEachCheck() {
         List<Integer> cleared = new ArrayList<>();
         ExternalChangeCheck.clearAllTooltips(3, cleared::add);

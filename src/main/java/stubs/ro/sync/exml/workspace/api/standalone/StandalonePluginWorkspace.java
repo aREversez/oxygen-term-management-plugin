@@ -20,4 +20,11 @@ public interface StandalonePluginWorkspace extends PluginWorkspace {
     ViewInfo[] getViews();
     /** @since 27 */
     Object getComponentProvider(String type);
+    /**
+     * Show a transient message in Oxygen's bottom status bar; it dismisses itself and never
+     * blocks the user. In the real SDK this is inherited from WorkspaceUtilities (PluginWorkspace
+     * extends Workspace extends WorkspaceUtilities); declared here so the stub mirrors the API the
+     * plugin compiles against.
+     */
+    void showStatusMessage(String message);
 }

@@ -241,4 +241,66 @@ class TermbaseRegistryUpdateTermsTest {
         assertEquals(1, reads.get());
         assertFalse(heldLock.get(), "the disk stamp must be read without holding the registry monitor");
     }
+
+    /** {lastModified, size} straight from the file, matching TermbaseRegistry.stampOf. */
+    private static long[] realStamp(String path) {
+        java.io.File f = new java.io.File(path);
+        return f.exists() ? new long[] { f.lastModified(), f.length() } : null;
+    }
+
+    /**
+     * A save holds the per-file lock while it writes the file and, only afterwards, refreshes the
+     * recorded stamp. If the external-change probe ran without the lock, it could read the just-
+     * written disk stamp against the not-yet-updated known stamp and falsely report our own save as
+     * an external change - reloading and announcing "external changes detected" for no reason.
+     * This simulates the probe landing exactly in that window and asserts it waits instead.
+     */
+    @Test
+    void isExternallyModified_duringOwnSaveWindow_doesNotReportAnExternalChange() throws Exception {
+        TermbaseConfig config = csvConfig("self_save_window", "zh-cn,en-us\nA,a\n");
+        registry.loadTerms(config); // fills the cache with the real, current stamp
+
+        java.util.concurrent.CountDownLatch saveAtStampRead = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch letSaveFinish = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        registry.setStampReader(path -> {
+            int n = reads.incrementAndGet();
+            if (n == 2) {
+                // updateTerms' post-write stamp read: the file is now on disk with the new row but
+                // the known stamp has NOT been updated yet, and the file lock is still held here.
+                saveAtStampRead.countDown();
+                try {
+                    letSaveFinish.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return realStamp(path);
+        });
+
+        java.util.concurrent.ExecutorService probe = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            registry.updateTermsAsync(config, terms -> {
+                terms.add(new TermEntry("X", "x"));
+                return terms;
+            });
+            assertTrue(saveAtStampRead.await(2, java.util.concurrent.TimeUnit.SECONDS),
+                "the save must reach its post-write stamp read (the danger window)");
+
+            java.util.concurrent.Future<Boolean> f =
+                probe.submit(() -> registry.isExternallyModified(config.getFilePath()));
+            // The probe has to wait for the save to release the file lock, so it must not have a
+            // verdict yet - not true (the bug) and not a premature false either.
+            assertThrows(java.util.concurrent.TimeoutException.class,
+                () -> f.get(250, java.util.concurrent.TimeUnit.MILLISECONDS),
+                "the probe must block while our own save still holds the file lock");
+
+            letSaveFinish.countDown(); // save stores the fresh stamp and releases the lock
+            assertFalse(f.get(2, java.util.concurrent.TimeUnit.SECONDS),
+                "once our save finishes the on-disk stamp matches the cache: not an external change");
+        } finally {
+            probe.shutdownNow();
+            registry.setStampReader(null);
+        }
+    }
 }
