@@ -8,9 +8,7 @@ import ro.sync.exml.workspace.api.standalone.StandalonePluginWorkspace;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TermManagementView extends JPanel {
@@ -22,12 +20,10 @@ public class TermManagementView extends JPanel {
     private TermbaseSearchPanel searchPanel;
     /** 7.1: Guard against multiple concurrent external-change checks. */
     private final AtomicBoolean checkingExternal = new AtomicBoolean(false);
-    /** Tabs whose header currently carries the "(reloaded)" title marker, mapped to the title to restore. */
-    private final Map<Integer, String> markedTitles = new HashMap<>();
     /**
      * Guards the listener against reacting to our own tab changes: a look-and-feel may fire a
-     * ChangeEvent for setTitleAt/setToolTipAt, and answering that with "clear all hints and check
-     * again" would wipe out the very hint we just put up.
+     * ChangeEvent for setToolTipAt, and answering that with "clear all hints and check again"
+     * would wipe out the very hint we just put up.
      */
     private boolean suppressTabEvents = false;
     private final Runnable registryListener = () -> SwingUtilities.invokeLater(this::refreshAllPanels);
@@ -77,8 +73,6 @@ public class TermManagementView extends JPanel {
         tabbedPane.addTab(I18N.getString("tab.terminology"), terminologyPanel);
         tabbedPane.addChangeListener(e -> {
             if (suppressTabEvents) return;
-            // A hint belongs to the visit that produced it: any real tab change ends it.
-            withoutTabEvents(this::clearReloadMarkers);
             // 7.2: Clear tooltip on every tab switch.
             withoutTabEvents(() -> ExternalChangeCheck.clearAllTooltips(tabbedPane.getTabCount(),
                 i -> tabbedPane.setToolTipTextAt(i, null)));
@@ -121,39 +115,17 @@ public class TermManagementView extends JPanel {
                 try {
                     if (ExternalChangeCheck.shouldNotify(Boolean.TRUE.equals(get()), tabAtStart,
                             tabbedPane.getSelectedIndex())) {
-                        // The reload happened while the user was on this tab. Show the hint where
-                        // it is actually seen: in the tab title, without needing to hover. The
-                        // tooltip stays as the fuller explanation for users who hover the header.
-                        withoutTabEvents(() -> {
-                            markTabReloaded(tabAtStart);
-                            tabbedPane.setToolTipTextAt(tabAtStart,
-                                I18N.getString("msg.external.reload.notify"));
-                        });
+                        // Tell the user with a dialog: a per-tab tooltip only paints while the
+                        // mouse hovers the tab header, so it was never actually seen after a
+                        // tab switch. The tooltip stays as the passive hint on the tab header.
+                        String msg = I18N.getString("msg.external.reload.notify");
+                        withoutTabEvents(() -> tabbedPane.setToolTipTextAt(tabAtStart, msg));
+                        JOptionPane.showMessageDialog(TermManagementView.this, msg,
+                            I18N.getString("msg.info"), JOptionPane.INFORMATION_MESSAGE);
                     }
                 } catch (Exception ignored) { }
             }
         }.execute();
-    }
-
-    /** Puts the visible "(reloaded)" hint on the tab header at {@code index}, remembering its title. */
-    private void markTabReloaded(int index) {
-        if (index < 0 || index >= tabbedPane.getTabCount() || markedTitles.containsKey(index)) return;
-        String original = tabbedPane.getTitleAt(index);
-        markedTitles.put(index, original);
-        tabbedPane.setTitleAt(index, ExternalChangeCheck.addReloadMarker(
-            original, I18N.getString("tab.reloaded.marker")));
-    }
-
-    /** Restores every tab title that still carries the reload hint; called on tab changes. */
-    private void clearReloadMarkers() {
-        if (markedTitles.isEmpty()) return;
-        for (Map.Entry<Integer, String> marked : markedTitles.entrySet()) {
-            int index = marked.getKey();
-            if (index >= 0 && index < tabbedPane.getTabCount()) {
-                tabbedPane.setTitleAt(index, marked.getValue());
-            }
-        }
-        markedTitles.clear();
     }
 
     /** Runs tab-property changes without letting our own ChangeListener answer them. */
