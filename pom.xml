@@ -250,12 +250,14 @@
                                 <include>com/example/termmgmt/util/MarkupMasker.java</include>
                                 <include>com/example/termmgmt/util/TermConflictUtils.java</include>
                                 <include>com/example/termmgmt/util/TermbaseChecker.java</include>
+                                <include>com/example/termmgmt/util/ReplacementSuggestions.java</include>
                                 <include>com/example/termmgmt/service/CsvTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/XlsxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TbxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TermbaseLoader.java</include>
                                 <include>com/example/termmgmt/service/TermbaseRegistry.java</include>
                                 <include>com/example/termmgmt/service/DocumentScanner.java</include>
+                                <include>com/example/termmgmt/service/ScanDirection.java</include>
                                 <include>com/example/termmgmt/service/ExternalChangeCheck.java</include>
                             </includes>
                         </configuration>

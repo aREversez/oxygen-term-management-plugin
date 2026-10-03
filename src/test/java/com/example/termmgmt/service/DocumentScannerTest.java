@@ -398,4 +398,153 @@ class DocumentScannerTest {
         assertEquals(1, results.size(), "non-deprecated 'load' inside 'load case' should be dropped");
         assertEquals("load case", results.get(0).sourceTerm);
     }
+
+    // ---- Patch-plan 5 (step 3.2): scan by target term (QA) ----
+
+    /** T1: a TARGET scan matches the entry's translation, not its source. */
+    @Test
+    void targetDirection_matchesTheTranslation() {
+        List<TermEntry> terms = List.of(new TermEntry("\u5e94\u529b", "stress"));
+        List<ScanResult> results = scanner.scan("the stress level", terms, true,
+            Collections.emptyList(), false, ScanDirection.TARGET);
+
+        assertEquals(1, results.size());
+        assertEquals("stress", results.get(0).matchedText);
+        assertEquals("stress", results.get(0).targetTerm);
+        assertEquals("\u5e94\u529b", results.get(0).sourceTerm);
+    }
+
+    /** T2: the same document under SOURCE is unchanged - the English word is not a source term. */
+    @Test
+    void sourceDirection_stillMatchesOnlyTheSource_regressionGuard() {
+        List<TermEntry> terms = List.of(new TermEntry("\u5e94\u529b", "stress"));
+        List<ScanResult> results = scanner.scan("the stress level", terms, true, Collections.emptyList());
+
+        assertTrue(results.isEmpty(), "SOURCE direction must not match the translation");
+    }
+
+    /** T6: entries with a blank or null target are skipped in TARGET, never throwing. */
+    @Test
+    void targetDirection_skipsBlankAndNullTargets() {
+        TermEntry nullTarget = new TermEntry("\u7f51\u683c", null);
+        TermEntry emptyTarget = new TermEntry("\u8282\u70b9", "");
+        List<ScanResult> results = scanner.scan("grid node", List.of(nullTarget, emptyTarget),
+            true, Collections.emptyList(), false, ScanDirection.TARGET);
+
+        assertTrue(results.isEmpty());
+    }
+
+    /** T7: the word-boundary rule applies to the matched target term too. */
+    @Test
+    void targetDirection_wordBoundaryExcludesPartial() {
+        List<TermEntry> terms = List.of(new TermEntry("\u732b", "cat"));
+        List<ScanResult> results = scanner.scan("category cat", terms, true,
+            Collections.emptyList(), false, ScanDirection.TARGET);
+
+        assertEquals(1, results.size());
+        assertEquals("cat", results.get(0).matchedText);
+        assertEquals(9, results.get(0).startOffset);
+    }
+
+    /** T8: one target shared by two sources yields both entries at the same position. */
+    @Test
+    void targetDirection_sameTargetTwoSources_keepsBothAtOnePosition() {
+        List<TermEntry> terms = List.of(
+            new TermEntry("\u8f7d\u8377", "load"),
+            new TermEntry("\u8d1f\u8f7d", "load"));
+        List<ScanResult> results = scanner.scan("the load here", terms, true,
+            Collections.emptyList(), false, ScanDirection.TARGET);
+
+        assertEquals(2, results.size());
+        assertEquals(results.get(0).startOffset, results.get(1).startOffset);
+    }
+
+    /** T9: a deprecated target contained in a longer target is still reported (8.2 across directions). */
+    @Test
+    void targetDirection_deprecatedContainedInLonger_isRetained() {
+        TermEntry grid = new TermEntry("\u7f51\u683c", "mesh");
+        grid.setStatus(TermStatus.DEPRECATED);
+        TermEntry meshSize = new TermEntry("\u7f51\u683c\u5c3a\u5bf8", "mesh size");
+        List<ScanResult> results = scanner.scan("pick a mesh size now",
+            List.of(grid, meshSize), true, Collections.emptyList(), false, ScanDirection.TARGET);
+
+        boolean hasDeprecatedMesh = results.stream().anyMatch(
+            r -> "mesh".equals(r.matchedText) && r.status == TermStatus.DEPRECATED);
+        boolean hasLonger = results.stream().anyMatch(r -> "mesh size".equals(r.matchedText));
+        assertTrue(hasDeprecatedMesh, "deprecated 'mesh' must survive inside 'mesh size'");
+        assertTrue(hasLonger, "'mesh size' must also be reported");
+    }
+
+    /** T10: the case option is honoured for the matched target term. */
+    @Test
+    void targetDirection_caseOptionAppliesToTheTarget() {
+        List<TermEntry> terms = List.of(new TermEntry("\u5e94\u529b", "Stress"));
+        assertEquals(0, scanner.scan("the stress level", terms, true,
+            Collections.emptyList(), true, ScanDirection.TARGET).size(),
+            "case-sensitive scan must not match differently-cased text");
+        assertEquals(1, scanner.scan("the stress level", terms, true,
+            Collections.emptyList(), false, ScanDirection.TARGET).size(),
+            "case-insensitive scan matches regardless of case");
+    }
+
+    /** T11: text mode escapes entities for the target term too, and markup attributes never match. */
+    @Test
+    void targetDirection_textMode_escapesEntitiesAndIgnoresMarkup() {
+        List<TermEntry> terms = List.of(
+            new TermEntry("company", "AT&T"),
+            new TermEntry("x", "stress"));
+        String text = "use AT&amp;T in <a stress=\"stress\"/>";
+        List<ScanResult> results = scanner.scan(text, terms, true,
+            Collections.emptyList(), false, ScanDirection.TARGET);
+
+        assertEquals(1, results.size());
+        assertEquals("AT&T", results.get(0).matchedText);
+    }
+
+    /** T12: Author-mode offset mapping is identical to SOURCE for the same segments. */
+    @Test
+    void targetDirection_authorMode_mapsOffsetsLikeSource() {
+        List<TermEntry> terms = List.of(new TermEntry("\u4f60\u597d", "hello"));
+        List<int[]> segments = new ArrayList<>();
+        segments.add(new int[]{100, 0, 20});
+
+        List<ScanResult> target = scanner.scan("say hello world", terms, true,
+            Collections.emptyList(), false, ScanDirection.TARGET);
+        // Recompute in author mode to exercise the mapping path.
+        List<ScanResult> results = scanner.scan("say hello world", terms, false,
+            segments, false, ScanDirection.TARGET);
+
+        assertEquals(1, target.size());
+        assertEquals(1, results.size());
+        assertEquals(104, results.get(0).startOffset);
+        assertEquals(109, results.get(0).endOffset);
+        assertEquals("hello", results.get(0).matchedText);
+    }
+
+    /** T14: the old overloads are byte-for-byte the new ones with SOURCE, including matchedText. */
+    @Test
+    void oldOverloads_equalSourceDirection_includingMatchedText() {
+        List<TermEntry> terms = List.of(
+            new TermEntry("mesh", "\u7f51\u683c"),
+            new TermEntry("node", "\u8282\u70b9"));
+        String text = "the mesh and the node";
+        List<int[]> segments = List.of(new int[]{0, 0, text.length()});
+
+        List<ScanResult> viaOld = scanner.scan(text, terms, false, segments);
+        List<ScanResult> viaNew = scanner.scan(text, terms, false, segments,
+            false, ScanDirection.SOURCE);
+
+        assertEquals(viaOld.size(), viaNew.size());
+        for (int i = 0; i < viaOld.size(); i++) {
+            ScanResult a = viaOld.get(i);
+            ScanResult b = viaNew.get(i);
+            assertEquals(a.sourceTerm, b.sourceTerm);
+            assertEquals(a.targetTerm, b.targetTerm);
+            assertEquals(a.startOffset, b.startOffset);
+            assertEquals(a.endOffset, b.endOffset);
+            assertEquals(a.status, b.status);
+            assertEquals(a.sourceTerm, a.matchedText, "SOURCE results default matchedText to the source");
+            assertEquals(a.matchedText, b.matchedText);
+        }
+    }
 }

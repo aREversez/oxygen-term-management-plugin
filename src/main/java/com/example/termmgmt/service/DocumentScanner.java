@@ -36,17 +36,31 @@ public class DocumentScanner {
         public final int endOffset;
         /** The maturity status of the matched entry; null means unset/preferred. */
         public final TermStatus status;
+        /**
+         * The entry-side text that was actually matched in the document: the source term for a
+         * {@link ScanDirection#SOURCE} scan, the target term for a {@link ScanDirection#TARGET}
+         * scan. Navigation, de-duplication display and highlighting all key off this, so the UI
+         * never has to know which side was searched. Never null; older constructors default it to
+         * the source term.
+         */
+        public final String matchedText;
 
         public ScanResult(String source, String target, int start, int end) {
-            this(source, target, start, end, null);
+            this(source, target, start, end, null, source);
         }
 
         public ScanResult(String source, String target, int start, int end, TermStatus status) {
+            this(source, target, start, end, status, source);
+        }
+
+        public ScanResult(String source, String target, int start, int end, TermStatus status,
+                String matchedText) {
             this.sourceTerm = source;
             this.targetTerm = target;
             this.startOffset = start;
             this.endOffset = end;
             this.status = status;
+            this.matchedText = matchedText != null ? matchedText : source;
         }
     }
 
@@ -58,6 +72,21 @@ public class DocumentScanner {
 
     public List<ScanResult> scan(String documentText, List<TermEntry> terms,
             boolean isTextMode, List<int[]> authorSegments, boolean caseSensitive) {
+        return scan(documentText, terms, isTextMode, authorSegments, caseSensitive, ScanDirection.SOURCE);
+    }
+
+    /**
+     * Full form. The only difference between the two directions is which side of an entry is
+     * searched in the document: the source term for {@link ScanDirection#SOURCE}, the target term
+     * for {@link ScanDirection#TARGET}. Everything else - XML entity escaping, markup masking, the
+     * word-boundary rule, the case option, longest-match filtering, entity-reference rejection,
+     * Author-mode offset mapping and the source+target+position de-duplication key - is shared, so
+     * the two directions can never drift apart. The entry-side text actually matched is carried on
+     * each result as {@link ScanResult#matchedText}.
+     */
+    public List<ScanResult> scan(String documentText, List<TermEntry> terms,
+            boolean isTextMode, List<int[]> authorSegments, boolean caseSensitive,
+            ScanDirection direction) {
         Set<String> countedPositions = new HashSet<>();
         List<RawMatch> rawMatches = new ArrayList<>();
 
@@ -75,9 +104,14 @@ public class DocumentScanner {
             if (Thread.currentThread().isInterrupted()) break;
             if (documentText.isEmpty()) break;
             String sourceTerm = term.getSourceTerm();
-            if (sourceTerm == null || sourceTerm.isEmpty()) continue;
+            String targetTerm = term.getTargetTerm();
+            // Which side of the entry is searched in the document. A blank side means there is
+            // nothing to look for, so the entry is skipped; a source with no target never matches
+            // in TARGET, and vice versa in SOURCE.
+            String matchedText = direction == ScanDirection.TARGET ? targetTerm : sourceTerm;
+            if (matchedText == null || matchedText.isEmpty()) continue;
 
-            String matchTerm = isTextMode ? escapeXmlEntities(sourceTerm) : sourceTerm;
+            String matchTerm = isTextMode ? escapeXmlEntities(matchedText) : matchedText;
             String cacheKey = (caseSensitive ? "s" : "i") + "\u0000" + matchTerm;
             // 9.4: Cap cache size to prevent unbounded growth across a session.
             if (PATTERN_CACHE.size() >= PATTERN_CACHE_LIMIT) {
@@ -107,9 +141,11 @@ public class DocumentScanner {
                 // Key: source + target + position. The target must be part of it or a second
                 // translation of the same source at the same spot silently disappears; an
                 // identical triple arriving through two termbases still collapses to one hit.
-                String posKey = sourceTerm + "\u0000" + term.getTargetTerm() + "\u0000" + strStart;
+                // The key is direction-independent, so the same pair matches once whichever side
+                // drove the search.
+                String posKey = sourceTerm + "\u0000" + targetTerm + "\u0000" + strStart;
                 if (countedPositions.add(posKey)) {
-                    rawMatches.add(new RawMatch(sourceTerm, term.getTargetTerm(), strStart, strEnd, term.getStatus()));
+                    rawMatches.add(new RawMatch(sourceTerm, targetTerm, strStart, strEnd, term.getStatus(), matchedText));
                 }
             }
         }
@@ -118,7 +154,7 @@ public class DocumentScanner {
         for (RawMatch m : retainLongestMatches(rawMatches)) {
             if (isTextMode) {
                 allMatches.add(new ScanResult(
-                    m.sourceTerm, m.targetTerm, m.strStart, m.strEnd, m.status));
+                    m.sourceTerm, m.targetTerm, m.strStart, m.strEnd, m.status, m.matchedText));
             } else {
                 int authStart = -1, authEnd = -1;
                 for (int[] seg : authorSegments) {
@@ -134,7 +170,7 @@ public class DocumentScanner {
                 }
                 if (authStart >= 0 && authEnd >= 0) {
                     allMatches.add(new ScanResult(
-                        m.sourceTerm, m.targetTerm, authStart, authEnd, m.status));
+                        m.sourceTerm, m.targetTerm, authStart, authEnd, m.status, m.matchedText));
                 }
             }
         }
@@ -148,13 +184,16 @@ public class DocumentScanner {
         final int strStart;
         final int strEnd;
         final TermStatus status;
+        final String matchedText;
 
-        RawMatch(String sourceTerm, String targetTerm, int strStart, int strEnd, TermStatus status) {
+        RawMatch(String sourceTerm, String targetTerm, int strStart, int strEnd, TermStatus status,
+                String matchedText) {
             this.sourceTerm = sourceTerm;
             this.targetTerm = targetTerm;
             this.strStart = strStart;
             this.strEnd = strEnd;
             this.status = status;
+            this.matchedText = matchedText;
         }
     }
 
