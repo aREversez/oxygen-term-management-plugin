@@ -72,4 +72,16 @@ class ExternalChangeCheckTest {
         ExternalChangeCheck.clearAllTooltips(0, none::add);
         assertTrue(none.isEmpty(), "a non-positive tab count clears nothing");
     }
+
+    @Test
+    void addReloadMarker_appendsOnce_andIsIdempotentOnAlreadyMarkedTitles() {
+        assertEquals("术语 （已重载）",
+            ExternalChangeCheck.addReloadMarker("术语 ", "（已重载）"));
+        String marked = ExternalChangeCheck.addReloadMarker("Terminology", " (reloaded)");
+        assertEquals("Terminology (reloaded)", marked);
+        assertEquals(marked, ExternalChangeCheck.addReloadMarker(marked, " (reloaded)"),
+            "marking twice does not stack the hint");
+        assertEquals("(reloaded)", ExternalChangeCheck.addReloadMarker(null, "(reloaded)"),
+            "a null title is treated as empty");
+    }
 }

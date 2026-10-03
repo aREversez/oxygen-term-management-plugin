@@ -56,4 +56,17 @@ public final class ExternalChangeCheck {
             clearer.clear(i);
         }
     }
+
+    /**
+     * The hint on a tab header must be visible without hovering: a per-tab tooltip only appears
+     * when the mouse lingers on the tab header, which - after switching to the tab, when the
+     * cursor is already over the panel content - the user never sees. So the hint is also written
+     * into the tab title itself, by appending {@code marker}. Marking an already-marked title is
+     * a no-op; a null title is treated as empty. The view restores the saved original title when
+     * the user leaves the tab; this function only defines what "marked" means.
+     */
+    public static String addReloadMarker(String title, String marker) {
+        String current = title == null ? "" : title;
+        return current.endsWith(marker) ? current : current + marker;
+    }
 }
