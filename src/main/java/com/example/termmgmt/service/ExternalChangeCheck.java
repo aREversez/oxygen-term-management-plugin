@@ -20,6 +20,11 @@ public final class ExternalChangeCheck {
         void reload(String filePath);
     }
 
+    /** Clears the hint on one tab; a Swing-free seam so the clear-on-start can be tested. */
+    public interface TooltipClearer {
+        void clear(int tabIndex);
+    }
+
     /** Reloads every enabled termbase whose file changed; true if at least one was reloaded. */
     public static boolean reloadModified(Source source) {
         boolean anyReloaded = false;
@@ -38,5 +43,17 @@ public final class ExternalChangeCheck {
      */
     public static boolean shouldNotify(boolean reloaded, int tabAtStart, int selectedTabNow) {
         return reloaded && tabAtStart == selectedTabNow;
+    }
+
+    /**
+     * Called at the start of every check and on every tab switch: clears the hint on every tab so
+     * a hint left by a previous pass cannot survive into this one, even when this pass reloads
+     * nothing or is skipped because another check is already running. Clears indices 0 ..
+     * tabCount-1 exactly once each; a non-positive count clears nothing.
+     */
+    public static void clearAllTooltips(int tabCount, TooltipClearer clearer) {
+        for (int i = 0; i < tabCount; i++) {
+            clearer.clear(i);
+        }
     }
 }

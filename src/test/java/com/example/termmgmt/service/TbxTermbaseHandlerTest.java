@@ -827,19 +827,21 @@ class TbxTermbaseHandlerTest {
         TermbaseConfig config = writeThreeNoIdEntries("fingerprint_refresh.tbx");
         List<TermEntry> list = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
         String loaded = list.get(1).getPersistedFingerprint();
-        assertNotNull(loaded, "load records the fingerprint");
+        assertEquals("B\u0000b-en", loaded, "load records the fingerprint as source\\u0000target");
 
         list.get(1).setTargetTerm("b-edited");
         assertEquals(loaded, list.get(1).getPersistedFingerprint(), "an edit alone does not touch it");
         TbxTermbaseHandler.saveTerms(config, list);
-        assertNotEquals(loaded, list.get(1).getPersistedFingerprint(), "the save moves it to the new text");
+        assertEquals("B\u0000b-edited", list.get(1).getPersistedFingerprint(),
+            "the save rewrites it to the text that reached disk, source + edited target");
 
         // A brand-new entry has no fingerprint until it is written.
         TermEntry added = new TermEntry("D", "d-en");
         assertNull(added.getPersistedFingerprint());
         list.add(added);
         TbxTermbaseHandler.saveTerms(config, list);
-        assertNotNull(added.getPersistedFingerprint());
+        assertEquals("D\u0000d-en", added.getPersistedFingerprint(),
+            "a freshly written entry gets the fingerprint of the node just saved");
         assertEquals(added.getPersistedFingerprint(), added.copy().getPersistedFingerprint(),
             "copy() carries the fingerprint");
     }
@@ -878,6 +880,47 @@ class TbxTermbaseHandlerTest {
         assertEquals(List.of("A", "C", "D", "B"),
             reloaded.stream().map(TermEntry::getSourceTerm).collect(java.util.stream.Collectors.toList()),
             "TBX saves append new nodes, so the restored node follows the existing ones");
+    }
+
+    /**
+     * 14 (建议): the contract for a restored TBX entry, pinned in isolation. Undo carries no claim
+     * on the deleted node, so it is written as a brand-new node: appended after the surviving
+     * entries, given a fresh id (the deleted node's id is not reused), and without the unmodelled
+     * content (descrip/note) the plugin never captured. Reloading reflects exactly that order.
+     */
+    @Test
+    void undoRestoredTbxEntry_isANewNodeAppendedWithAFreshId() throws Exception {
+        Path file = tempDir.resolve("undo_freshid.tbx");
+        Files.writeString(file,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\">\n  <body>\n"
+            + "    <termEntry id=\"keep1\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>A</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>a-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "    <termEntry id=\"gone\">\n"
+            + "      <langSet xml:lang=\"zh-CN\"><tig><term>B</term><descrip>DEF-B</descrip></tig></langSet>\n"
+            + "      <langSet xml:lang=\"en-US\"><tig><term>b-en</term></tig></langSet>\n"
+            + "    </termEntry>\n"
+            + "  </body>\n</martif>");
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.TBX, true);
+
+        List<TermEntry> list = new java.util.ArrayList<>(TbxTermbaseHandler.loadTerms(config));
+        List<com.example.termmgmt.util.TermEntryUtils.RemovedEntry> removed =
+            com.example.termmgmt.util.TermEntryUtils.removeEntriesRecording(list, List.of(list.get(1)));
+        TbxTermbaseHandler.saveTerms(config, list);                 // delete B (id "gone")
+
+        com.example.termmgmt.util.TermEntryUtils.reinsertRemoved(list, removed);
+        TbxTermbaseHandler.saveTerms(config, list);                 // undo B
+
+        List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
+        assertEquals(List.of("A", "B"),
+            reloaded.stream().map(TermEntry::getSourceTerm).collect(java.util.stream.Collectors.toList()),
+            "the surviving entry stays first; the restored one is appended at the end");
+        TermEntry restoredB = reloaded.get(1);
+        assertEquals("keep1", reloaded.get(0).getEntryId(), "the surviving entry keeps its original id");
+        assertNotEquals("gone", restoredB.getEntryId(), "the deleted id is not reused for the new node");
+        assertFalse(Files.readString(file).contains("DEF-B"),
+            "the restored node does not carry the deleted node's unmodelled descrip");
     }
 
     /**

@@ -261,6 +261,26 @@ class TermEntryUtilsTest {
         assertEquals(List.of("a", "c", "d", "e", "b"), sources(terms));
     }
 
+    /**
+     * 13 (建议3): a skipped (already-re-added) entry must not push the following restoration one
+     * slot to the right. Deleting b@1 and c@2, re-adding b by hand, then undoing should land c
+     * right after a (its original neighbour), not after d.
+     */
+    @Test
+    void reinsertRemoved_shiftsLaterRestorationsLeftForEverySkip() {
+        List<TermEntry> terms = five();
+        List<TermEntryUtils.RemovedEntry> removed =
+            TermEntryUtils.removeEntriesRecording(terms, List.of(terms.get(1), terms.get(2))); // b@1, c@2
+        assertEquals(List.of("a", "d", "e"), sources(terms));
+        terms.add(new TermEntry("b", "B"));                                                    // re-added by hand -> [a,d,e,b]
+
+        int restored = TermEntryUtils.reinsertRemoved(terms, removed);
+
+        assertEquals(1, restored, "only c is put back; b is already present");
+        assertEquals(List.of("a", "c", "d", "e", "b"), sources(terms),
+            "c keeps its place next to a instead of drifting right past the skipped b");
+    }
+
     @Test
     void reinsertRemoved_restoredEntryCarriesNoClaimOnAFileNode() {
         List<TermEntry> terms = five();

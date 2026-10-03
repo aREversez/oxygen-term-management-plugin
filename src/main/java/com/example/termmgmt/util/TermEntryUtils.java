@@ -153,19 +153,28 @@ public final class TermEntryUtils {
      * node (no TBX id, ordinal or fingerprint), so a save writes them as new nodes instead of
      * matching them to whatever now occupies their old position.
      *
+     * Positions are best-effort: the list may have gained, lost or reordered entries since the
+     * delete, so an old index cannot always be reproduced exactly. Entries are recorded in
+     * ascending index order; when one is skipped because it is already present, every later
+     * restoration shifts left by the number skipped so far, so the restored entries keep their
+     * original relative order instead of drifting right by one per skip.
+     *
      * @return how many entries were put back
      */
     public static int reinsertRemoved(List<TermEntry> terms, List<RemovedEntry> removed) {
         int restored = 0;
+        int skipped = 0;
         for (RemovedEntry r : removed) {
             if (indexOfEntry(terms, r.getEntry()) >= 0) {
+                skipped++;
                 continue;
             }
             TermEntry back = r.getEntry().copy();
             back.setEntryId(null);
             back.setEntryOrdinal(-1);
             back.setPersistedFingerprint(null);
-            terms.add(Math.min(r.getIndex(), terms.size()), back);
+            int target = Math.max(r.getIndex() - skipped, 0);
+            terms.add(Math.min(target, terms.size()), back);
             restored++;
         }
         return restored;

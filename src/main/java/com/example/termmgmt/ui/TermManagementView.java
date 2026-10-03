@@ -67,9 +67,8 @@ public class TermManagementView extends JPanel {
         tabbedPane.addTab(I18N.getString("tab.terminology"), terminologyPanel);
         tabbedPane.addChangeListener(e -> {
             // 7.2: Clear tooltip on every tab switch.
-            for (int i = 0; i < tabbedPane.getTabCount(); i++) {
-                tabbedPane.setToolTipTextAt(i, null);
-            }
+            ExternalChangeCheck.clearAllTooltips(tabbedPane.getTabCount(),
+                i -> tabbedPane.setToolTipTextAt(i, null));
             JComponent sel = (JComponent) tabbedPane.getSelectedComponent();
             if (sel == recognitionPanel) {
                 checkExternalChanges();
@@ -88,6 +87,10 @@ public class TermManagementView extends JPanel {
      * Runs on a background thread to avoid blocking the EDT. Updates UI on completion.
      */
     private void checkExternalChanges() {
+        // 15: Clear stale hints at the very start of every check, before the already-running
+        // guard, so a hint from a previous pass cannot linger even when this pass is skipped.
+        ExternalChangeCheck.clearAllTooltips(tabbedPane.getTabCount(),
+            i -> tabbedPane.setToolTipTextAt(i, null));
         if (!checkingExternal.compareAndSet(false, true)) return; // already running
         final int tabAtStart = tabbedPane.getSelectedIndex();
         new SwingWorker<Boolean, Void>() {

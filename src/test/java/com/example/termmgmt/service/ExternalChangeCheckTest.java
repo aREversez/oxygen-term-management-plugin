@@ -61,4 +61,15 @@ class ExternalChangeCheckTest {
         assertFalse(ExternalChangeCheck.shouldNotify(false, 2, 2), "nothing was reloaded");
         assertFalse(ExternalChangeCheck.shouldNotify(false, 2, 0));
     }
+
+    @Test
+    void clearAllTooltips_clearsEveryTabOnce_atTheStartOfEachCheck() {
+        List<Integer> cleared = new ArrayList<>();
+        ExternalChangeCheck.clearAllTooltips(3, cleared::add);
+        assertEquals(List.of(0, 1, 2), cleared, "each tab hint is cleared exactly once");
+
+        List<Integer> none = new ArrayList<>();
+        ExternalChangeCheck.clearAllTooltips(0, none::add);
+        assertTrue(none.isEmpty(), "a non-positive tab count clears nothing");
+    }
 }
