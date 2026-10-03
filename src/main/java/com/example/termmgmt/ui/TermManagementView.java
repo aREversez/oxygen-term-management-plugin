@@ -15,6 +15,8 @@ public class TermManagementView extends JPanel {
 
     private JTabbedPane tabbedPane;
     private TermbaseRegistry registry;
+    /** May be null when the view is built outside Oxygen; then reload notices stay passive. */
+    private StandalonePluginWorkspace workspace;
     private TermRecognitionPanel recognitionPanel;
     private TerminologyPanel terminologyPanel;
     private TermbaseSearchPanel searchPanel;
@@ -26,9 +28,17 @@ public class TermManagementView extends JPanel {
      * would wipe out the very hint we just put up.
      */
     private boolean suppressTabEvents = false;
+    /** How often a visible watched tab probes for external file changes while the user stays put. */
+    private static final int POLL_INTERVAL_MS = 2_000;
+    private Timer externalPollTimer;
     private final Runnable registryListener = () -> SwingUtilities.invokeLater(this::refreshAllPanels);
 
     public TermManagementView() {
+        this(null);
+    }
+
+    public TermManagementView(StandalonePluginWorkspace workspace) {
+        this.workspace = workspace;
         this.registry = TermbaseRegistry.getInstance();
         registry.loadConfigs();
         initComponents();
@@ -40,6 +50,9 @@ public class TermManagementView extends JPanel {
      * registry keeps the view (and its panels) reachable and keeps refreshing it.
      */
     public void dispose() {
+        if (externalPollTimer != null) {
+            externalPollTimer.stop();
+        }
         registry.removeChangeListener(registryListener);
     }
 
@@ -52,10 +65,6 @@ public class TermManagementView extends JPanel {
             terminologyPanel.refreshTermbaseList();
             terminologyPanel.loadTermbaseTerms();
         }
-    }
-
-    public TermManagementView(StandalonePluginWorkspace workspace) {
-        this();
     }
 
     private void initComponents() {
@@ -87,17 +96,45 @@ public class TermManagementView extends JPanel {
             }
         });
         add(tabbedPane, BorderLayout.CENTER);
+        // Users expect an external edit to be noticed while they sit on the tab, not only when
+        // they next switch tabs; probe periodically while a watched tab is on screen.
+        externalPollTimer = new Timer(POLL_INTERVAL_MS, e -> pollExternalChanges());
+        externalPollTimer.start();
     }
 
     /**
-     * 7.1+7.2: Lazily check whether any enabled termbase file was modified externally.
-     * Runs on a background thread to avoid blocking the EDT. Updates UI on completion.
+     * Periodic probe for external file changes. Runs the same background check a tab switch
+     * runs, but without clearing the hints first: the probe must not erase the passive
+     * tab-header hint it produced on an earlier pass. Does nothing while the panel is hidden
+     * (docked away) or another tab is showing, matching the scope of the tab-switch checks.
+     */
+    private void pollExternalChanges() {
+        if (!isShowing()) {
+            return;
+        }
+        Component sel = tabbedPane.getSelectedComponent();
+        if (sel != recognitionPanel && sel != terminologyPanel) {
+            return;
+        }
+        checkExternalChanges(false);
+    }
+
+    /**
+     * 7.1+7.2: Check whether any enabled termbase file was modified externally, on a background
+     * thread so the EDT never blocks. Updates UI on completion.
      */
     private void checkExternalChanges() {
-        // 15: Clear stale hints at the very start of every check, before the already-running
-        // guard, so a hint from a previous pass cannot linger even when this pass is skipped.
-        withoutTabEvents(() -> ExternalChangeCheck.clearAllTooltips(tabbedPane.getTabCount(),
-            i -> tabbedPane.setToolTipTextAt(i, null)));
+        checkExternalChanges(true);
+    }
+
+    private void checkExternalChanges(boolean clearHintsFirst) {
+        if (clearHintsFirst) {
+            // 15: Clear stale hints at the very start of every user-initiated check, before the
+            // already-running guard, so a hint from a previous pass cannot linger even when this
+            // pass is skipped. Periodic probes skip this - they must not erase their own hint.
+            withoutTabEvents(() -> ExternalChangeCheck.clearAllTooltips(tabbedPane.getTabCount(),
+                i -> tabbedPane.setToolTipTextAt(i, null)));
+        }
         if (!checkingExternal.compareAndSet(false, true)) return; // already running
         final int tabAtStart = tabbedPane.getSelectedIndex();
         new SwingWorker<Boolean, Void>() {
@@ -115,13 +152,14 @@ public class TermManagementView extends JPanel {
                 try {
                     if (ExternalChangeCheck.shouldNotify(Boolean.TRUE.equals(get()), tabAtStart,
                             tabbedPane.getSelectedIndex())) {
-                        // Tell the user with a dialog: a per-tab tooltip only paints while the
-                        // mouse hovers the tab header, so it was never actually seen after a
-                        // tab switch. The tooltip stays as the passive hint on the tab header.
+                        // Announce the reload in Oxygen's bottom status bar: it appears without
+                        // any hovering, dismisses itself, and never blocks the user with a modal
+                        // dialog. The tab-header tooltip stays as a passive hint.
                         String msg = I18N.getString("msg.external.reload.notify");
                         withoutTabEvents(() -> tabbedPane.setToolTipTextAt(tabAtStart, msg));
-                        JOptionPane.showMessageDialog(TermManagementView.this, msg,
-                            I18N.getString("msg.info"), JOptionPane.INFORMATION_MESSAGE);
+                        if (workspace != null) {
+                            workspace.showStatusMessage(msg);
+                        }
                     }
                 } catch (Exception ignored) { }
             }

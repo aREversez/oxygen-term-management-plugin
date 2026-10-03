@@ -46,10 +46,11 @@ public final class ExternalChangeCheck {
     }
 
     /**
-     * Called at the start of every check and on every tab switch: clears the hint on every tab so
-     * a hint left by a previous pass cannot survive into this one, even when this pass reloads
-     * nothing or is skipped because another check is already running. Clears indices 0 ..
-     * tabCount-1 exactly once each; a non-positive count clears nothing.
+     * Called on every tab switch and at the start of every user-initiated check (not by the
+     * periodic background probe, which must leave its own earlier hint standing): clears the
+     * hint on every tab so a hint left by a previous pass cannot survive into this one, even
+     * when this pass reloads nothing or is skipped because another check is already running.
+     * Clears indices 0 .. tabCount-1 exactly once each; a non-positive count clears nothing.
      */
     public static void clearAllTooltips(int tabCount, TooltipClearer clearer) {
         for (int i = 0; i < tabCount; i++) {
