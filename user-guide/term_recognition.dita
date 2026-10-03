@@ -21,6 +21,19 @@
                 </info>
             </step>
             <step>
+                <cmd>需要按译词做 QA 检查时，把顶部方向下拉框从 <uicontrol>按源词扫描</uicontrol> 切换到 <uicontrol>按译词扫描</uicontrol>，会自动重新扫描。</cmd>
+                <info>
+                    <note type="note"><uicontrol>按译词扫描</uicontrol> 在文档中匹配每个条目的译词，用来排查译文里是否出现了应当避免的译法：
+                        先在 <uicontrol>Terminology Management</uicontrol> 里把要避免的译法所在条目的 <uicontrol>状态</uicontrol> 设为
+                        <uicontrol>弃用（deprecated）</uicontrol>，同一源词下希望改用的译法保持 <uicontrol>首选</uicontrol> 或 <uicontrol>许可</uicontrol>。
+                        命中的弃用译法排在结果表最前，新增的 <uicontrol>建议改用</uicontrol> 列列出同一术语库内源词相同且未标弃用的其它译法，供你换用；
+                        勾选 <uicontrol>仅显示弃用词</uicontrol> 可把表格、统计、高亮和导航都收窄到弃用命中（内存过滤，不重新扫描），切回 <uicontrol>按源词扫描</uicontrol> 时该复选框置灰。
+                        上一个/下一个按钮按被匹配的那一侧文本（按译词时即译词）在文档中定位；方向选择会被记住，重启后保持。
+                        已知限制：弃用词若正好是某个更长合法术语的一部分（如弃用词 <codeph>mesh</codeph> 出现在合法词 <codeph>mesh size</codeph> 中），仍会被报告，第一版不做特殊抑制；
+                        不做词干/词形变化匹配（<codeph>grids</codeph>、<codeph>gridded</codeph> 不会命中 <codeph>grid</codeph>）。按源词扫描的行为与之前完全一致。</note>
+                </info>
+            </step>
+            <step>
                 <cmd>点击 <uicontrol>Toggle Highlight</uicontrol> 可在文档中高亮显示匹配术语。</cmd>
             </step>
             <step>
