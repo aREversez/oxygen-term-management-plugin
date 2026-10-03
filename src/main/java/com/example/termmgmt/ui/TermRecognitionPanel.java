@@ -5,9 +5,11 @@ import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.DocumentScanner;
 import com.example.termmgmt.service.DocumentScanner.ScanResult;
+import com.example.termmgmt.service.ScanDirection;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
+import com.example.termmgmt.util.ReplacementSuggestions;
 
 import ro.sync.ecss.extensions.api.AuthorDocumentController;
 import ro.sync.ecss.extensions.api.content.TextContentIterator;
@@ -27,11 +29,14 @@ import javax.swing.*;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -39,11 +44,15 @@ public class TermRecognitionPanel extends JPanel {
 
     private TermbaseRegistry registry;
     private JComboBox<TermbaseConfig> termbaseCombo;
+    private JComboBox<ScanDirection> directionCombo;
+    private JCheckBox onlyDeprecatedCheck;
     private JTable resultTable;
     private DefaultTableModel tableModel;
     private JToggleButton highlightToggle;
     private final Map<String, Boolean> highlightEnabledMap = new HashMap<>();
     private List<ScanResult> currentMatches = new ArrayList<>();
+    /** The termbase the last scan ran against; reused by {@link #renderResults()} for suggestions. */
+    private volatile TermbaseConfig activeConfig;
 
     private JLabel statsLabel;
     private TermManagementView parentView;
@@ -120,6 +129,34 @@ public class TermRecognitionPanel extends JPanel {
         });
         actionRow.add(highlightToggle);
 
+        // Scan direction selector (patch-plan 5, step 3.2). The initial selection is restored
+        // from persisted options before the listener is attached, so setup never triggers a scan.
+        directionCombo = new JComboBox<>(ScanDirection.values());
+        directionCombo.setToolTipText(I18N.getString("scan.direction.tooltip"));
+        directionCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value,
+                    int index, boolean isSelected, boolean cellHasFocus) {
+                if (value instanceof ScanDirection) {
+                    value = I18N.getString("scan.direction." + ((ScanDirection) value).name().toLowerCase());
+                }
+                return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            }
+        });
+        directionCombo.setSelectedItem(ScanDirection.fromKey(loadStoredDirection()));
+        directionCombo.addActionListener(e -> {
+            saveStoredDirection(currentDirection());
+            updateDirectionDependentUi();
+            autoScan();
+        });
+        actionRow.add(directionCombo);
+
+        onlyDeprecatedCheck = new JCheckBox(I18N.getString("chk.only.deprecated"));
+        onlyDeprecatedCheck.setToolTipText(I18N.getString("chk.only.deprecated.tooltip"));
+        // Never persisted; re-applied from the current direction on every render.
+        onlyDeprecatedCheck.addActionListener(e -> renderResults());
+        actionRow.add(onlyDeprecatedCheck);
+
         actionRow.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
@@ -145,7 +182,8 @@ public class TermRecognitionPanel extends JPanel {
         add(northPanel, BorderLayout.NORTH);
 
         tableModel = new DefaultTableModel(
-            new String[]{I18N.getString("msg.col.source"), I18N.getString("msg.col.target"), I18N.getString("msg.col.status")}, 0
+            new String[]{I18N.getString("msg.col.source"), I18N.getString("msg.col.target"),
+                I18N.getString("msg.col.status"), I18N.getString("msg.col.suggestion")}, 0
         );
         resultTable = new JTable(tableModel);
         resultTable.setDefaultEditor(Object.class, null);
@@ -208,9 +246,13 @@ public class TermRecognitionPanel extends JPanel {
         add(southPanel, BorderLayout.SOUTH);
 
         loadTermbaseList();
+        // Apply the restored direction to the suggestion column and the filter checkbox.
+        updateDirectionDependentUi();
     }
 
     private static final String LAST_TB_KEY = "com.example.termmgmt.last-termbase-recognition";
+    /** Persisted scan direction; same storage channel as {@link #LAST_TB_KEY}. */
+    private static final String SCAN_DIRECTION_KEY = "com.example.termmgmt.scan-direction";
 
     private void loadTermbaseList() {
         registry.loadConfigs();
@@ -255,6 +297,27 @@ public class TermRecognitionPanel extends JPanel {
             os.setOption(LAST_TB_KEY, path != null ? path : "");
         } catch (Exception e) {
             System.err.println("Failed to save last termbase path: " + e.getMessage());
+        }
+    }
+
+    /** Reads the persisted direction; any error yields null so {@code fromKey} falls back to SOURCE. */
+    private String loadStoredDirection() {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return null;
+            return w.getOptionsStorage().getOption(SCAN_DIRECTION_KEY, null);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void saveStoredDirection(ScanDirection direction) {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return;
+            w.getOptionsStorage().setOption(SCAN_DIRECTION_KEY, direction.key());
+        } catch (Exception e) {
+            System.err.println("Failed to save scan direction: " + e.getMessage());
         }
     }
     
@@ -376,15 +439,19 @@ public class TermRecognitionPanel extends JPanel {
         List<int[]> capturedSegments = segments;
         String capturedText = documentText;
         TermbaseConfig capturedConfig = config;
-        boolean highlightSelected = highlightToggle.isSelected();
         boolean capturedCaseSensitive = registry.isCaseSensitive();
+        ScanDirection capturedDirection = currentDirection();
+        // Remember the termbase behind this scan so renderResults can build "suggested replacement"
+        // lookups against the same entry list.
+        activeConfig = capturedConfig;
 
         currentScanWorker = new SwingWorker<List<ScanResult>, Void>() {
             @Override
             protected List<ScanResult> doInBackground() throws Exception {
                 List<TermEntry> terms = registry.getTerms(capturedConfig);
                 DocumentScanner scanner = new DocumentScanner();
-                return scanner.scan(capturedText, terms, capturedIsTextMode, capturedSegments, capturedCaseSensitive);
+                return scanner.scan(capturedText, terms, capturedIsTextMode, capturedSegments,
+                    capturedCaseSensitive, capturedDirection);
             }
 
             @Override
@@ -393,29 +460,8 @@ public class TermRecognitionPanel extends JPanel {
                     if (isCancelled()) return;
                     List<ScanResult> result = get();
                     currentMatches = result;
-
-                    // Update table with unique pairs
-                    tableModel.setRowCount(0);
-                    java.util.Set<String> tablePairs = new java.util.HashSet<>();
-                    for (ScanResult m : result) {
-                        String pairKey = m.sourceTerm + "|" + m.targetTerm;
-                        if (tablePairs.add(pairKey)) {
-                            String statusText = statusDisplay(m.status);
-                            tableModel.addRow(new Object[]{m.sourceTerm, m.targetTerm, statusText});
-                        }
-                    }
-
-                    int totalHits = result.size();
-                    int uniqueTerms = tablePairs.size();
-                    if (uniqueTerms == 0) {
-                        statsLabel.setText(I18N.getString("msg.no.matches"));
-                    } else {
-                        statsLabel.setText(I18N.getString("msg.matched.terms", totalHits, uniqueTerms));
-                    }
-
-                    if (highlightSelected && !capturedIsTextMode) {
-                        applyHighlights();
-                    }
+                    // Table, stats and highlights are rebuilt from the (possibly filtered) matches.
+                    renderResults();
                 } catch (Exception e) {
                     System.err.println("Scan failed: " + e.getMessage());
                         statsLabel.setText(I18N.getString("msg.scan.failed"));
@@ -432,6 +478,141 @@ public class TermRecognitionPanel extends JPanel {
             }
         };
         currentScanWorker.execute();
+    }
+
+    /** The direction currently selected in the combo; {@code SOURCE} when the combo is not ready. */
+    private ScanDirection currentDirection() {
+        if (directionCombo == null) {
+            return ScanDirection.SOURCE;
+        }
+        ScanDirection d = (ScanDirection) directionCombo.getSelectedItem();
+        return d != null ? d : ScanDirection.SOURCE;
+    }
+
+    /**
+     * The table column that carries the matched text: source term (col 0) for a SOURCE scan, target
+     * term (col 1) for a TARGET scan. Kept in one place so navigation and {@code jumpToOccurrence}
+     * agree on which cell equals {@link ScanResult#matchedText}.
+     */
+    private int matchedColumn() {
+        return currentDirection() == ScanDirection.TARGET ? 1 : 0;
+    }
+
+    /**
+     * The matches the panel currently works with: the full scan result, narrowed to deprecated hits
+     * only when a TARGET scan has "only deprecated" ticked. Filtering is in-memory and never
+     * re-scans; SOURCE scans are never filtered.
+     */
+    private List<ScanResult> effectiveMatches() {
+        if (currentDirection() == ScanDirection.TARGET
+                && onlyDeprecatedCheck != null && onlyDeprecatedCheck.isSelected()) {
+            List<ScanResult> out = new ArrayList<>();
+            for (ScanResult m : currentMatches) {
+                if (m.status == TermStatus.DEPRECATED) {
+                    out.add(m);
+                }
+            }
+            return out;
+        }
+        return currentMatches;
+    }
+
+    /**
+     * Rebuild table rows, the statistics line and the highlights from {@link #effectiveMatches()}.
+     * Called after every scan and whenever the "only deprecated" checkbox changes (no re-scan).
+     */
+    private void renderResults() {
+        List<ScanResult> effective = effectiveMatches();
+        ScanDirection dir = currentDirection();
+        tableModel.setRowCount(0);
+
+        // "Suggested replacement" lookups are only meaningful for deprecated TARGET hits.
+        ReplacementSuggestions suggestions = null;
+        if (dir == ScanDirection.TARGET && activeConfig != null) {
+            try {
+                suggestions = new ReplacementSuggestions(registry.getTerms(activeConfig));
+            } catch (Exception e) {
+                suggestions = null;
+            }
+        }
+
+        // De-duplicate by source|target keeping first-seen order, then (TARGET) float deprecated
+        // rows to the top with a stable sort so the rest keeps its appearance order.
+        LinkedHashMap<String, ScanResult> firstByPair = new LinkedHashMap<>();
+        for (ScanResult m : effective) {
+            firstByPair.putIfAbsent(m.sourceTerm + "|" + m.targetTerm, m);
+        }
+        List<ScanResult> rows = new ArrayList<>(firstByPair.values());
+        if (dir == ScanDirection.TARGET) {
+            rows.sort((a, b) -> Boolean.compare(
+                a.status != TermStatus.DEPRECATED, b.status != TermStatus.DEPRECATED));
+        }
+
+        int deprecatedRows = 0;
+        for (ScanResult m : rows) {
+            String suggestion = "";
+            if (dir == ScanDirection.TARGET && m.status == TermStatus.DEPRECATED && suggestions != null) {
+                suggestion = String.join(", ", suggestions.suggestionsFor(m.sourceTerm, m.targetTerm, m.status));
+            }
+            if (m.status == TermStatus.DEPRECATED) {
+                deprecatedRows++;
+            }
+            tableModel.addRow(new Object[]{m.sourceTerm, m.targetTerm, statusDisplay(m.status), suggestion});
+        }
+
+        int totalHits = effective.size();
+        int uniqueTerms = rows.size();
+        if (uniqueTerms == 0) {
+            statsLabel.setText(I18N.getString("msg.no.matches"));
+        } else {
+            String base = I18N.getString("msg.matched.terms", totalHits, uniqueTerms);
+            if (dir == ScanDirection.TARGET && deprecatedRows > 0) {
+                base = base + I18N.getString("msg.matched.deprecated", deprecatedRows);
+            }
+            statsLabel.setText(base);
+        }
+
+        // Highlights follow the same filtered set; clear then repaint so toggling the checkbox
+        // instantly reflects the narrowing without a fresh scan.
+        clearHighlights();
+        if (highlightToggle.isSelected() && !isTextEditorPage()) {
+            applyHighlights();
+        }
+    }
+
+    /**
+     * Reflects the current direction in the UI: the deprecated-only checkbox is enabled for TARGET
+     * only, and the "suggested replacement" column is shown for TARGET and collapsed for SOURCE.
+     */
+    private void updateDirectionDependentUi() {
+        boolean target = currentDirection() == ScanDirection.TARGET;
+        if (onlyDeprecatedCheck != null) {
+            onlyDeprecatedCheck.setEnabled(target);
+        }
+        setSuggestionColumnVisible(target);
+    }
+
+    /**
+     * Collapse the 4th (suggestion) column to zero width or restore it. Width-based rather than
+     * removing the column so the model/view mapping the double-click handler relies on never shifts
+     * and the column can always be brought back.
+     */
+    private void setSuggestionColumnVisible(boolean visible) {
+        TableColumnModel cm = resultTable.getColumnModel();
+        int view = resultTable.convertColumnIndexToView(3);
+        if (view < 0 || view >= cm.getColumnCount()) {
+            return;
+        }
+        TableColumn c = cm.getColumn(view);
+        if (visible) {
+            c.setMaxWidth(Integer.MAX_VALUE);
+            c.setMinWidth(40);
+            c.setPreferredWidth(140);
+        } else {
+            c.setPreferredWidth(0);
+            c.setMinWidth(0);
+            c.setMaxWidth(0);
+        }
     }
 
     private void applyHighlights() {
@@ -452,7 +633,7 @@ public class TermRecognitionPanel extends JPanel {
             ColorHighlightPainter deprecatedPainter = new ColorHighlightPainter();
             deprecatedPainter.setBgColor(new Color(255, 80, 80, 100));
 
-            for (ScanResult match : currentMatches) {
+            for (ScanResult match : effectiveMatches()) {
                 ColorHighlightPainter p = (match.status == TermStatus.DEPRECATED) ? deprecatedPainter : normalPainter;
                 highlighter.addHighlight(match.startOffset, match.endOffset - 1, p, null);
             }
@@ -510,16 +691,16 @@ public class TermRecognitionPanel extends JPanel {
             posLabel.setText(I18N.getString("msg.nav.default"));
             return;
         }
-        String sourceTerm = (String) tableModel.getValueAt(row, 0);
-        if (sourceTerm == null) {
+        String matched = (String) tableModel.getValueAt(row, matchedColumn());
+        if (matched == null) {
             prevButton.setEnabled(false);
             nextButton.setEnabled(false);
             posLabel.setText(I18N.getString("msg.nav.default"));
             return;
         }
         int count = 0;
-        for (ScanResult m : currentMatches) {
-            if (m.sourceTerm.equals(sourceTerm)) count++;
+        for (ScanResult m : effectiveMatches()) {
+            if (matched.equals(m.matchedText)) count++;
         }
         if (count == 0) {
             prevButton.setEnabled(false);
@@ -527,10 +708,10 @@ public class TermRecognitionPanel extends JPanel {
             posLabel.setText(I18N.getString("msg.nav.default"));
             return;
         }
-        int idx = navIndices.getOrDefault(sourceTerm, 0);
+        int idx = navIndices.getOrDefault(matched, 0);
         if (idx < 0 || idx >= count) {
             idx = 0;
-            navIndices.put(sourceTerm, idx);
+            navIndices.put(matched, idx);
         }
         prevButton.setEnabled(true);
         nextButton.setEnabled(true);
@@ -540,44 +721,44 @@ public class TermRecognitionPanel extends JPanel {
     private void navigatePrev() {
         int row = resultTable.getSelectedRow();
         if (row < 0) return;
-        String sourceTerm = (String) tableModel.getValueAt(row, 0);
-        if (sourceTerm == null) return;
+        String matched = (String) tableModel.getValueAt(row, matchedColumn());
+        if (matched == null) return;
         int count = 0;
-        for (ScanResult m : currentMatches) {
-            if (m.sourceTerm.equals(sourceTerm)) count++;
+        for (ScanResult m : effectiveMatches()) {
+            if (matched.equals(m.matchedText)) count++;
         }
         if (count == 0) return;
-        int idx = navIndices.getOrDefault(sourceTerm, 0);
+        int idx = navIndices.getOrDefault(matched, 0);
         idx = (idx - 1 + count) % count;
-        navIndices.put(sourceTerm, idx);
-        jumpToOccurrence(sourceTerm, idx);
+        navIndices.put(matched, idx);
+        jumpToOccurrence(matched, idx);
         updateNavState();
     }
 
     private void navigateNext() {
         int row = resultTable.getSelectedRow();
         if (row < 0) return;
-        String sourceTerm = (String) tableModel.getValueAt(row, 0);
-        if (sourceTerm == null) return;
+        String matched = (String) tableModel.getValueAt(row, matchedColumn());
+        if (matched == null) return;
         int count = 0;
-        for (ScanResult m : currentMatches) {
-            if (m.sourceTerm.equals(sourceTerm)) count++;
+        for (ScanResult m : effectiveMatches()) {
+            if (matched.equals(m.matchedText)) count++;
         }
         if (count == 0) return;
-        int idx = navIndices.getOrDefault(sourceTerm, 0);
+        int idx = navIndices.getOrDefault(matched, 0);
         idx = (idx + 1) % count;
-        navIndices.put(sourceTerm, idx);
-        jumpToOccurrence(sourceTerm, idx);
+        navIndices.put(matched, idx);
+        jumpToOccurrence(matched, idx);
         updateNavState();
     }
 
-    private void jumpToOccurrence(String sourceTerm, int occurrenceIndex) {
-        if (sourceTerm == null || sourceTerm.isEmpty()) return;
+    private void jumpToOccurrence(String matchedText, int occurrenceIndex) {
+        if (matchedText == null || matchedText.isEmpty()) return;
 
         // Collect matches for this term
         List<ScanResult> matches = new ArrayList<>();
-        for (ScanResult m : currentMatches) {
-            if (m.sourceTerm.equals(sourceTerm)) matches.add(m);
+        for (ScanResult m : effectiveMatches()) {
+            if (matchedText.equals(m.matchedText)) matches.add(m);
         }
         if (occurrenceIndex < 0 || occurrenceIndex >= matches.size()) return;
         ScanResult match = matches.get(occurrenceIndex);
