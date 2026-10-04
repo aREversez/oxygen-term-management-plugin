@@ -5,29 +5,15 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermStatus;
 
 import com.example.termmgmt.util.MarkupMasker;
+import com.example.termmgmt.util.TermAutomaton;
 import com.example.termmgmt.util.TermMatchUtils;
 
 public class DocumentScanner {
-
-    /**
-     * Compiled patterns survive across scans: a panel builds a new DocumentScanner for
-     * every scan, so only a static cache actually avoids recompiling every term. The key
-     * carries the literal text and the case setting; a pattern depends on nothing else
-     * (text-mode patterns key on the escaped term, author-mode on the raw one).
-     * Capped at 50 000 entries: when exceeded, the entire cache is cleared (next scan
-     * recompiles; results are unaffected).
-     */
-    private static final int PATTERN_CACHE_LIMIT = 50_000;
-    private static final Map<String, Pattern> PATTERN_CACHE = new ConcurrentHashMap<>();
 
     public static class ScanResult {
         public final String sourceTerm;
@@ -100,54 +86,9 @@ public class DocumentScanner {
             entityRanges = MarkupMasker.findEntityRanges(documentText);
         }
 
-        for (TermEntry term : terms) {
-            if (Thread.currentThread().isInterrupted()) break;
-            if (documentText.isEmpty()) break;
-            String sourceTerm = term.getSourceTerm();
-            String targetTerm = term.getTargetTerm();
-            // Which side of the entry is searched in the document. A blank side means there is
-            // nothing to look for, so the entry is skipped; a source with no target never matches
-            // in TARGET, and vice versa in SOURCE.
-            String matchedText = direction == ScanDirection.TARGET ? targetTerm : sourceTerm;
-            if (matchedText == null || matchedText.isEmpty()) continue;
-
-            String matchTerm = isTextMode ? escapeXmlEntities(matchedText) : matchedText;
-            String cacheKey = (caseSensitive ? "s" : "i") + "\u0000" + matchTerm;
-            // 9.4: Cap cache size to prevent unbounded growth across a session.
-            if (PATTERN_CACHE.size() >= PATTERN_CACHE_LIMIT) {
-                PATTERN_CACHE.clear();
-            }
-            Pattern pattern = PATTERN_CACHE.computeIfAbsent(
-                cacheKey, k -> TermMatchUtils.buildMatchPattern(matchTerm, caseSensitive));
-            boolean needBoundary = TermMatchUtils.boundaryNeeded(matchTerm);
-            Matcher matcher = pattern.matcher(documentText);
-
-            while (matcher.find()) {
-                if (Thread.currentThread().isInterrupted()) break;
-                if (documentText.isEmpty()) break;
-                int strStart = matcher.start();
-                int strEnd = matcher.end();
-                // The pattern is a plain literal for speed; the word-boundary rule lives
-                // here, checked on code points so letters outside the BMP count too.
-                if (needBoundary && !TermMatchUtils.acceptAtBoundary(documentText, strStart, strEnd)) {
-                    continue;
-                }
-                // 8.1: Reject match that falls strictly inside an entity reference.
-                if (entityRanges != null && !entityRanges.isEmpty()
-                        && MarkupMasker.isInsideEntity(strStart, strEnd, entityRanges)) {
-                    continue;
-                }
-
-                // Key: source + target + position. The target must be part of it or a second
-                // translation of the same source at the same spot silently disappears; an
-                // identical triple arriving through two termbases still collapses to one hit.
-                // The key is direction-independent, so the same pair matches once whichever side
-                // drove the search.
-                String posKey = sourceTerm + "\u0000" + targetTerm + "\u0000" + strStart;
-                if (countedPositions.add(posKey)) {
-                    rawMatches.add(new RawMatch(sourceTerm, targetTerm, strStart, strEnd, term.getStatus(), matchedText));
-                }
-            }
+        if (!documentText.isEmpty()) {
+            scanInto(documentText, terms, isTextMode, caseSensitive, direction, entityRanges,
+                countedPositions, rawMatches);
         }
 
         List<ScanResult> allMatches = new ArrayList<>();
@@ -175,6 +116,89 @@ public class DocumentScanner {
             }
         }
         return allMatches;
+    }
+
+    /** One searchable entry: the termbase entry and the text of it that is looked for in the document. */
+    private static final class Slot {
+        final TermEntry entry;
+        final String matchedText;
+
+        Slot(TermEntry entry, String matchedText) {
+            this.entry = entry;
+            this.matchedText = matchedText;
+        }
+    }
+
+    /**
+     * One pass over the document for the whole termbase. The behaviour is that of running a
+     * literal regex per entry, which the previous implementation did: the same case rule, the
+     * same "a term never overlaps itself" rule, and every later check unchanged.
+     *
+     * <ul>
+     *   <li>Entries whose searched text is equal after case folding share one pattern and are
+     *       matched once; the hit is then handed to each of them in termbase order.</li>
+     *   <li>For one pattern, an occurrence that starts before the end of the previous occurrence
+     *       is skipped, and an occurrence rejected by the boundary or entity rule still counts as
+     *       consumed, exactly as {@code Matcher.find()} resumed after the match it had returned.</li>
+     * </ul>
+     */
+    private static void scanInto(String documentText, List<TermEntry> terms, boolean isTextMode,
+            boolean caseSensitive, ScanDirection direction, List<int[]> entityRanges,
+            Set<String> countedPositions, List<RawMatch> rawMatches) {
+        TermAutomaton.Builder builder = new TermAutomaton.Builder();
+        List<List<Slot>> slotsByPattern = new ArrayList<>();
+        List<Boolean> boundaryByPattern = new ArrayList<>();
+
+        for (TermEntry term : terms) {
+            // Which side of the entry is searched in the document. A blank side means there is
+            // nothing to look for, so the entry is skipped; a source with no target never matches
+            // in TARGET, and vice versa in SOURCE.
+            String matchedText = direction == ScanDirection.TARGET ? term.getTargetTerm() : term.getSourceTerm();
+            if (matchedText == null || matchedText.isEmpty()) continue;
+
+            String matchTerm = isTextMode ? escapeXmlEntities(matchedText) : matchedText;
+            char[] pattern = caseSensitive ? matchTerm.toCharArray() : TermAutomaton.fold(matchTerm);
+            int id = builder.add(pattern);
+            if (id == slotsByPattern.size()) {
+                slotsByPattern.add(new ArrayList<>());
+                boundaryByPattern.add(TermMatchUtils.boundaryNeeded(matchTerm));
+            }
+            slotsByPattern.get(id).add(new Slot(term, matchedText));
+        }
+        if (slotsByPattern.isEmpty()) return;
+
+        TermAutomaton automaton = builder.build();
+        char[] haystack = caseSensitive ? documentText.toCharArray() : TermAutomaton.fold(documentText);
+        int[] consumedUpTo = new int[slotsByPattern.size()];
+
+        automaton.scan(haystack, (patternId, strStart, strEnd) -> {
+            if (strStart < consumedUpTo[patternId]) return;
+            consumedUpTo[patternId] = strEnd;
+            // The pattern is a plain literal for speed; the word-boundary rule lives
+            // here, checked on code points so letters outside the BMP count too.
+            if (boundaryByPattern.get(patternId)
+                    && !TermMatchUtils.acceptAtBoundary(documentText, strStart, strEnd)) {
+                return;
+            }
+            // 8.1: Reject match that falls strictly inside an entity reference.
+            if (entityRanges != null && !entityRanges.isEmpty()
+                    && MarkupMasker.isInsideEntity(strStart, strEnd, entityRanges)) {
+                return;
+            }
+            for (Slot slot : slotsByPattern.get(patternId)) {
+                TermEntry term = slot.entry;
+                // Key: source + target + position. The target must be part of it or a second
+                // translation of the same source at the same spot silently disappears; an
+                // identical triple arriving through two termbases still collapses to one hit.
+                // The key is direction-independent, so the same pair matches once whichever side
+                // drove the search.
+                String posKey = term.getSourceTerm() + "\u0000" + term.getTargetTerm() + "\u0000" + strStart;
+                if (countedPositions.add(posKey)) {
+                    rawMatches.add(new RawMatch(term.getSourceTerm(), term.getTargetTerm(),
+                        strStart, strEnd, term.getStatus(), slot.matchedText));
+                }
+            }
+        });
     }
 
     /** One deduplicated hit still in document-string coordinates, before longest-match filtering. */
