@@ -2,13 +2,14 @@ package com.example.termmgmt.service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermStatus;
 
+import com.example.termmgmt.util.InflectionVariants;
 import com.example.termmgmt.util.MarkupMasker;
 import com.example.termmgmt.util.TermAutomaton;
 import com.example.termmgmt.util.TermMatchUtils;
@@ -73,7 +74,20 @@ public class DocumentScanner {
     public List<ScanResult> scan(String documentText, List<TermEntry> terms,
             boolean isTextMode, List<int[]> authorSegments, boolean caseSensitive,
             ScanDirection direction) {
-        Set<String> countedPositions = new HashSet<>();
+        return scan(documentText, terms, isTextMode, authorSegments, caseSensitive, direction, false);
+    }
+
+    /**
+     * As above, optionally also matching the regular English word forms of each term
+     * ({@link InflectionVariants}): "grids", "gridded" and "gridding" for "grid". A form found in
+     * the document is reported against the entry it derives from; the reported range covers the
+     * form actually present, and {@link ScanResult#matchedText} stays the entry's own text. With
+     * {@code matchInflections} false this is exactly the scan without the option.
+     */
+    public List<ScanResult> scan(String documentText, List<TermEntry> terms,
+            boolean isTextMode, List<int[]> authorSegments, boolean caseSensitive,
+            ScanDirection direction, boolean matchInflections) {
+        Map<String, Integer> countedPositions = new HashMap<>();
         List<RawMatch> rawMatches = new ArrayList<>();
 
         // In text mode the editor hands over the raw file including markup; blank the
@@ -87,8 +101,8 @@ public class DocumentScanner {
         }
 
         if (!documentText.isEmpty()) {
-            scanInto(documentText, terms, isTextMode, caseSensitive, direction, entityRanges,
-                countedPositions, rawMatches);
+            scanInto(documentText, terms, isTextMode, caseSensitive, direction, matchInflections,
+                entityRanges, countedPositions, rawMatches);
         }
 
         List<ScanResult> allMatches = new ArrayList<>();
@@ -130,6 +144,25 @@ public class DocumentScanner {
     }
 
     /**
+     * Adds {@code text} as a pattern (or finds the identical one) and attaches {@code slot} to it
+     * unless this very slot is already attached - a term and one of its word forms can fold to the
+     * same text, and the entry must not be reported twice for one hit.
+     */
+    private static void register(TermAutomaton.Builder builder, List<List<Slot>> slotsByPattern,
+            List<Boolean> boundaryByPattern, String text, boolean caseSensitive, Slot slot) {
+        char[] pattern = caseSensitive ? text.toCharArray() : TermAutomaton.fold(text);
+        int id = builder.add(pattern);
+        if (id == slotsByPattern.size()) {
+            slotsByPattern.add(new ArrayList<>());
+            boundaryByPattern.add(TermMatchUtils.boundaryNeeded(text));
+        }
+        List<Slot> slots = slotsByPattern.get(id);
+        if (slots.isEmpty() || slots.get(slots.size() - 1) != slot) {
+            slots.add(slot);
+        }
+    }
+
+    /**
      * One pass over the document for the whole termbase. The behaviour is that of running a
      * literal regex per entry, which the previous implementation did: the same case rule, the
      * same "a term never overlaps itself" rule, and every later check unchanged.
@@ -143,8 +176,8 @@ public class DocumentScanner {
      * </ul>
      */
     private static void scanInto(String documentText, List<TermEntry> terms, boolean isTextMode,
-            boolean caseSensitive, ScanDirection direction, List<int[]> entityRanges,
-            Set<String> countedPositions, List<RawMatch> rawMatches) {
+            boolean caseSensitive, ScanDirection direction, boolean matchInflections,
+            List<int[]> entityRanges, Map<String, Integer> countedPositions, List<RawMatch> rawMatches) {
         TermAutomaton.Builder builder = new TermAutomaton.Builder();
         List<List<Slot>> slotsByPattern = new ArrayList<>();
         List<Boolean> boundaryByPattern = new ArrayList<>();
@@ -157,13 +190,13 @@ public class DocumentScanner {
             if (matchedText == null || matchedText.isEmpty()) continue;
 
             String matchTerm = isTextMode ? escapeXmlEntities(matchedText) : matchedText;
-            char[] pattern = caseSensitive ? matchTerm.toCharArray() : TermAutomaton.fold(matchTerm);
-            int id = builder.add(pattern);
-            if (id == slotsByPattern.size()) {
-                slotsByPattern.add(new ArrayList<>());
-                boundaryByPattern.add(TermMatchUtils.boundaryNeeded(matchTerm));
+            Slot slot = new Slot(term, matchedText);
+            register(builder, slotsByPattern, boundaryByPattern, matchTerm, caseSensitive, slot);
+            if (matchInflections) {
+                for (String variant : InflectionVariants.variantsOf(matchTerm)) {
+                    register(builder, slotsByPattern, boundaryByPattern, variant, caseSensitive, slot);
+                }
             }
-            slotsByPattern.get(id).add(new Slot(term, matchedText));
         }
         if (slotsByPattern.isEmpty()) return;
 
@@ -193,8 +226,16 @@ public class DocumentScanner {
                 // The key is direction-independent, so the same pair matches once whichever side
                 // drove the search.
                 String posKey = term.getSourceTerm() + "\u0000" + term.getTargetTerm() + "\u0000" + strStart;
-                if (countedPositions.add(posKey)) {
+                Integer seen = countedPositions.get(posKey);
+                if (seen == null) {
+                    countedPositions.put(posKey, rawMatches.size());
                     rawMatches.add(new RawMatch(term.getSourceTerm(), term.getTargetTerm(),
+                        strStart, strEnd, term.getStatus(), slot.matchedText));
+                } else if (strEnd > rawMatches.get(seen).strEnd) {
+                    // The same entry matched twice from one spot: its own text and a longer word
+                    // form of it (only possible with word-form matching). The longer one is the
+                    // word actually present in the document, so it replaces the shorter hit.
+                    rawMatches.set(seen, new RawMatch(term.getSourceTerm(), term.getTargetTerm(),
                         strStart, strEnd, term.getStatus(), slot.matchedText));
                 }
             }

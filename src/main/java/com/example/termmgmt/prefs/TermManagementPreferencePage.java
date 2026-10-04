@@ -41,6 +41,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
     private JPanel ui;
     private JTable termbaseTable;
     private JCheckBox caseSensitiveCheck;
+    private JCheckBox matchInflectionsCheck;
     private int reloadGeneration; // EDT only
     private boolean addInProgress; // EDT only
     private DefaultTableModel tableModel;
@@ -60,6 +61,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             // Reload from OptionsStorage to discard unsaved changes.
             registry.loadConfigs();
             caseSensitiveCheck.setSelected(loadCaseSensitiveOption());
+            matchInflectionsCheck.setSelected(loadMatchInflectionsOption());
             reloadSettings();
         }
         return ui;
@@ -71,6 +73,8 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         registry.saveConfigs();
         registry.setCaseSensitive(caseSensitiveCheck.isSelected());
         saveCaseSensitiveOption(caseSensitiveCheck.isSelected());
+        registry.setMatchInflections(matchInflectionsCheck.isSelected());
+        saveMatchInflectionsOption(matchInflectionsCheck.isSelected());
     }
 
     @Override
@@ -80,6 +84,8 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         registry.setConfigs(new java.util.ArrayList<>());
         registry.setCaseSensitive(false);
         caseSensitiveCheck.setSelected(false);
+        registry.setMatchInflections(false);
+        matchInflectionsCheck.setSelected(false);
         reloadSettings();
     }
 
@@ -101,9 +107,18 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         // Matching option, applied on OK/Apply together with the termbase list
         caseSensitiveCheck = new JCheckBox(I18N.getString("prefs.case-sensitive"));
         caseSensitiveCheck.setSelected(loadCaseSensitiveOption());
+        matchInflectionsCheck = new JCheckBox(I18N.getString("prefs.match-inflections"));
+        matchInflectionsCheck.setToolTipText(I18N.getString("prefs.match-inflections.tooltip"));
+        matchInflectionsCheck.setSelected(loadMatchInflectionsOption());
+        JPanel optionsPanel = new JPanel();
+        optionsPanel.setLayout(new BoxLayout(optionsPanel, BoxLayout.Y_AXIS));
+        caseSensitiveCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
+        matchInflectionsCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
+        optionsPanel.add(caseSensitiveCheck);
+        optionsPanel.add(matchInflectionsCheck);
         JPanel northPanel = new JPanel(new BorderLayout());
         northPanel.add(headerLabel, BorderLayout.NORTH);
-        northPanel.add(caseSensitiveCheck, BorderLayout.SOUTH);
+        northPanel.add(optionsPanel, BorderLayout.SOUTH);
 
         // Termbase table with proper model that can be updated
         String[] columns = {
@@ -521,6 +536,27 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
             if (w == null) return;
             w.getOptionsStorage().setOption(TermbaseRegistry.CASE_SENSITIVE_OPTION_KEY, String.valueOf(value));
+        } catch (Exception e) {
+        }
+    }
+
+    /** Current "match inflected forms" setting; defaults to off when storage is unavailable. */
+    private boolean loadMatchInflectionsOption() {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return false;
+            return Boolean.parseBoolean(
+                w.getOptionsStorage().getOption(TermbaseRegistry.MATCH_INFLECTIONS_OPTION_KEY, "false"));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void saveMatchInflectionsOption(boolean value) {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return;
+            w.getOptionsStorage().setOption(TermbaseRegistry.MATCH_INFLECTIONS_OPTION_KEY, String.valueOf(value));
         } catch (Exception e) {
         }
     }

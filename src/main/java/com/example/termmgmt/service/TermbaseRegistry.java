@@ -51,6 +51,9 @@ public class TermbaseRegistry {
     /** OptionsStorage key of the "case sensitive matching" preference ("true"/"false"). */
     public static final String CASE_SENSITIVE_OPTION_KEY = "com.example.termmgmt.case-sensitive";
 
+    /** OptionsStorage key of the "match inflected forms" preference ("true"/"false"). */
+    public static final String MATCH_INFLECTIONS_OPTION_KEY = "com.example.termmgmt.match-inflections";
+
     private static TermbaseRegistry instance;
 
     // Replaced wholesale, never mutated in place; volatile gives safe publication to worker threads.
@@ -62,6 +65,7 @@ public class TermbaseRegistry {
     // User option: distinguish upper/lower case when matching terms. Volatile because the
     // EDT writes it from the preferences page and scan workers read it.
     private volatile boolean caseSensitive;
+    private volatile boolean matchInflections;
 
     private List<Runnable> changeListeners;
 
@@ -463,6 +467,15 @@ public class TermbaseRegistry {
     /** Set the case-sensitivity option; takes effect for patterns compiled from now on. */
     public void setCaseSensitive(boolean caseSensitive) {
         this.caseSensitive = caseSensitive;
+    }
+
+    /** Whether a scan also looks for the regular English word forms of each term (default off). */
+    public boolean isMatchInflections() {
+        return matchInflections;
+    }
+
+    public void setMatchInflections(boolean matchInflections) {
+        this.matchInflections = matchInflections;
     }
 
     public synchronized List<TermEntry> getAllTerms() {

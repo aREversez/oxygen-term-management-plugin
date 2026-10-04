@@ -2,6 +2,7 @@ package com.example.termmgmt.service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -13,6 +14,7 @@ import java.util.regex.Pattern;
 import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.service.DocumentScanner.ScanResult;
 import com.example.termmgmt.model.TermStatus;
+import com.example.termmgmt.util.InflectionVariants;
 
 import com.example.termmgmt.util.MarkupMasker;
 import com.example.termmgmt.util.TermMatchUtils;
@@ -59,7 +61,18 @@ public class ReferenceScanner {
     public List<ScanResult> scan(String documentText, List<TermEntry> terms,
             boolean isTextMode, List<int[]> authorSegments, boolean caseSensitive,
             ScanDirection direction) {
-        Set<String> countedPositions = new HashSet<>();
+        return scan(documentText, terms, isTextMode, authorSegments, caseSensitive, direction, false);
+    }
+
+    /**
+     * The same scan, optionally also matching the word forms of each term. Here every form is
+     * simply another regex run of the same entry, which is the plain reading of the feature;
+     * the production scanner reaches the same result through one automaton.
+     */
+    public List<ScanResult> scan(String documentText, List<TermEntry> terms,
+            boolean isTextMode, List<int[]> authorSegments, boolean caseSensitive,
+            ScanDirection direction, boolean inflect) {
+        Map<String, Integer> countedPositions = new HashMap<>();
         List<RawMatch> rawMatches = new ArrayList<>();
 
         // In text mode the editor hands over the raw file including markup; blank the
@@ -83,7 +96,13 @@ public class ReferenceScanner {
             String matchedText = direction == ScanDirection.TARGET ? targetTerm : sourceTerm;
             if (matchedText == null || matchedText.isEmpty()) continue;
 
-            String matchTerm = isTextMode ? escapeXmlEntities(matchedText) : matchedText;
+            String baseTerm = isTextMode ? escapeXmlEntities(matchedText) : matchedText;
+            List<String> candidates = new ArrayList<>();
+            candidates.add(baseTerm);
+            if (inflect) {
+                candidates.addAll(InflectionVariants.variantsOf(baseTerm));
+            }
+            for (String matchTerm : candidates) {
             String cacheKey = (caseSensitive ? "s" : "i") + "\u0000" + matchTerm;
             // 9.4: Cap cache size to prevent unbounded growth across a session.
             if (PATTERN_CACHE.size() >= PATTERN_CACHE_LIMIT) {
@@ -116,9 +135,14 @@ public class ReferenceScanner {
                 // The key is direction-independent, so the same pair matches once whichever side
                 // drove the search.
                 String posKey = sourceTerm + "\u0000" + targetTerm + "\u0000" + strStart;
-                if (countedPositions.add(posKey)) {
+                Integer seen = countedPositions.get(posKey);
+                if (seen == null) {
+                    countedPositions.put(posKey, rawMatches.size());
                     rawMatches.add(new RawMatch(sourceTerm, targetTerm, strStart, strEnd, term.getStatus(), matchedText));
+                } else if (strEnd > rawMatches.get(seen).strEnd) {
+                    rawMatches.set(seen, new RawMatch(sourceTerm, targetTerm, strStart, strEnd, term.getStatus(), matchedText));
                 }
+            }
             }
         }
 

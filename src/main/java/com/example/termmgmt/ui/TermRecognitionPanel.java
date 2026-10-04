@@ -440,6 +440,7 @@ public class TermRecognitionPanel extends JPanel {
         String capturedText = documentText;
         TermbaseConfig capturedConfig = config;
         boolean capturedCaseSensitive = registry.isCaseSensitive();
+        boolean capturedMatchInflections = registry.isMatchInflections();
         ScanDirection capturedDirection = currentDirection();
         // Remember the termbase behind this scan so renderResults can build "suggested replacement"
         // lookups against the same entry list.
@@ -451,7 +452,7 @@ public class TermRecognitionPanel extends JPanel {
                 List<TermEntry> terms = registry.getTerms(capturedConfig);
                 DocumentScanner scanner = new DocumentScanner();
                 return scanner.scan(capturedText, terms, capturedIsTextMode, capturedSegments,
-                    capturedCaseSensitive, capturedDirection);
+                    capturedCaseSensitive, capturedDirection, capturedMatchInflections);
             }
 
             @Override

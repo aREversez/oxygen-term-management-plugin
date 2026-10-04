@@ -30,7 +30,19 @@
                         勾选 <uicontrol>仅显示弃用词</uicontrol> 可把表格、统计、高亮和导航都收窄到弃用命中（内存过滤，不重新扫描），切回 <uicontrol>按源词扫描</uicontrol> 时该复选框置灰。
                         上一个/下一个按钮按被匹配的那一侧文本（按译词时即译词）在文档中定位；方向选择会被记住，重启后保持。
                         已知限制：弃用词若正好是某个更长合法术语的一部分（如弃用词 <codeph>mesh</codeph> 出现在合法词 <codeph>mesh size</codeph> 中），仍会被报告，第一版不做特殊抑制；
-                        不做词干/词形变化匹配（<codeph>grids</codeph>、<codeph>gridded</codeph> 不会命中 <codeph>grid</codeph>）。按源词扫描的行为与之前完全一致。</note>
+                        默认也不匹配词形变化（<codeph>grids</codeph>、<codeph>gridded</codeph> 不会命中 <codeph>grid</codeph>），需要时见下一条。按源词扫描的行为与之前完全一致。</note>
+                </info>
+            </step>
+            <step>
+                <cmd>需要同时找出英文词形变化时，在 <uicontrol>Preferences &gt; Term Management</uicontrol> 勾选 <uicontrol>匹配英文词形变化</uicontrol>（默认关闭）。</cmd>
+                <info>
+                    <note type="note">勾选后，每个术语（按源词或按译词扫描时被匹配的那一侧）的<b>最后一个单词</b>会同时按规则变化形式查找：
+                        复数（<codeph>grid</codeph> → <codeph>grids</codeph>；<codeph>mesh</codeph> → <codeph>meshes</codeph>；<codeph>study</codeph> → <codeph>studies</codeph>）、
+                        过去式/过去分词（<codeph>solve</codeph> → <codeph>solved</codeph>；<codeph>grid</codeph> → <codeph>gridded</codeph>）和 -ing 形式（<codeph>solving</codeph>、<codeph>gridding</codeph>），
+                        多词术语只变最后一个词（<codeph>mesh size</codeph> → <codeph>mesh sizes</codeph>）；<codeph>matrix → matrices</codeph> 等少数常见不规则复数也在内。
+                        大写缩写只加 <codeph>s</codeph>（<codeph>CPU</codeph> → <codeph>CPUs</codeph>）。命中的高亮范围是文档里实际出现的词形，结果表仍显示术语库里的原词；弃用状态和建议改用照常。
+                        局限：只处理上述规则变化，不处理 <codeph>-er</codeph>/<codeph>-est</codeph>/<codeph>-ly</codeph>；规则会多生成一些不常见的形式（如 <codeph>gridded</codeph> 命中弃用的 <codeph>grid</codeph>），
+                        它们仍遵守词边界；含数字、符号或中日韩文字结尾的术语不做变化。</note>
                 </info>
             </step>
             <step>

@@ -252,6 +252,7 @@
                                 <include>com/example/termmgmt/util/TermbaseChecker.java</include>
                                 <include>com/example/termmgmt/util/ReplacementSuggestions.java</include>
                                 <include>com/example/termmgmt/util/TermAutomaton.java</include>
+                                <include>com/example/termmgmt/util/InflectionVariants.java</include>
                                 <include>com/example/termmgmt/service/CsvTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/XlsxTermbaseHandler.java</include>
                                 <include>com/example/termmgmt/service/TbxTermbaseHandler.java</include>

@@ -32,6 +32,13 @@ public class TermManagementWorkspaceAccessExtension
         } catch (Exception e) {
             // Storage unavailable: keep the default (case-insensitive).
         }
+        try {
+            String value = workspace.getOptionsStorage()
+                .getOption(TermbaseRegistry.MATCH_INFLECTIONS_OPTION_KEY, "false");
+            TermbaseRegistry.getInstance().setMatchInflections(Boolean.parseBoolean(value));
+        } catch (Exception e) {
+            // Storage unavailable: keep the default (exact forms only).
+        }
 
         workspace.addViewComponentCustomizer(new ViewComponentCustomizer() {
             @Override
