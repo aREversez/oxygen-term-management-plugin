@@ -569,7 +569,8 @@ public class TermRecognitionPanel extends JPanel {
         if (uniqueTerms == 0) {
             statsLabel.setText(I18N.getString("msg.no.matches"));
         } else {
-            String base = I18N.getString("msg.matched.terms", totalHits, uniqueTerms);
+            String key = (uniqueTerms == 1) ? "msg.matched.terms.one.entry" : "msg.matched.terms";
+            String base = I18N.getString(key, totalHits, uniqueTerms);
             if (dir == ScanDirection.TARGET && deprecatedRows > 0) {
                 base = base + I18N.getString("msg.matched.deprecated", deprecatedRows);
             }
