@@ -126,7 +126,8 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             I18N.getString("prefs.col.path"),
             I18N.getString("prefs.col.format"),
             I18N.getString("prefs.col.status"),
-            I18N.getString("prefs.col.termcount")
+            I18N.getString("prefs.col.termcount"),
+            I18N.getString("prefs.col.langs")
         };
         tableModel = new DefaultTableModel(columns, 0);
         termbaseTable = new JTable(tableModel);
@@ -139,6 +140,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         JButton addBtn = new JButton(I18N.getString("prefs.add"));
         JButton reloadBtn = new JButton(I18N.getString("prefs.reload"));
         JButton editBtn = new JButton(I18N.getString("prefs.edit"));
+        JButton langsBtn = new JButton(I18N.getString("prefs.langs"));
         removeBtn = new JButton(I18N.getString("prefs.remove"));
         enableBtn = new JButton(I18N.getString("prefs.enable"));
         disableBtn = new JButton(I18N.getString("prefs.disable"));
@@ -147,6 +149,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         addBtn.addActionListener(e -> addTermbase());
         reloadBtn.addActionListener(e -> reloadTermbase());
         editBtn.addActionListener(e -> editTermbase());
+        langsBtn.addActionListener(e -> chooseLanguages());
         removeBtn.addActionListener(e -> removeTermbase());
         enableBtn.addActionListener(e -> enableTermbase());
         disableBtn.addActionListener(e -> disableTermbase());
@@ -154,6 +157,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         buttonPanel.add(addBtn);
         buttonPanel.add(reloadBtn);
         buttonPanel.add(editBtn);
+        buttonPanel.add(langsBtn);
         buttonPanel.add(removeBtn);
         buttonPanel.add(enableBtn);
         buttonPanel.add(disableBtn);
@@ -181,6 +185,7 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                 config.getFilePath(),
                 config.getFormat().name(),
                 config.isEnabled() ? I18N.getString("prefs.status.enabled") : I18N.getString("prefs.status.disabled"),
+                "\u2026",
                 "\u2026"
             });
         }
@@ -198,7 +203,9 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                     } catch (Exception e) {
                         // Ignore if terms can't be loaded
                     }
-                    info.add(new Object[]{exists, termCount});
+                    // getTerms has loaded the file, so the config now knows its languages.
+                    String langs = describeLanguages(config);
+                    info.add(new Object[]{exists, termCount, langs});
                 }
                 return info;
             }
@@ -218,10 +225,136 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                             tableModel.setValueAt(I18N.getString("prefs.status.missing"), i, 3);
                         }
                         tableModel.setValueAt(info.get(i)[1], i, 4);
+                        tableModel.setValueAt(info.get(i)[2], i, 5);
                     }
                 } catch (Exception e) {
                     // Leave the placeholders; the table itself is already complete.
                 }
+            }
+        }.execute();
+    }
+
+    /** "source -> target", with a note when the chosen pair is not in the file. */
+    private static String describeLanguages(TermbaseConfig config) {
+        String src = config.getSourceLang();
+        String tgt = config.getTargetLang();
+        if (src == null || tgt == null) {
+            return "";
+        }
+        String text = src + " \u2192 " + tgt;
+        if (config.isSelectionFallback()) {
+            text += " (" + I18N.getString("prefs.langs.fallback") + ")";
+        }
+        return text;
+    }
+
+    /** Lets the user pick which two languages of the selected termbase the plugin works with. */
+    private void chooseLanguages() {
+        int[] selectedRows = termbaseTable.getSelectedRows();
+        if (selectedRows.length != 1) {
+            JOptionPane.showMessageDialog(ui, I18N.getString("prefs.select.langs"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        TermbaseConfig config = registry.getConfigs().get(selectedRows[0]);
+        // Reading the file for its language list can be slow; keep it off the EDT.
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() {
+                registry.getTerms(config);
+                if (config.getAvailableLangs().isEmpty()) {
+                    // Served from the cache of an earlier session of this config object: the
+                    // language list is only filled by an actual read.
+                    registry.reloadConfig(config.getFilePath());
+                }
+                return new ArrayList<>(config.getAvailableLangs());
+            }
+
+            @Override
+            protected void done() {
+                List<String> langs;
+                try {
+                    langs = get();
+                } catch (Exception e) {
+                    langs = new ArrayList<>();
+                }
+                if (langs.size() < 2) {
+                    JOptionPane.showMessageDialog(ui, I18N.getString("prefs.langs.unavailable"),
+                        I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                showLanguageDialog(config, langs);
+            }
+        }.execute();
+    }
+
+    private void showLanguageDialog(TermbaseConfig config, List<String> langs) {
+        JComboBox<String> sourceBox = new JComboBox<>(langs.toArray(new String[0]));
+        JComboBox<String> targetBox = new JComboBox<>(langs.toArray(new String[0]));
+        sourceBox.setSelectedItem(matchIgnoreCase(langs, config.getSourceLang()));
+        targetBox.setSelectedItem(matchIgnoreCase(langs, config.getTargetLang()));
+
+        JPanel panel = new JPanel(new GridLayout(0, 2, 6, 6));
+        panel.add(new JLabel(I18N.getString("prefs.langs.source")));
+        panel.add(sourceBox);
+        panel.add(new JLabel(I18N.getString("prefs.langs.target")));
+        panel.add(targetBox);
+
+        String useDefault = I18N.getString("prefs.langs.default");
+        Object[] options = { UIManager.getString("OptionPane.okButtonText"), useDefault,
+                             UIManager.getString("OptionPane.cancelButtonText") };
+        while (true) {
+            int choice = JOptionPane.showOptionDialog(ui, panel, I18N.getString("prefs.langs.title"),
+                JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            if (choice == 0) {
+                String src = (String) sourceBox.getSelectedItem();
+                String tgt = (String) targetBox.getSelectedItem();
+                if (src == null || tgt == null || src.equalsIgnoreCase(tgt)) {
+                    JOptionPane.showMessageDialog(ui, I18N.getString("prefs.langs.same"),
+                        I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
+                    continue;
+                }
+                applyLanguages(config, src, tgt);
+            } else if (choice == 1) {
+                applyLanguages(config, null, null);
+            }
+            return;
+        }
+    }
+
+    private static String matchIgnoreCase(List<String> langs, String wanted) {
+        for (String l : langs) {
+            if (l.equalsIgnoreCase(wanted)) {
+                return l;
+            }
+        }
+        return langs.get(0);
+    }
+
+    /** Stores the choice, re-reads the termbase with it and refreshes everything that shows terms. */
+    private void applyLanguages(TermbaseConfig config, String source, String target) {
+        String before = config.langPairKey();
+        config.setSelectedLangs(source, target);
+        if (before.equals(config.langPairKey())) {
+            return;
+        }
+        registry.saveConfigs();
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                registry.reloadConfig(config.getFilePath());
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(ui, I18N.getString("msg.failed.reload", e.getMessage()),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                }
+                reloadSettings();
             }
         }.execute();
     }

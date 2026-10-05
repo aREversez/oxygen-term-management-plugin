@@ -284,4 +284,84 @@ class XlsxTermbaseHandlerTest {
         assertEquals("a", loaded.get(0).getSourceTerm());
         assertEquals("b", loaded.get(0).getTargetTerm());
     }
+
+    // ---- per-termbase language pair (plan 7, phase B) ----
+
+    private Path threeLanguageSheet() throws Exception {
+        Path file = tempDir.resolve("three.xlsx");
+        try (Workbook wb = new XSSFWorkbook(); FileOutputStream fos = new FileOutputStream(file.toFile())) {
+            Sheet sheet = wb.createSheet("Terms");
+            String[][] rows = {
+                {"zh-cn", "en-us", "de-de", "note"},
+                {"网格", "mesh", "Netz", "n1"},
+                {"应力", "stress", "Spannung", "n2"},
+            };
+            for (int r = 0; r < rows.length; r++) {
+                Row row = sheet.createRow(r);
+                for (int c = 0; c < rows[r].length; c++) row.createCell(c).setCellValue(rows[r][c]);
+            }
+            wb.write(fos);
+        }
+        return file;
+    }
+
+    private static String cell(Path file, int r, int c) throws Exception {
+        try (FileInputStream in = new FileInputStream(file.toFile()); Workbook wb = new XSSFWorkbook(in)) {
+            return wb.getSheetAt(0).getRow(r).getCell(c).getStringCellValue();
+        }
+    }
+
+    @Test
+    void languagePair_default_isTheFirstTwoColumns() throws Exception {
+        TermbaseConfig config = new TermbaseConfig(threeLanguageSheet().toString(), Format.XLSX, true);
+        List<TermEntry> terms = XlsxTermbaseHandler.loadTerms(config);
+        assertEquals("网格", terms.get(0).getSourceTerm());
+        assertEquals("mesh", terms.get(0).getTargetTerm());
+        assertEquals(List.of("zh-cn", "en-us", "de-de", "note"), config.getAvailableLangs());
+        assertFalse(config.isSelectionFallback());
+    }
+
+    @Test
+    void languagePair_selected_readsThoseColumnsAndWritesBackInPlace() throws Exception {
+        Path file = threeLanguageSheet();
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        config.setSelectedLangs("de-de", "zh-cn");
+        List<TermEntry> terms = XlsxTermbaseHandler.loadTerms(config);
+        assertEquals("Netz", terms.get(0).getSourceTerm());
+        assertEquals("网格", terms.get(0).getTargetTerm());
+        assertEquals(List.of("en-us", "note"), config.getExtraColumns());
+
+        terms.get(0).setSourceTerm("Gitter");
+        XlsxTermbaseHandler.saveTerms(config, terms);
+        assertEquals("zh-cn", cell(file, 0, 0));
+        assertEquals("en-us", cell(file, 0, 1));
+        assertEquals("de-de", cell(file, 0, 2));
+        assertEquals("note", cell(file, 0, 3));
+        assertEquals("网格", cell(file, 1, 0));
+        assertEquals("mesh", cell(file, 1, 1));
+        assertEquals("Gitter", cell(file, 1, 2));
+        assertEquals("n1", cell(file, 1, 3));
+    }
+
+    @Test
+    void languagePair_missingLanguage_fallsBackToDefault() throws Exception {
+        TermbaseConfig config = new TermbaseConfig(threeLanguageSheet().toString(), Format.XLSX, true);
+        config.setSelectedLangs("fr-fr", "en-us");
+        List<TermEntry> terms = XlsxTermbaseHandler.loadTerms(config);
+        assertTrue(config.isSelectionFallback());
+        assertEquals("网格", terms.get(0).getSourceTerm());
+    }
+
+    @Test
+    void languagePair_statusColumnIsAppendedAfterEveryExistingColumn() throws Exception {
+        Path file = threeLanguageSheet();
+        TermbaseConfig config = new TermbaseConfig(file.toString(), Format.XLSX, true);
+        config.setSelectedLangs("en-us", "de-de");
+        List<TermEntry> terms = XlsxTermbaseHandler.loadTerms(config);
+        terms.get(0).setStatus(com.example.termmgmt.model.TermStatus.DEPRECATED);
+        XlsxTermbaseHandler.saveTerms(config, terms);
+        assertEquals("status", cell(file, 0, 4));
+        assertEquals("note", cell(file, 0, 3));
+        assertEquals("mesh", cell(file, 1, 0 + 1));
+    }
 }

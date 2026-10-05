@@ -35,23 +35,27 @@ public class XlsxTermbaseHandler {
             int lastCell = headerRow.getLastCellNum();
             if (lastCell < 2) return terms;
 
-            Cell sourceHeaderCell = headerRow.getCell(0);
-            Cell targetHeaderCell = headerRow.getCell(1);
-            String sourceLang = getCellStringValue(sourceHeaderCell, formatter, evaluator);
-            sourceLang = (sourceLang != null && !sourceLang.trim().isEmpty()) ? sourceLang.trim() : "zh-cn";
-            String targetLang = getCellStringValue(targetHeaderCell, formatter, evaluator);
-            targetLang = (targetLang != null && !targetLang.trim().isEmpty()) ? targetLang.trim() : "en-us";
-            config.setSourceLang(sourceLang);
-            config.setTargetLang(targetLang);
-
-            // Columns from the third on are not modelled as terms; remember their names and
-            // keep each row's values so a save can write them back untouched.
-            List<String> extraColumns = new ArrayList<>();
-            for (int c = 2; c < lastCell; c++) {
+            List<String> headerNames = new ArrayList<>();
+            for (int c = 0; c < lastCell; c++) {
                 String name = getCellStringValue(headerRow.getCell(c), formatter, evaluator);
-                extraColumns.add(name != null ? name.trim() : "");
+                headerNames.add(name != null ? name.trim() : "");
             }
+            ColumnLayout.Resolution columns = ColumnLayout.resolve(headerNames, config);
+            int srcCol = columns.sourceColumn;
+            int tgtCol = columns.targetColumn;
+            config.setLangColumns(srcCol, tgtCol);
+            config.setAvailableLangs(columns.available);
+            config.setSelectionFallback(columns.fellBack);
+            String sourceLang = headerNames.get(srcCol);
+            config.setSourceLang(!sourceLang.isEmpty() ? sourceLang : "zh-cn");
+            String targetLang = headerNames.get(tgtCol);
+            config.setTargetLang(!targetLang.isEmpty() ? targetLang : "en-us");
+
+            // Columns other than the source and target are not modelled as terms; remember their
+            // names and keep each row's values so a save can write them back untouched.
+            List<String> extraColumns = ColumnLayout.extrasOf(headerNames, srcCol, tgtCol);
             config.setExtraColumns(extraColumns);
+            ColumnLayout layout = ColumnLayout.of(config);
             int statusCol = CsvTermbaseHandler.findStatusColumn(extraColumns);
 
             for (int rowNum = 1; rowNum <= sheet.getLastRowNum(); rowNum++) {
@@ -59,19 +63,19 @@ public class XlsxTermbaseHandler {
                 if (row == null) continue;
 
                 TermEntry entry = new TermEntry();
-                String src = getCellStringValue(row.getCell(0), formatter, evaluator);
-                String tgt = getCellStringValue(row.getCell(1), formatter, evaluator);
+                String src = getCellStringValue(row.getCell(srcCol), formatter, evaluator);
+                String tgt = getCellStringValue(row.getCell(tgtCol), formatter, evaluator);
                 entry.setSourceTerm(src != null ? src.trim() : null);
                 entry.setTargetTerm(tgt != null ? tgt.trim() : null);
                 Map<String, String> extras = new LinkedHashMap<>();
                 for (int i = 0; i < extraColumns.size(); i++) {
-                    String v = getCellStringValue(row.getCell(i + 2), formatter, evaluator);
+                    String v = getCellStringValue(row.getCell(layout.extraPosition(i)), formatter, evaluator);
                     // Cells missing from a short row come back as empty strings.
                     extras.put(extraColumns.get(i), v != null ? v : "");
                 }
                 entry.setExtraFields(extras);
                 if (statusCol >= 0) {
-                    String v = getCellStringValue(row.getCell(statusCol + 2), formatter, evaluator);
+                    String v = getCellStringValue(row.getCell(layout.extraPosition(statusCol)), formatter, evaluator);
                     v = v != null ? v.trim() : "";
                     entry.setStatusRaw(v.isEmpty() ? null : v);
                 }
@@ -99,6 +103,9 @@ public class XlsxTermbaseHandler {
             // Append "status" column if entries carry a status but no column exists yet.
             boolean appendStatus = CsvTermbaseHandler.findStatusColumn(extraColumns) < 0
                                     && CsvTermbaseHandler.hasStatusColumn(terms);
+            ColumnLayout layout = ColumnLayout.of(config);
+            // The appended status column goes after every existing column.
+            int appendedStatusColumn = layout.width();
             if (appendStatus) {
                 extraColumns.add(TermEntry.STATUS_FIELD);
             }
@@ -127,10 +134,11 @@ public class XlsxTermbaseHandler {
                 if (headerRow == null) {
                     headerRow = sheet.createRow(0);
                 }
-                setCell(headerRow, 0, sourceLang);
-                setCell(headerRow, 1, targetLang);
+                setCell(headerRow, layout.sourceIndex(), sourceLang);
+                setCell(headerRow, layout.targetIndex(), targetLang);
                 for (int i = 0; i < extraColumns.size(); i++) {
-                    setCell(headerRow, i + 2, extraColumns.get(i));
+                    setCell(headerRow, extraColumnPosition(layout, appendedStatusColumn, i),
+                            extraColumns.get(i));
                 }
 
                 // Drop the old data rows, then write the current list. Per-cell styles on
@@ -141,8 +149,8 @@ public class XlsxTermbaseHandler {
                 for (int i = 0; i < terms.size(); i++) {
                     TermEntry entry = terms.get(i);
                     Row row = sheet.createRow(i + 1);
-                    setCell(row, 0, entry.getSourceTerm() != null ? entry.getSourceTerm() : "");
-                    setCell(row, 1, entry.getTargetTerm() != null ? entry.getTargetTerm() : "");
+                    setCell(row, layout.sourceIndex(), entry.getSourceTerm() != null ? entry.getSourceTerm() : "");
+                    setCell(row, layout.targetIndex(), entry.getTargetTerm() != null ? entry.getTargetTerm() : "");
                     for (int c = 0; c < extraColumns.size(); c++) {
                         String colName = extraColumns.get(c);
                         String value;
@@ -154,7 +162,7 @@ public class XlsxTermbaseHandler {
                         } else {
                             value = entry.getExtraFields().get(colName);
                         }
-                        setCell(row, c + 2, value != null ? value : "");
+                        setCell(row, extraColumnPosition(layout, appendedStatusColumn, c), value != null ? value : "");
                     }
                 }
 
@@ -166,6 +174,11 @@ public class XlsxTermbaseHandler {
         } catch (Exception e) {
             throw new RuntimeException("Failed to save XLSX: " + filePath, e);
         }
+    }
+
+    /** File column of the c-th extra; an extra beyond the layout is the appended status column. */
+    private static int extraColumnPosition(ColumnLayout layout, int appendedStatusColumn, int c) {
+        return c < layout.width() - 2 ? layout.extraPosition(c) : appendedStatusColumn;
     }
 
     /** Write a string into the cell, creating it when missing; existing styles stay put. */

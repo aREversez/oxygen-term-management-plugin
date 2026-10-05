@@ -84,6 +84,7 @@ public class TbxTermbaseHandler {
             Document doc = parseFile(filePath);
 
             NodeList termEntryNodes = doc.getElementsByTagName("termEntry");
+            LangSelection selection = resolveSelection(doc, config);
 
             String detectedSourceLang = null;
             String detectedTargetLang = null;
@@ -91,7 +92,7 @@ public class TbxTermbaseHandler {
             for (int i = 0; i < termEntryNodes.getLength(); i++) {
                 Element termEntryNode = (Element) termEntryNodes.item(i);
                 // 5.2: skip non-loadable nodes entirely; they stay untouched on save.
-                if (!isLoadable(termEntryNode)) continue;
+                if (!isLoadable(termEntryNode, selection)) continue;
 
                 TermEntry entry = new TermEntry();
                 String id = termEntryNode.getAttribute("id");
@@ -101,20 +102,20 @@ public class TbxTermbaseHandler {
                 entry.setEntryOrdinal(i);
 
                 // Same selection the save uses, so both operate on the same pair of langSets.
-                List<Element> pair = selectLangSets(termEntryNode);
-                if (!pair.isEmpty()) {
-                    entry.setSourceTerm(getTermTextOrNull(pair.get(0)));
-                    if (detectedSourceLang == null) detectedSourceLang = langOf(pair.get(0));
+                LangPair pair = pairOf(termEntryNode, selection);
+                if (pair.source != null) {
+                    entry.setSourceTerm(getTermTextOrNull(pair.source));
+                    if (detectedSourceLang == null) detectedSourceLang = langOf(pair.source);
                 }
-                entry.setPersistedFingerprint(nodeFingerprint(termEntryNode));
-                if (pair.size() > 1) {
-                    entry.setTargetTerm(getTermTextOrNull(pair.get(1)));
-                    if (detectedTargetLang == null) detectedTargetLang = langOf(pair.get(1));
+                entry.setPersistedFingerprint(nodeFingerprint(termEntryNode, selection));
+                if (pair.target != null) {
+                    entry.setTargetTerm(getTermTextOrNull(pair.target));
+                    if (detectedTargetLang == null) detectedTargetLang = langOf(pair.target);
                 }
 
                 // Read administrativeStatus from the source langSet's term container.
-                if (!pair.isEmpty()) {
-                    String raw = findAdministrativeStatus(pair.get(0));
+                if (pair.source != null) {
+                    String raw = findAdministrativeStatus(pair.source);
                     if (raw != null) {
                         entry.setStatusRaw(raw);
                     }
@@ -122,8 +123,14 @@ public class TbxTermbaseHandler {
                 terms.add(entry);
             }
 
-            if (detectedSourceLang != null) config.setSourceLang(detectedSourceLang);
-            if (detectedTargetLang != null) config.setTargetLang(detectedTargetLang);
+            if (selection != null) {
+                // The chosen pair, spelled as the file spells it, even if no loadable entry has it.
+                config.setSourceLang(selection.source);
+                config.setTargetLang(selection.target);
+            } else {
+                if (detectedSourceLang != null) config.setSourceLang(detectedSourceLang);
+                if (detectedTargetLang != null) config.setTargetLang(detectedTargetLang);
+            }
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to load TBX: " + filePath, e);
@@ -162,9 +169,14 @@ public class TbxTermbaseHandler {
                 throw new RuntimeException("No body node in TBX file");
             }
             Element body = (Element) bodyNodes.item(0);
+            LangSelection selection = resolveSelection(doc, config);
 
             String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-CN";
             String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-US";
+            if (selection != null) {
+                sourceLang = selection.source;
+                targetLang = selection.target;
+            }
 
             // Snapshot the termEntry nodes and index them by id (the live list would shift
             // under removals, and the same id may legitimately appear on several nodes).
@@ -204,8 +216,8 @@ public class TbxTermbaseHandler {
                     // target text this entry last had on disk; otherwise it is someone else's.
                     Element candidate = snapshot.get(entry.getEntryOrdinal());
                     String candidateId = candidate.getAttribute("id");
-                    if (candidateId.isEmpty() && isLoadable(candidate) && !kept.contains(candidate)
-                            && Objects.equals(nodeFingerprint(candidate),
+                    if (candidateId.isEmpty() && isLoadable(candidate, selection) && !kept.contains(candidate)
+                            && Objects.equals(nodeFingerprint(candidate, selection),
                                     entry.getPersistedFingerprint())) {
                         node = candidate;
                     }
@@ -214,7 +226,7 @@ public class TbxTermbaseHandler {
                 if (node != null && !kept.contains(node)) {
                     kept.add(node);
                     nodeToEntry.put(node, entry);
-                    updateEntryNode(doc, node, entry, sourceLang, targetLang);
+                    updateEntryNode(doc, node, entry, sourceLang, targetLang, selection);
                 } else {
                     String newId = nextFreeId(usedIds);
                     usedIds.add(newId);
@@ -224,9 +236,9 @@ public class TbxTermbaseHandler {
                     appendLangSet(fresh, targetLang, entry.getTargetTerm());
                     String statusVal = entry.getStoredStatusValue();
                     if (statusVal != null && !statusVal.isEmpty()) {
-                        List<Element> freshPair = selectLangSets(fresh);
-                        if (!freshPair.isEmpty()) {
-                            setAdministrativeStatus(freshPair.get(0), toTbxValue(statusVal));
+                        LangPair freshPair = pairOf(fresh, selection);
+                        if (freshPair.source != null) {
+                            setAdministrativeStatus(freshPair.source, toTbxValue(statusVal));
                         }
                     }
                     body.appendChild(fresh);
@@ -236,7 +248,7 @@ public class TbxTermbaseHandler {
 
             // 5.2: Only delete loadable unclaimed nodes; non-loadable nodes stay untouched.
             for (Element e : snapshot) {
-                if (!kept.contains(e) && isLoadable(e) && e.getParentNode() != null) {
+                if (!kept.contains(e) && isLoadable(e, selection) && e.getParentNode() != null) {
                     e.getParentNode().removeChild(e);
                 }
             }
@@ -253,7 +265,7 @@ public class TbxTermbaseHandler {
                 if (entry == null) continue;
                 String id = node.getAttribute("id");
                 writeBack.add(new Object[] { entry, i, id.isEmpty() ? null : id,
-                        nodeFingerprint(node) });
+                        nodeFingerprint(node, selection) });
             }
 
             // Drop the whitespace-only text nodes left by pretty-printing. The transformer
@@ -423,32 +435,38 @@ public class TbxTermbaseHandler {
 
     /** Replace the term text in the same langSets loadTerms selected; append any missing one. */
     private static void updateEntryNode(Document doc, Element node, TermEntry entry,
-                                        String sourceLang, String targetLang) {
-        List<Element> pair = selectLangSets(node);
-        if (!pair.isEmpty()) {
-            setTermText(pair.get(0), entry.getSourceTerm());
-        } else {
+                                        String sourceLang, String targetLang,
+                                        LangSelection selection) {
+        LangPair pair = pairOf(node, selection);
+        if (pair.source != null) {
+            setTermText(pair.source, entry.getSourceTerm());
+        } else if (pair.target == null || !isBlank(entry.getSourceTerm())) {
+            // A node that has neither language gets a source langSet as before; one that has only
+            // the target is not given an empty source it never had.
             appendLangSet(node, sourceLang, entry.getSourceTerm());
-            // Re-select to get the newly appended langSet.
-            pair = selectLangSets(node);
+            pair = pairOf(node, selection);
         }
-        if (pair.size() > 1) {
-            setTermText(pair.get(1), entry.getTargetTerm());
+        if (pair.target != null) {
+            setTermText(pair.target, entry.getTargetTerm());
         } else if (entry.getTargetTerm() != null && !entry.getTargetTerm().isEmpty()) {
             appendLangSet(node, targetLang, entry.getTargetTerm());
         }
         // Handle administrativeStatus termNote.
-        if (!pair.isEmpty()) {
+        if (pair.source != null) {
             String statusVal = entry.getStoredStatusValue();
             if (statusVal != null && statusVal.isEmpty()) {
                 // 6.1: Explicitly cleared – remove the termNote.
-                removeAdministrativeStatus(pair.get(0));
+                removeAdministrativeStatus(pair.source);
             } else if (statusVal != null) {
-                setAdministrativeStatus(pair.get(0), toTbxValue(statusVal));
+                setAdministrativeStatus(pair.source, toTbxValue(statusVal));
             }
             // If statusVal is null, leave existing termNote untouched (preserves unknown values
             // on noop save, and entries that never had a status simply don't get one added).
         }
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
     }
 
     private static void appendLangSet(Element parent, String lang, String termText) {
@@ -510,11 +528,11 @@ public class TbxTermbaseHandler {
      * comparable. Null for a node without any langSet. The NUL separator cannot occur in XML
      * text, so two different pairs never produce the same string.
      */
-    private static String nodeFingerprint(Element termEntry) {
-        List<Element> pair = selectLangSets(termEntry);
-        if (pair.isEmpty()) return null;
-        String source = getTermTextOrNull(pair.get(0));
-        String target = pair.size() > 1 ? getTermTextOrNull(pair.get(1)) : null;
+    private static String nodeFingerprint(Element termEntry, LangSelection selection) {
+        LangPair pair = pairOf(termEntry, selection);
+        if (pair.source == null && pair.target == null) return null;
+        String source = pair.source == null ? null : getTermTextOrNull(pair.source);
+        String target = pair.target == null ? null : getTermTextOrNull(pair.target);
         return (source == null ? "" : source) + "\u0000" + (target == null ? "" : target);
     }
 
@@ -522,13 +540,110 @@ public class TbxTermbaseHandler {
      * 5.2: A termEntry is loadable if it has at least one langSet with a non-blank term text.
      * Used during load to decide whether to produce a TermEntry, and during save to decide
      * whether a node on disk is "eligible for claiming". Non-loadable nodes are left untouched.
+     * With a language pair selected, only the two chosen langSets count: an entry that has the
+     * other languages but neither of these is not part of this pair's termbase.
      */
     static boolean isLoadable(Element termEntry) {
-        List<Element> pair = selectLangSets(termEntry);
-        for (Element ls : pair) {
-            if (getTermTextOrNull(ls) != null) return true;
+        return isLoadable(termEntry, null);
+    }
+
+    static boolean isLoadable(Element termEntry, LangSelection selection) {
+        if (selection == null) {
+            // Default pair: any langSet with text makes the node an entry, as it always has.
+            for (Element ls : selectLangSets(termEntry)) {
+                if (getTermTextOrNull(ls) != null) return true;
+            }
+            return false;
         }
-        return false;
+        LangPair pair = pairOf(termEntry, selection);
+        return (pair.source != null && getTermTextOrNull(pair.source) != null)
+            || (pair.target != null && getTermTextOrNull(pair.target) != null);
+    }
+
+    /** The langSets one termEntry offers for the source and the target side; either may be null. */
+    private static final class LangPair {
+        final Element source;
+        final Element target;
+
+        LangPair(Element source, Element target) {
+            this.source = source;
+            this.target = target;
+        }
+    }
+
+    /**
+     * The source and target langSets of a termEntry. Without a selection that is the first and the
+     * second langSet that carries a term (the long-standing default); with one it is the first
+     * langSet in each chosen language.
+     */
+    private static LangPair pairOf(Node termEntry, LangSelection selection) {
+        List<Element> all = selectLangSets(termEntry);
+        if (selection == null) {
+            return new LangPair(all.isEmpty() ? null : all.get(0), all.size() > 1 ? all.get(1) : null);
+        }
+        Element source = null;
+        Element target = null;
+        for (Element ls : all) {
+            String lang = langOf(ls);
+            if (source == null && selection.source.equalsIgnoreCase(lang)) {
+                source = ls;
+            } else if (target == null && selection.target.equalsIgnoreCase(lang)) {
+                target = ls;
+            }
+        }
+        return new LangPair(source, target);
+    }
+
+    /**
+     * The selection to use for this file, or null for the default pair. A selection holds only
+     * when the file offers both chosen languages; otherwise the default applies and the config is
+     * flagged so the UI can say so. Also refreshes the config's list of available languages. The
+     * returned languages are spelled as the file spells them.
+     */
+    private static LangSelection resolveSelection(Document doc, TermbaseConfig config) {
+        List<String> available = new ArrayList<>();
+        NodeList entries = doc.getElementsByTagName("termEntry");
+        for (int i = 0; i < entries.getLength(); i++) {
+            for (Element ls : selectLangSets(entries.item(i))) {
+                String lang = langOf(ls);
+                if (lang == null || lang.trim().isEmpty()) continue;
+                boolean known = false;
+                for (String a : available) {
+                    if (a.equalsIgnoreCase(lang)) {
+                        known = true;
+                        break;
+                    }
+                }
+                if (!known) available.add(lang);
+            }
+        }
+        config.setAvailableLangs(available);
+        config.setSelectionFallback(false);
+        if (!config.hasSelectedLangs()) {
+            return null;
+        }
+        String src = null;
+        String tgt = null;
+        for (String a : available) {
+            if (a.equalsIgnoreCase(config.getSelectedSourceLang())) src = a;
+            if (a.equalsIgnoreCase(config.getSelectedTargetLang())) tgt = a;
+        }
+        if (src == null || tgt == null || src.equalsIgnoreCase(tgt)) {
+            config.setSelectionFallback(true);
+            return null;
+        }
+        return new LangSelection(src, tgt);
+    }
+
+    /** A chosen language pair, spelled as the TBX file spells it. */
+    static final class LangSelection {
+        final String source;
+        final String target;
+
+        LangSelection(String source, String target) {
+            this.source = source;
+            this.target = target;
+        }
     }
 
     /** Get non-blank term text from a langSet, or null if blank/missing. */

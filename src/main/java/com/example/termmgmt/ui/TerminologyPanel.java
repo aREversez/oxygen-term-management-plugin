@@ -68,6 +68,8 @@ public class TerminologyPanel extends JPanel {
     // just these back into the current list; it never rewrites the file from an old copy.
     private List<TermEntryUtils.RemovedEntry> undoRemoved;
     private TermbaseConfig undoConfig;
+    /** Language pair in force when the entries were deleted; undo is void once it changes. */
+    private String undoPairKey;
 
     public TerminologyPanel(TermbaseRegistry registry) {
         this.registry = registry;
@@ -703,6 +705,7 @@ public class TerminologyPanel extends JPanel {
                     if (removed.isEmpty()) return;   // nothing was deleted; keep any earlier undo
                     undoRemoved = removed;
                     undoConfig = config;
+                    undoPairKey = config.langPairKey();
                     undoButton.setEnabled(true);
                 });
             } catch (Exception e) {
@@ -716,6 +719,16 @@ public class TerminologyPanel extends JPanel {
     private void undoDelete() {
         if (undoRemoved == null || undoConfig == null) {
             undoButton.setEnabled(false);
+            return;
+        }
+        if (!undoConfig.langPairKey().equals(undoPairKey)) {
+            // The termbase's language pair changed since the delete: the removed entries were
+            // read under the old pair and cannot be put back under the new one.
+            undoRemoved = null;
+            undoConfig = null;
+            undoButton.setEnabled(false);
+            JOptionPane.showMessageDialog(this, I18N.getString("msg.undo.langs.changed"),
+                I18N.getString("btn.undo"), JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         TermbaseConfig config = undoConfig;

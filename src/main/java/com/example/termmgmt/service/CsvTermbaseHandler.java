@@ -32,29 +32,35 @@ public class CsvTermbaseHandler {
                 return terms;
             }
 
-            String sourceLang = headers[0].trim();
-            String targetLang = headers[1].trim();
-            config.setSourceLang(sourceLang);
-            config.setTargetLang(targetLang);
-
-            // Columns from the third on are not modelled as terms; remember their names and
-            // keep each row's values so a save can write them back untouched.
-            List<String> extraColumns = new ArrayList<>();
-            for (int i = 2; i < headers.length; i++) {
-                extraColumns.add(headers[i].trim());
+            List<String> headerNames = new ArrayList<>();
+            for (String h : headers) {
+                headerNames.add(h != null ? h.trim() : "");
             }
+            ColumnLayout.Resolution columns = ColumnLayout.resolve(headerNames, config);
+            int srcCol = columns.sourceColumn;
+            int tgtCol = columns.targetColumn;
+            config.setLangColumns(srcCol, tgtCol);
+            config.setAvailableLangs(columns.available);
+            config.setSelectionFallback(columns.fellBack);
+            config.setSourceLang(headerNames.get(srcCol));
+            config.setTargetLang(headerNames.get(tgtCol));
+
+            // Columns other than the source and target are not modelled as terms; remember their
+            // names and keep each row's values so a save can write them back untouched.
+            List<String> extraColumns = ColumnLayout.extrasOf(headerNames, srcCol, tgtCol);
             config.setExtraColumns(extraColumns);
+            ColumnLayout layout = ColumnLayout.of(config);
             int statusCol = findStatusColumn(extraColumns);
 
             String[] line;
             while ((line = csvReader.readNext()) != null) {
                 TermEntry entry = new TermEntry();
-                if (line.length > 0) {
-                    String src = line[0];
+                if (line.length > srcCol) {
+                    String src = line[srcCol];
                     entry.setSourceTerm(src != null ? src.trim() : null);
                 }
-                if (line.length > 1) {
-                    String tgt = line[1];
+                if (line.length > tgtCol) {
+                    String tgt = line[tgtCol];
                     entry.setTargetTerm(tgt != null ? tgt.trim() : null);
                 }
                 // Blank lines and rows with nothing in the first two columns are not entries.
@@ -63,13 +69,13 @@ public class CsvTermbaseHandler {
                 }
                 Map<String, String> extras = new LinkedHashMap<>();
                 for (int i = 0; i < extraColumns.size(); i++) {
-                    int col = i + 2;
+                    int col = layout.extraPosition(i);
                     // Cells missing from a short row come back as empty strings.
                     extras.put(extraColumns.get(i), col < line.length && line[col] != null ? line[col] : "");
                 }
                 entry.setExtraFields(extras);
                 if (statusCol >= 0) {
-                    int col = statusCol + 2;
+                    int col = layout.extraPosition(statusCol);
                     String v = col < line.length && line[col] != null ? line[col].trim() : "";
                     entry.setStatusRaw(v.isEmpty() ? null : v);
                 }
@@ -120,13 +126,14 @@ public class CsvTermbaseHandler {
                 String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-us";
                 List<String> extraColumns = config.getExtraColumns();
 
-                String[] headers = new String[2 + extraColumns.size() + (hasStatusColumn(terms) ? 1 : 0)];
-                headers[0] = sourceLang;
-                headers[1] = targetLang;
-                for (int i = 0; i < extraColumns.size(); i++) {
-                    headers[i + 2] = extraColumns.get(i);
-                }
+                ColumnLayout layout = ColumnLayout.of(config);
                 boolean appendStatus = findStatusColumn(extraColumns) < 0 && hasStatusColumn(terms);
+                String[] headers = new String[layout.width() + (appendStatus ? 1 : 0)];
+                headers[layout.sourceIndex()] = sourceLang;
+                headers[layout.targetIndex()] = targetLang;
+                for (int i = 0; i < extraColumns.size(); i++) {
+                    headers[layout.extraPosition(i)] = extraColumns.get(i);
+                }
                 if (appendStatus) {
                     headers[headers.length - 1] = TermEntry.STATUS_FIELD;
                 }
@@ -134,8 +141,8 @@ public class CsvTermbaseHandler {
 
                 for (TermEntry entry : terms) {
                     String[] row = new String[headers.length];
-                    row[0] = entry.getSourceTerm() != null ? entry.getSourceTerm() : "";
-                    row[1] = entry.getTargetTerm() != null ? entry.getTargetTerm() : "";
+                    row[layout.sourceIndex()] = entry.getSourceTerm() != null ? entry.getSourceTerm() : "";
+                    row[layout.targetIndex()] = entry.getTargetTerm() != null ? entry.getTargetTerm() : "";
                     int statusIdx = findStatusColumn(extraColumns);
                     for (int i = 0; i < extraColumns.size(); i++) {
                         String value;
@@ -149,7 +156,7 @@ public class CsvTermbaseHandler {
                         } else {
                             value = entry.getExtraFields().get(extraColumns.get(i));
                         }
-                        row[i + 2] = value != null ? value : "";
+                        row[layout.extraPosition(i)] = value != null ? value : "";
                     }
                     if (appendStatus) {
                         String value = entry.getStoredStatusValue();

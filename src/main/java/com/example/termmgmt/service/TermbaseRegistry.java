@@ -124,6 +124,10 @@ public class TermbaseRegistry {
             if (config.getTargetLang() != null) {
                 obj.addProperty("targetLang", config.getTargetLang());
             }
+            if (config.hasSelectedLangs()) {
+                obj.addProperty("selectedSourceLang", config.getSelectedSourceLang());
+                obj.addProperty("selectedTargetLang", config.getSelectedTargetLang());
+            }
             arr.add(obj);
         }
         return new GsonBuilder().disableHtmlEscaping().create().toJson(arr);
@@ -151,6 +155,10 @@ public class TermbaseRegistry {
                 }
                 if (obj.has("targetLang")) {
                     config.setTargetLang(obj.get("targetLang").getAsString());
+                }
+                if (obj.has("selectedSourceLang") && obj.has("selectedTargetLang")) {
+                    config.setSelectedLangs(obj.get("selectedSourceLang").getAsString(),
+                                            obj.get("selectedTargetLang").getAsString());
                 }
                 result.add(config);
             }
