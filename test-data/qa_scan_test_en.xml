@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<topic id="qa-scan-test">
+  <title>QA Scan Test Document</title>
+  <body>
+    <p>The solver reported a grid failure on the second run.</p>
+    <p>A refined grid was generated before the analysis started.</p>
+    <p>The stress distribution was checked against the test results.</p>
+    <p>Stress peaks appeared near the fixed boundary.</p>
+    <p>The mesh size was reduced twice to improve accuracy.</p>
+  </body>
+</topic>

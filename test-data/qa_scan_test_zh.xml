@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dita>
+  <topic id="qa-scan-test-zh">
+    <title>QA 按源词扫描测试</title>
+    <body>
+      <p>本文采用结构化网格划分方法，对模型进行离散化处理。</p>
+      <p>在非网格区域可以使用自由划分作为备选方案。</p>
+      <p>应力集中出现在圆角过渡位置，需要局部细化。</p>
+      <p>计算得到的应力值与试验结果吻合良好。</p>
+    </body>
+  </topic>
+</dita>
