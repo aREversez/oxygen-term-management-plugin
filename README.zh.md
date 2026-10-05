@@ -87,10 +87,12 @@ Oxygen XML Editor 插件，用于术语管理和翻译辅助。
 
 ## 构建
 
-1. 从您的 Oxygen XML Editor 安装目录复制 `oxygen.jar` 到项目内置的本地 Maven 仓库，并按构件坐标重命名：
+1. 从您的 Oxygen XML Editor 安装目录的 `lib/` 复制 `oxygen.jar` 和 `oxygen-annotations.jar` 到项目内置的本地 Maven 仓库，并按构件坐标重命名：
    ```bash
    cp <OXYGEN_HOME>/lib/oxygen.jar repo/ro/sync/oxygen-sdk/27.1/oxygen-sdk-27.1.jar
+   cp <OXYGEN_HOME>/lib/oxygen-annotations.jar repo/ro/sync/oxygen-annotations/27.1/oxygen-annotations-27.1.jar
    ```
+   （旁边的占位 POM 已随仓库提交；jar 不可再分发，已被 .gitignore 忽略。）
 2. 构建插件：
    ```bash
    mvn clean package
@@ -239,10 +241,12 @@ term-management/
 - Oxygen XML Editor 27+（用于 SDK JAR 和测试）
 
 ### 构建
-1. 从您的 Oxygen XML Editor 安装目录复制 `oxygen.jar` 到项目内置的本地 Maven 仓库，并按构件坐标重命名：
+1. 从您的 Oxygen XML Editor 安装目录的 `lib/` 复制 `oxygen.jar` 和 `oxygen-annotations.jar` 到项目内置的本地 Maven 仓库，并按构件坐标重命名：
    ```bash
    cp <OXYGEN_HOME>/lib/oxygen.jar repo/ro/sync/oxygen-sdk/27.1/oxygen-sdk-27.1.jar
+   cp <OXYGEN_HOME>/lib/oxygen-annotations.jar repo/ro/sync/oxygen-annotations/27.1/oxygen-annotations-27.1.jar
    ```
+   （旁边的占位 POM 已随仓库提交；jar 不可再分发，已被 .gitignore 忽略。）
 2. 构建插件：
    ```bash
    mvn clean package
@@ -263,7 +267,7 @@ mvn test
 3. 运行 Maven `package` 目标验证构建。
 
 ### 添加 Oxygen SDK 依赖
-Oxygen SDK 从项目内置的文件仓库 `repo/` 解析（groupId `ro.sync`，artifactId `oxygen-sdk`）。请将您的 `oxygen.jar` 放置为 `repo/ro/sync/oxygen-sdk/<版本>/oxygen-sdk-<版本>.jar`。仓库配置请参见 `pom.xml`。
+Oxygen SDK 从项目内置的文件仓库 `repo/` 解析（groupId `ro.sync`，artifactId `oxygen-sdk`）。请将您的 `oxygen.jar` 放置为 `repo/ro/sync/oxygen-sdk/<版本>/oxygen-sdk-<版本>.jar`。`ro.sync:oxygen-annotations`（来自 `<OXYGEN_HOME>/lib/oxygen-annotations.jar`）以同样方式解析；它提供 javac 读取 SDK class 文件时需要的 `@Api`/`@SkipObfuscation` 注解类，scope 为 `provided`（运行时由 Oxygen 自带）。仓库配置请参见 `pom.xml`。
 
 ## 许可
 

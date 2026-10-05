@@ -13,7 +13,8 @@
     <description>Oxygen XML Editor plugin for terminology management and translation assistance</description>
 
     <repositories>
-        <!-- Project-local file repository holding the Oxygen SDK (repo/ro/sync/oxygen-sdk). -->
+        <!-- Project-local file repository holding the Oxygen SDK and oxygen-annotations -->
+        <!-- (repo/ro/sync/*). Jars are gitignored; copy them from your Oxygen install. -->
         <repository>
             <id>project-local</id>
             <url>${project.baseUri}repo</url>
@@ -214,6 +215,15 @@
                     <!-- project-local file repository under repo/ (see <repositories>). -->
                     <scope>provided</scope>
                 </dependency>
+                <dependency>
+                    <groupId>ro.sync</groupId>
+                    <artifactId>oxygen-annotations</artifactId>
+                    <version>${oxygen.sdk.version}</version>
+                    <!-- Supplies ro.sync.annotations.api/obfuscate enum classes referenced by the
+                         @Api/@SkipObfuscation annotations on SDK class files; without them javac
+                         emits "unknown enum constant" warnings. Provided by Oxygen at runtime. -->
+                    <scope>provided</scope>
+                </dependency>
             </dependencies>
         </profile>
 
@@ -225,6 +235,12 @@
                 <dependency>
                     <groupId>ro.sync</groupId>
                     <artifactId>oxygen-sdk</artifactId>
+                    <version>${oxygen.sdk.version}</version>
+                    <scope>provided</scope>
+                </dependency>
+                <dependency>
+                    <groupId>ro.sync</groupId>
+                    <artifactId>oxygen-annotations</artifactId>
                     <version>${oxygen.sdk.version}</version>
                     <scope>provided</scope>
                 </dependency>

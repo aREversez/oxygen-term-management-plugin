@@ -35,8 +35,9 @@ reference/
 tmp/
 temp/
 
-# sdk
-repo/ro/sync/oxygen-sdk/
+# Oxygen proprietary jars (copy from your own Oxygen install; not redistributable).
+# Placeholder POMs under repo/ stay tracked so Maven can resolve the file repo.
+repo/ro/sync/**/*.jar
 
 # Else
 RELEASE_NOTES.md

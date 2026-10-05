@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>ro.sync</groupId>
+    <artifactId>oxygen-sdk</artifactId>
+    <version>27.1</version>
+    <packaging>jar</packaging>
+    <name>Oxygen XML SDK (local copy of oxygen.jar)</name>
+    <description>
+        Placeholder POM for the locally supplied Oxygen SDK jar.
+        Copy &lt;OXYGEN_HOME&gt;/lib/oxygen.jar to this directory as oxygen-sdk-27.1.jar.
+    </description>
+</project>

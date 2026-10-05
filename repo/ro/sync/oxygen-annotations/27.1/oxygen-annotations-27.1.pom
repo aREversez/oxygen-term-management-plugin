@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>ro.sync</groupId>
+    <artifactId>oxygen-annotations</artifactId>
+    <version>27.1</version>
+    <packaging>jar</packaging>
+    <name>Oxygen XML annotations (local copy of oxygen-annotations.jar)</name>
+    <description>
+        Placeholder POM for the locally supplied oxygen-annotations jar.
+        Copy &lt;OXYGEN_HOME&gt;/lib/oxygen-annotations.jar to this directory as oxygen-annotations-27.1.jar.
+        Provides ro.sync.annotations.api/obfuscate classes referenced by @Api/@SkipObfuscation
+        annotations on Oxygen SDK classes, so javac stops emitting unknown enum constant warnings.
+    </description>
+</project>
