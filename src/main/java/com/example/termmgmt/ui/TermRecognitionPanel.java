@@ -78,8 +78,14 @@ public class TermRecognitionPanel extends JPanel {
         headerLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         headerWrap.add(headerLabel, BorderLayout.CENTER);
 
-        JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        actionRow.setBorder(BorderFactory.createEmptyBorder(0, 5, 5, 5));
+        // Two explicit rows so preferred height always covers both, preventing the narrow-panel
+        // clipping that a single FlowLayout in a BoxLayout child causes (same fix as TerminologyPanel).
+        JPanel actionArea = new JPanel();
+        actionArea.setLayout(new BoxLayout(actionArea, BoxLayout.Y_AXIS));
+        actionArea.setBorder(BorderFactory.createEmptyBorder(0, 5, 5, 5));
+
+        JPanel actionRow1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        JPanel actionRow2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
 
         termbaseCombo = new JComboBox<>();
         termbaseCombo.setPreferredSize(new Dimension(150, termbaseCombo.getPreferredSize().height));
@@ -108,12 +114,12 @@ public class TermRecognitionPanel extends JPanel {
             @Override
             public void popupMenuCanceled(PopupMenuEvent e) {}
         });
-        actionRow.add(termbaseCombo);
+        actionRow1.add(termbaseCombo);
 
         scanButton = new JButton(IconUtils.loadIcon("scan", 16));
         scanButton.setToolTipText(I18N.getString("btn.scan.tooltip"));
         scanButton.addActionListener(e -> scanDocument());
-        actionRow.add(scanButton);
+        actionRow1.add(scanButton);
 
         highlightToggle = new JToggleButton(IconUtils.loadIcon("toggle_highlight", 16));
         highlightToggle.setToolTipText(I18N.getString("btn.highlight.tooltip"));
@@ -127,7 +133,7 @@ public class TermRecognitionPanel extends JPanel {
                 clearHighlights();
             }
         });
-        actionRow.add(highlightToggle);
+        actionRow1.add(highlightToggle);
 
         // Scan direction selector (patch-plan 5, step 3.2). The initial selection is restored
         // from persisted options before the listener is attached, so setup never triggers a scan.
@@ -149,28 +155,25 @@ public class TermRecognitionPanel extends JPanel {
             updateDirectionDependentUi();
             autoScan();
         });
-        actionRow.add(directionCombo);
+        actionRow2.add(directionCombo);
 
         onlyDeprecatedCheck = new JCheckBox(I18N.getString("chk.only.deprecated"));
         onlyDeprecatedCheck.setToolTipText(I18N.getString("chk.only.deprecated.tooltip"));
         // Never persisted; re-applied from the current direction on every render.
         onlyDeprecatedCheck.addActionListener(e -> renderResults());
-        actionRow.add(onlyDeprecatedCheck);
+        actionRow2.add(onlyDeprecatedCheck);
 
-        actionRow.addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
-                Container parent = actionRow.getParent();
-                if (parent != null) parent.revalidate();
-            }
-        });
+        actionRow1.setAlignmentX(Component.LEFT_ALIGNMENT);
+        actionRow2.setAlignmentX(Component.LEFT_ALIGNMENT);
+        actionArea.add(actionRow1);
+        actionArea.add(actionRow2);
 
         JPanel northPanel = new JPanel();
         northPanel.setLayout(new BoxLayout(northPanel, BoxLayout.Y_AXIS));
         headerWrap.setAlignmentX(Component.LEFT_ALIGNMENT);
         northPanel.add(headerWrap);
-        actionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        northPanel.add(actionRow);
+        actionArea.setAlignmentX(Component.LEFT_ALIGNMENT);
+        northPanel.add(actionArea);
 
         statsLabel = new JLabel(" ");
         statsLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
