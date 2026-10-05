@@ -21,8 +21,9 @@ public interface StandalonePluginWorkspace extends PluginWorkspace {
     /** @since 27 */
     Object getComponentProvider(String type);
     /**
-     * Show a transient message in Oxygen's bottom status bar; it dismisses itself and never
-     * blocks the user. In the real SDK this is inherited from WorkspaceUtilities (PluginWorkspace
+     * Show a message in Oxygen's bottom status bar; it stays until the next Oxygen event
+     * replaces it and never blocks the user. In the real SDK this is inherited from
+     * WorkspaceUtilities (PluginWorkspace
      * extends Workspace extends WorkspaceUtilities); declared here so the stub mirrors the API the
      * plugin compiles against.
      */

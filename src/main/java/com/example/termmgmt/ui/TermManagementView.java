@@ -151,8 +151,9 @@ public class TermManagementView extends JPanel {
                     if (ExternalChangeCheck.shouldNotify(Boolean.TRUE.equals(get()), tabAtStart,
                             tabbedPane.getSelectedIndex())) {
                         // Announce the reload in Oxygen's bottom status bar: it appears without
-                        // any hovering, dismisses itself, and never blocks the user with a modal
-                        // dialog. The tab-header tooltip stays as a passive hint.
+                        // any hovering and never blocks the user with a modal dialog. The message
+                        // stays until the next Oxygen event replaces it. The tab-header tooltip
+                        // stays as a passive hint.
                         String msg = I18N.getString("msg.external.reload.notify");
                         withoutTabEvents(() -> tabbedPane.setToolTipTextAt(tabAtStart, msg));
                         if (workspace != null) {
