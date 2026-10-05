@@ -85,13 +85,25 @@ final class ColumnLayout {
      * selection existed. Names compare case-insensitively; the first column wins on duplicates.
      */
     static Resolution resolve(List<String> headers, TermbaseConfig config) {
-        List<String> available = new ArrayList<>();
+        List<String> all = new ArrayList<>();
         for (String h : headers) {
             if (h != null && !h.isEmpty() && !TermEntry.STATUS_FIELD.equalsIgnoreCase(h)
-                    && !containsIgnoreCase(available, h)) {
-                available.add(h);
+                    && !containsIgnoreCase(all, h)) {
+                all.add(h);
             }
         }
+        // Only real BCP-47 tags are selectable languages, so metadata columns like "note" or
+        // "domain" stay in the file (as extras written back on save) but never appear in the
+        // picker. A legacy termbase whose headers are plain words ("English", "\u4e2d\u6587") would
+        // otherwise offer nothing: when filtering leaves fewer than two choices the full, deduped
+        // column list is offered exactly as before.
+        List<String> langs = new ArrayList<>();
+        for (String h : all) {
+            if (isLanguageTag(h)) {
+                langs.add(h);
+            }
+        }
+        List<String> available = langs.size() >= 2 ? langs : all;
         if (!config.hasSelectedLangs()) {
             return new Resolution(0, 1, available, false);
         }
@@ -103,6 +115,14 @@ final class ColumnLayout {
             return new Resolution(src, tgt, available, false);
         }
         return new Resolution(0, 1, available, true);
+    }
+
+    /** Loose BCP-47 shape test: a 2-3 letter primary subtag plus optional alphanumeric suffixes. */
+    private static final java.util.regex.Pattern LANG_TAG =
+            java.util.regex.Pattern.compile("[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*");
+
+    private static boolean isLanguageTag(String header) {
+        return LANG_TAG.matcher(header).matches();
     }
 
     private static int indexOf(List<String> headers, String name) {

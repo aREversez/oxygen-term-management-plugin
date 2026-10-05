@@ -258,7 +258,11 @@ public class TermRecognitionPanel extends JPanel {
     private static final String SCAN_DIRECTION_KEY = "com.example.termmgmt.scan-direction";
 
     private void loadTermbaseList() {
-        registry.loadConfigs();
+        // Use the shared in-memory configs; do NOT reload from OptionsStorage here. This list is
+        // refreshed by the periodic external-change probe, and re-reading storage would swap in
+        // fresh TermbaseConfig objects that discard both the column layout a load resolved and any
+        // change the preferences page has not applied yet - rows the user just added would vanish
+        // (defect C). Configs are loaded once when the view and the preferences page are built.
         String prevPath = null;
         TermbaseConfig prev = (TermbaseConfig) termbaseCombo.getSelectedItem();
         if (prev != null) {

@@ -61,6 +61,10 @@ public class TermbaseRegistry {
     private Map<String, List<TermEntry>> termCache; // Map from file path to terms
     private Map<String, long[]> fileStamps; // file path → {lastModified, size} when cache was filled
     private Map<String, List<TermEntry>> sourceIndex; // Map from source term text → terms (case-insensitive key)
+    // The language pair and resolved column layout each cached list was read under, so a cached
+    // read can still stamp the config it is asked about (see LayoutSnapshot).
+    private Map<String, String> termCachePairKey; // file path → langPairKey the cache was filled for
+    private Map<String, LayoutSnapshot> termLayouts; // file path → layout resolved by the cached read
 
     // User option: distinguish upper/lower case when matching terms. Volatile because the
     // EDT writes it from the preferences page and scan workers read it.
@@ -74,6 +78,8 @@ public class TermbaseRegistry {
         this.termCache = new HashMap<>();
         this.fileStamps = new HashMap<>();
         this.sourceIndex = new HashMap<>();
+        this.termCachePairKey = new HashMap<>();
+        this.termLayouts = new HashMap<>();
         this.changeListeners = new ArrayList<>();
     }
 
@@ -278,6 +284,8 @@ public class TermbaseRegistry {
             synchronized (this) {
                 termCache.put(filePath, terms);
                 putStamp(filePath, stamp);
+                termLayouts.put(filePath, LayoutSnapshot.of(config));
+                termCachePairKey.put(filePath, config.langPairKey());
                 rebuildSourceIndex();
             }
         }
@@ -298,32 +306,30 @@ public class TermbaseRegistry {
     }
 
     public List<TermEntry> getTerms(TermbaseConfig config) {
+        String filePath = config.getFilePath();
+        String pairKey = config.langPairKey();
         synchronized (this) {
-            List<TermEntry> cached = termCache.get(config.getFilePath());
-            if (cached != null) {
-                return new ArrayList<>(cached);
+            if (isCacheUsable(filePath, pairKey)) {
+                applyCachedLayout(config, filePath);
+                return new ArrayList<>(termCache.get(filePath));
             }
         }
-        synchronized (fileLock(config.getFilePath())) {
+        synchronized (fileLock(filePath)) {
             synchronized (this) {
                 // Populated by another thread (e.g. a save) while we waited for the file lock.
-                List<TermEntry> cached = termCache.get(config.getFilePath());
-                if (cached != null) {
-                    return new ArrayList<>(cached);
+                if (isCacheUsable(filePath, pairKey)) {
+                    applyCachedLayout(config, filePath);
+                    return new ArrayList<>(termCache.get(filePath));
                 }
             }
-            // 7.3: Read stamp before loading.
-            long[] preStamp = stampReader.apply(config.getFilePath());
-            List<TermEntry> terms = TermbaseLoader.loadTerms(config);
-            long[] postStamp = stampReader.apply(config.getFilePath());
-            long[] stamp = chooseCachedStamp(preStamp, postStamp);
-            synchronized (this) {
-                termCache.put(config.getFilePath(), new ArrayList<>(terms));
-                putStamp(config.getFilePath(), stamp);
-                rebuildSourceIndex();
-            }
-            return terms;
+            // No usable cache for this pair: read the file, which also stamps the config.
+            return loadTerms(config, null);
         }
+    }
+
+    /** The cache serves one pair only; a different selection (or no entry) must force a fresh read. */
+    private boolean isCacheUsable(String filePath, String pairKey) {
+        return termCache.containsKey(filePath) && Objects.equals(termCachePairKey.get(filePath), pairKey);
     }
 
     /**
@@ -343,6 +349,8 @@ public class TermbaseRegistry {
             synchronized (this) {
                 termCache.put(config.getFilePath(), new ArrayList<>(terms));
                 putStamp(config.getFilePath(), stamp);
+                termLayouts.put(config.getFilePath(), LayoutSnapshot.of(config));
+                termCachePairKey.put(config.getFilePath(), config.langPairKey());
                 rebuildSourceIndex();
             }
         }
@@ -378,16 +386,24 @@ public class TermbaseRegistry {
                 throw new RuntimeException("Termbase file no longer exists: " + filePath);
             }
             List<TermEntry> current;
+            boolean fromCache;
             synchronized (this) {
                 List<TermEntry> cached = termCache.get(filePath);
                 long[] known = fileStamps.get(filePath);
                 // Trust the cache only while the file on disk still matches what was loaded
-                // or saved: an external edit (Excel, another editor) must not be overwritten.
-                current = (cached != null && known != null && Arrays.equals(known, disk))
-                    ? new ArrayList<>(cached) : null;
+                // or saved AND it was read under the same language pair: an external edit
+                // (Excel, another editor) or a changed pair must not be applied to a stale list.
+                fromCache = cached != null && known != null && Arrays.equals(known, disk)
+                    && Objects.equals(termCachePairKey.get(filePath), config.langPairKey());
+                current = fromCache ? new ArrayList<>(cached) : null;
             }
             if (current == null) {
                 current = new ArrayList<>(TermbaseLoader.loadTerms(config));
+            } else {
+                // Cache trusted, so loadTerms is skipped - but the save below needs the config to
+                // carry the columns it was read under. Stamp it, or an instance that never loaded
+                // would write the default two-column layout and drop the extra columns.
+                applyCachedLayout(config, filePath);
             }
             List<TermEntry> updated = Objects.requireNonNull(mutator.apply(current), "mutator returned null");
             TermbaseLoader.saveTerms(config, updated);
@@ -395,6 +411,8 @@ public class TermbaseRegistry {
             synchronized (this) {
                 termCache.put(filePath, new ArrayList<>(updated));
                 putStamp(filePath, stamp);
+                termLayouts.put(filePath, LayoutSnapshot.of(config));
+                termCachePairKey.put(filePath, config.langPairKey());
                 rebuildSourceIndex();
             }
         }
@@ -464,6 +482,8 @@ public class TermbaseRegistry {
     public synchronized void clearCache() {
         termCache.clear();
         fileStamps.clear();
+        termCachePairKey.clear();
+        termLayouts.clear();
         sourceIndex.clear();
     }
 
@@ -524,5 +544,57 @@ public class TermbaseRegistry {
         if (sourceText == null || sourceText.trim().isEmpty()) return Collections.emptyList();
         List<TermEntry> result = sourceIndex.get(sourceText.trim().toLowerCase(Locale.ROOT));
         return result != null ? new ArrayList<>(result) : Collections.emptyList();
+    }
+
+    // ---- Cached layout stamping (language pair, plan 7 phase B) ----
+
+    /**
+     * Apply the layout captured when the cache was filled onto a config that skipped loading.
+     * Called while holding the registry monitor.
+     */
+    private void applyCachedLayout(TermbaseConfig config, String filePath) {
+        LayoutSnapshot layout = termLayouts.get(filePath);
+        if (layout != null) {
+            layout.applyTo(config);
+        }
+    }
+
+    /**
+     * The runtime column/language layout a load resolved for a termbase, remembered so a cached
+     * read (which does not re-parse the file) can still stamp the config it is asked about. Without
+     * this, a config that only ever hit the cache would save with the default two-column layout and
+     * silently drop the extra columns (data loss). Runtime state only; never persisted.
+     */
+    private static final class LayoutSnapshot {
+        private final String sourceLang;
+        private final String targetLang;
+        private final List<String> extraColumns;
+        private final List<String> availableLangs;
+        private final boolean selectionFallback;
+        private final int sourceColumn;
+        private final int targetColumn;
+
+        private LayoutSnapshot(TermbaseConfig c) {
+            this.sourceLang = c.getSourceLang();
+            this.targetLang = c.getTargetLang();
+            this.extraColumns = new ArrayList<>(c.getExtraColumns());
+            this.availableLangs = new ArrayList<>(c.getAvailableLangs());
+            this.selectionFallback = c.isSelectionFallback();
+            this.sourceColumn = c.getSourceColumn();
+            this.targetColumn = c.getTargetColumn();
+        }
+
+        static LayoutSnapshot of(TermbaseConfig c) {
+            return new LayoutSnapshot(c);
+        }
+
+        void applyTo(TermbaseConfig c) {
+            c.setSourceLang(sourceLang);
+            c.setTargetLang(targetLang);
+            c.setExtraColumns(new ArrayList<>(extraColumns));
+            c.setAvailableLangs(new ArrayList<>(availableLangs));
+            c.setSelectionFallback(selectionFallback);
+            c.setLangColumns(sourceColumn, targetColumn);
+        }
     }
 }

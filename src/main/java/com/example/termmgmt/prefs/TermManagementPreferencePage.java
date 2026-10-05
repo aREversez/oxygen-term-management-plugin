@@ -75,6 +75,10 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         saveCaseSensitiveOption(caseSensitiveCheck.isSelected());
         registry.setMatchInflections(matchInflectionsCheck.isSelected());
         saveMatchInflectionsOption(matchInflectionsCheck.isSelected());
+        // Propagate the applied changes (added/removed/enabled/disabled rows) to the open panels.
+        // Panels no longer re-read OptionsStorage on refresh (defect C), so this is what makes an
+        // Apply show up in the term-recognition and terminology combos right away.
+        registry.fireTermsChanged();
     }
 
     @Override
@@ -132,6 +136,12 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         tableModel = new DefaultTableModel(columns, 0);
         termbaseTable = new JTable(tableModel);
         termbaseTable.setFillsViewportHeight(true);
+        // Keep the columns where they were laid out: dragging a header divider must not reorder
+        // them, and the file-name/path columns need enough room to be readable (defect H). With
+        // auto-resize off the columns honour their preferred widths and the scroll pane scrolls.
+        termbaseTable.getTableHeader().setReorderingAllowed(false);
+        termbaseTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        applyColumnWidths();
         JScrollPane scrollPane = new JScrollPane(termbaseTable);
         scrollPane.setPreferredSize(new Dimension(500, 200));
 
@@ -168,6 +178,15 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
 
         // Load current settings
         reloadSettings();
+    }
+
+    /** Readable default widths for the six termbase-table columns; the file name gets room. */
+    private void applyColumnWidths() {
+        int[] widths = { 170, 320, 70, 90, 80, 150 };
+        javax.swing.table.TableColumnModel cm = termbaseTable.getColumnModel();
+        for (int i = 0; i < widths.length && i < cm.getColumnCount(); i++) {
+            cm.getColumn(i).setPreferredWidth(widths[i]);
+        }
     }
 
     private void reloadSettings() {
@@ -316,9 +335,13 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
                 }
                 applyLanguages(config, src, tgt);
             } else if (choice == 1) {
-                applyLanguages(config, null, null);
+                // "Use default" only resets the two pickers to the file's first two languages and
+                // keeps the dialog open; the choice is committed by OK, not by this button (defect D).
+                sourceBox.setSelectedIndex(0);
+                targetBox.setSelectedIndex(1);
+                continue;
             }
-            return;
+            return; // OK committed the choice, or Cancel / window close discards it
         }
     }
 

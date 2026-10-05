@@ -313,7 +313,10 @@ public class TerminologyPanel extends JPanel {
      * Load enabled termbases into the combo box, preserving selection.
      */
     private void loadTermbaseList() {
-        registry.loadConfigs();
+        // Read the shared in-memory configs; do NOT reload from OptionsStorage here. The periodic
+        // external-change probe refreshes this list, and re-reading storage would swap in fresh
+        // TermbaseConfig objects that drop the resolved column layout and any not-yet-applied
+        // preferences edit - added rows would vanish (defect C).
         String prevPath = null;
         TermbaseConfig prev = (TermbaseConfig) termbaseComboBox.getSelectedItem();
         if (prev != null) {

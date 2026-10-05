@@ -317,7 +317,9 @@ class XlsxTermbaseHandlerTest {
         List<TermEntry> terms = XlsxTermbaseHandler.loadTerms(config);
         assertEquals("网格", terms.get(0).getSourceTerm());
         assertEquals("mesh", terms.get(0).getTargetTerm());
-        assertEquals(List.of("zh-cn", "en-us", "de-de", "note"), config.getAvailableLangs());
+        // "note" is metadata, not a language: it is no longer offered as a selectable language
+        // (defect E), though it still round-trips as an extra column.
+        assertEquals(List.of("zh-cn", "en-us", "de-de"), config.getAvailableLangs());
         assertFalse(config.isSelectionFallback());
     }
 

@@ -170,6 +170,49 @@ class TermbaseRegistryUpdateTermsTest {
         return out;
     }
 
+    // ---- phase B defect A/B: a cached read must stamp the config so a save keeps every column --
+
+    @Test
+    void updateTerms_warmCacheOnFreshConfig_keepsEveryColumn() throws Exception {
+        TermbaseConfig loader = csvConfig("pair_layout",
+            "zh-cn,en-us,de-de,note\n\u7f51\u683c,mesh,Netz,n1\n");
+        loader.setSelectedLangs("en-us", "de-de");
+        registry.loadTerms(loader); // warm the cache and record the resolved multi-column layout
+
+        // A second config for the same file that only knows the persisted pair and never read the
+        // file itself - exactly what a freshly deserialized OptionsStorage instance looks like.
+        TermbaseConfig editor = new TermbaseConfig(loader.getFilePath(), Format.CSV, true);
+        editor.setSelectedLangs("en-us", "de-de");
+
+        registry.updateTerms(editor, terms -> { // cache is fresh and the pair matches: no reload
+            terms.get(0).setTargetTerm("Gitter");
+            return terms;
+        });
+
+        String saved = Files.readString(Path.of(editor.getFilePath())).replace("\uFEFF", "");
+        String header = saved.split("\\R")[0];
+        for (String col : new String[] { "zh-cn", "en-us", "de-de", "note" }) {
+            assertTrue(header.contains(col), "header lost a column (defect A): " + header);
+        }
+        assertTrue(saved.contains("n1"), "the note column value must survive");
+        assertTrue(saved.contains("\u7f51\u683c"), "the Chinese column must survive");
+        assertTrue(saved.contains("Gitter"), "the edit must be written into the chosen target column");
+    }
+
+    @Test
+    void getTerms_warmCache_stampsFreshConfigSoLanguagesAreKnown() throws Exception {
+        TermbaseConfig loader = csvConfig("stamp_on_read",
+            "zh-cn,en-us,de-de,note\n\u7f51\u683c,mesh,Netz,n1\n");
+        loader.setSelectedLangs("en-us", "de-de");
+        registry.loadTerms(loader);
+
+        TermbaseConfig reader = new TermbaseConfig(loader.getFilePath(), Format.CSV, true);
+        reader.setSelectedLangs("en-us", "de-de");
+        registry.getTerms(reader); // cache hit, no reload
+        assertEquals("en-us", reader.getSourceLang(), "a cached read must still stamp the config (defect B)");
+        assertEquals("de-de", reader.getTargetLang());
+    }
+
     // ---- 13: undo goes through updateTerms and re-inserts only what was deleted ----------
 
     @Test

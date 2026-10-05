@@ -49,8 +49,18 @@ class LanguagePairTest {
         assertEquals("网格", terms.get(0).getSourceTerm());
         assertEquals("mesh", terms.get(0).getTargetTerm());
         assertEquals(Arrays.asList("de-de", "note"), c.getExtraColumns());
-        assertEquals(Arrays.asList("zh-cn", "en-us", "de-de", "note"), c.getAvailableLangs());
+        // "note" is metadata, not a language: it stays an extra column but is not offered as a
+        // selectable language (defect E).
+        assertEquals(Arrays.asList("zh-cn", "en-us", "de-de"), c.getAvailableLangs());
         assertFalse(c.isSelectionFallback());
+    }
+
+    @Test
+    void csv_legacyWordHeaders_pickerFallsBackToEveryColumn() throws Exception {
+        // Headers that are not BCP-47 tags would leave nothing to pick, so the full list is kept.
+        TermbaseConfig c = csv("English,Chinese,Remark\ngrid,网格,n1\n");
+        CsvTermbaseHandler.loadTerms(c);
+        assertEquals(Arrays.asList("English", "Chinese", "Remark"), c.getAvailableLangs());
     }
 
     @Test
