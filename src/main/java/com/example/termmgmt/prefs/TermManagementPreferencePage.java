@@ -142,6 +142,23 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         termbaseTable.getTableHeader().setReorderingAllowed(false);
         termbaseTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         applyColumnWidths();
+        // The file name / path may still exceed the fixed column widths and get clipped to an
+        // ellipsis. Show the full value on hover, but only when it is actually clipped so a
+        // readable cell does not raise a redundant tooltip (defect H).
+        javax.swing.table.TableCellRenderer tipRenderer = new javax.swing.table.DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                String text = value == null ? "" : value.toString();
+                int colWidth = table.getColumnModel().getColumn(column).getWidth();
+                boolean clipped = getFontMetrics(getFont()).stringWidth(text) > colWidth;
+                setToolTipText(clipped ? text : null);
+                return this;
+            }
+        };
+        termbaseTable.getColumnModel().getColumn(0).setCellRenderer(tipRenderer);
+        termbaseTable.getColumnModel().getColumn(1).setCellRenderer(tipRenderer);
         JScrollPane scrollPane = new JScrollPane(termbaseTable);
         scrollPane.setPreferredSize(new Dimension(500, 200));
 
