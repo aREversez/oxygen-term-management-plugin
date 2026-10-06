@@ -45,6 +45,10 @@ public final class TermbaseChecker {
         public final Severity severity;
         public final String rule;
         public final String message;
+        /** Resource-bundle key of the localized template for the Message column. */
+        public final String messageKey;
+        /** Values spliced into the localized template; empty when it takes none. */
+        public final Object[] messageArgs;
         public final TermEntry entry;
         /** Index of the entry in the list that was checked; -1 for cross-termbase issues. */
         public final int entryIndex;
@@ -52,12 +56,26 @@ public final class TermbaseChecker {
         public final String termbasePath;
 
         Issue(Severity severity, String rule, String message, TermEntry entry, int entryIndex, String termbasePath) {
+            this(severity, rule, message, ruleToKey(rule), NO_ARGS, entry, entryIndex, termbasePath);
+        }
+
+        Issue(Severity severity, String rule, String message, String messageKey, Object[] messageArgs,
+              TermEntry entry, int entryIndex, String termbasePath) {
             this.severity = severity;
             this.rule = rule;
             this.message = message;
+            this.messageKey = messageKey;
+            this.messageArgs = messageArgs;
             this.entry = entry;
             this.entryIndex = entryIndex;
             this.termbasePath = termbasePath;
+        }
+
+        private static final Object[] NO_ARGS = {};
+
+        /** Convention: rule UPPER_SNAKE maps to bundle key check.msg.lower.snake (underscores become dots). */
+        private static String ruleToKey(String rule) {
+            return "check.msg." + rule.toLowerCase(Locale.ROOT).replace('_', '.');
         }
     }
 
@@ -98,11 +116,13 @@ public final class TermbaseChecker {
             // is non-blank; a blank field is already caught by rules 1/2).
             if (src != null && !src.trim().isEmpty() && CONSECUTIVE_WS.matcher(src).find()) {
                 issues.add(new Issue(Severity.WARNING, "CONSECUTIVE_WS",
-                    "Source term contains consecutive whitespace: \"" + src + "\"", entry, i, termbasePath));
+                    "Source term contains consecutive whitespace: \"" + src + "\"",
+                    "check.msg.consecutive.ws.source", new Object[] { src }, entry, i, termbasePath));
             }
             if (tgt != null && !tgt.trim().isEmpty() && CONSECUTIVE_WS.matcher(tgt).find()) {
                 issues.add(new Issue(Severity.WARNING, "CONSECUTIVE_WS",
-                    "Target term contains consecutive whitespace: \"" + tgt + "\"", entry, i, termbasePath));
+                    "Target term contains consecutive whitespace: \"" + tgt + "\"",
+                    "check.msg.consecutive.ws.target", new Object[] { tgt }, entry, i, termbasePath));
             }
 
             // Build indexes for rules 3 and 5
@@ -128,6 +148,7 @@ public final class TermbaseChecker {
                 for (int idx : indices) {
                     issues.add(new Issue(Severity.WARNING, "MULTI_TARGET",
                         "Source \"" + e.getKey() + "\" has multiple different targets",
+                        Issue.ruleToKey("MULTI_TARGET"), new Object[] { e.getKey() },
                         terms.get(idx), idx, termbasePath));
                 }
             }
@@ -147,6 +168,7 @@ public final class TermbaseChecker {
                 for (int idx : indices) {
                     issues.add(new Issue(Severity.WARNING, "CASE_DUPLICATE",
                         "Case-only duplicate of source \"" + e.getKey() + "\": " + exactForms,
+                        Issue.ruleToKey("CASE_DUPLICATE"), new Object[] { e.getKey(), exactForms },
                         terms.get(idx), idx, termbasePath));
                 }
             }
@@ -177,11 +199,16 @@ public final class TermbaseChecker {
                             "Source \"" + c.newTerm.getSourceTerm() + "\" conflicts across termbases: \""
                                 + paths.get(a) + "\" → \"" + c.newTerm.getTargetTerm() + "\" vs \""
                                 + paths.get(b) + "\" → \"" + c.existingTerm.getTargetTerm() + "\"",
+                            Issue.ruleToKey("CROSS_TB_CONFLICT"),
+                            new Object[] { c.newTerm.getSourceTerm(), paths.get(a), c.newTerm.getTargetTerm(),
+                                paths.get(b), c.existingTerm.getTargetTerm() },
                             c.newTerm, -1, paths.get(a)));
                     } else {
                         issues.add(new Issue(Severity.WARNING, "CROSS_TB_DUPLICATE",
                             "Source \"" + c.newTerm.getSourceTerm() + "\" is duplicated across termbases: \""
                                 + paths.get(a) + "\" and \"" + paths.get(b) + "\"",
+                            Issue.ruleToKey("CROSS_TB_DUPLICATE"),
+                            new Object[] { c.newTerm.getSourceTerm(), paths.get(a), paths.get(b) },
                             c.newTerm, -1, paths.get(a)));
                     }
                 }

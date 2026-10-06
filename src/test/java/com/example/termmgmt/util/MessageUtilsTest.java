@@ -37,4 +37,22 @@ class MessageUtilsTest {
     void formatSafely_nullPattern_returnsNull() {
         assertNull(MessageUtils.formatSafely(null, "x"));
     }
+
+    @Test
+    void formatSafely_messageFormatStyle_placeholdersSpliced() {
+        // msg.check.summary is MessageFormat-style; String.format would show the braces literally.
+        assertEquals("3 issue(s) found.", MessageUtils.formatSafely("{0} issue(s) found.", 3));
+        assertEquals("a vs b", MessageUtils.formatSafely("{1} vs {0}", "b", "a"));
+    }
+
+    @Test
+    void formatSafely_messageFormatStyle_noArgs_returnsPattern() {
+        assertEquals("100% {0} done", MessageUtils.formatSafely("100% {0} done"));
+    }
+
+    @Test
+    void formatSafely_messageFormatStyle_badPattern_doesNotThrow() {
+        // Unbalanced brace: MessageFormat throws IllegalArgumentException; we fall back.
+        assertEquals("broken {0", MessageUtils.formatSafely("broken {0", "x"));
+    }
 }

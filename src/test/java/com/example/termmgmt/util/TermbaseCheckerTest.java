@@ -5,9 +5,16 @@ import com.example.termmgmt.util.TermbaseChecker.Issue;
 import com.example.termmgmt.util.TermbaseChecker.Severity;
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -138,5 +145,54 @@ class TermbaseCheckerTest {
         List<TermEntry> terms = List.of(new TermEntry("mesh", "网格"));
         List<Issue> issues = TermbaseChecker.check(terms, "test.csv");
         assertTrue(issues.isEmpty());
+    }
+
+    /**
+     * The UI renders the Message column from issue.messageKey against the resource bundle,
+     * falling back to the English literal only when the key is missing. That contract breaks
+     * silently if a rule ships a key no bundle defines, or splices fewer arguments than the
+     * template placeholders, so pin both against the default (English) bundle.
+     */
+    @Test
+    void everyIssue_messageKeyResolvesAndArgsMatchTemplate() throws Exception {
+        Properties en = new Properties();
+        try (InputStream in = TermbaseCheckerTest.class.getResourceAsStream("/i18n/messages.properties")) {
+            assertNotNull(in, "default bundle must be on the classpath");
+            en.load(new InputStreamReader(in, StandardCharsets.UTF_8));
+        }
+
+        List<Issue> all = new ArrayList<>();
+        all.addAll(TermbaseChecker.check(List.of(new TermEntry("", "t")), "a.csv"));
+        all.addAll(TermbaseChecker.check(List.of(new TermEntry("s", "")), "a.csv"));
+        all.addAll(TermbaseChecker.check(List.of(new TermEntry("bending  stiffness", "t")), "a.csv"));
+        all.addAll(TermbaseChecker.check(List.of(new TermEntry("s", "t		x")), "a.csv"));
+        all.addAll(TermbaseChecker.check(List.of(new TermEntry("mesh", "网格"), new TermEntry("mesh", "网")), "a.csv"));
+        all.addAll(TermbaseChecker.check(List.of(new TermEntry("FEA", "a"), new TermEntry("fea", "a")), "a.csv"));
+        Map<String, List<TermEntry>> tbs = new LinkedHashMap<>();
+        tbs.put("a.csv", List.of(new TermEntry("mesh", "网格")));
+        tbs.put("b.csv", List.of(new TermEntry("mesh", "网")));
+        all.addAll(TermbaseChecker.checkCrossTermbase(tbs));
+        tbs = new LinkedHashMap<>();
+        tbs.put("a.csv", List.of(new TermEntry("mesh", "网格")));
+        tbs.put("b.csv", List.of(new TermEntry("mesh", "网格")));
+        all.addAll(TermbaseChecker.checkCrossTermbase(tbs));
+
+        assertFalse(all.isEmpty());
+        Pattern ph = Pattern.compile("\\{(\\d+)\\}");
+        for (Issue i : all) {
+            assertNotNull(i.messageKey, i.rule + " carries no messageKey");
+            String template = en.getProperty(i.messageKey);
+            assertNotNull(template, i.rule + " -> missing key " + i.messageKey);
+            assertFalse(template.isBlank(), i.rule + " -> blank value for " + i.messageKey);
+            int maxIndex = -1;
+            int count = 0;
+            Matcher m = ph.matcher(template);
+            while (m.find()) {
+                maxIndex = Math.max(maxIndex, Integer.parseInt(m.group(1)));
+                count++;
+            }
+            assertEquals(count, i.messageArgs.length, i.rule + " argument count vs template " + template);
+            assertTrue(maxIndex < i.messageArgs.length, i.rule + " placeholders exceed args");
+        }
     }
 }

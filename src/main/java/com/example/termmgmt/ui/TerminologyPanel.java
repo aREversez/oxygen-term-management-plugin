@@ -962,15 +962,16 @@ public class TerminologyPanel extends JPanel {
             return;
         }
 
-        String[] cols = {"Severity", "Rule", "Message", "Termbase"};
+        String[] cols = { I18N.getString("check.col.severity"), I18N.getString("check.col.rule"),
+            I18N.getString("check.col.message"), I18N.getString("check.col.termbase") };
         DefaultTableModel model = new DefaultTableModel(cols, issues.size()) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
         };
         for (int i = 0; i < issues.size(); i++) {
             Issue iss = issues.get(i);
-            model.setValueAt(iss.severity.name(), i, 0);
+            model.setValueAt(severityText(iss.severity), i, 0);
             model.setValueAt(iss.rule, i, 1);
-            model.setValueAt(iss.message, i, 2);
+            model.setValueAt(messageText(iss), i, 2);
             model.setValueAt(iss.termbasePath != null ? iss.termbasePath : "", i, 3);
         }
 
@@ -993,6 +994,19 @@ public class TerminologyPanel extends JPanel {
             I18N.getString("msg.check.title"), JOptionPane.PLAIN_MESSAGE);
     }
 
+    /** Translated severity label (check.severity.warning / .error); the raw name if untranslated. */
+    private static String severityText(Severity severity) {
+        String key = "check.severity." + severity.name().toLowerCase(java.util.Locale.ROOT);
+        String text = I18N.getString(key);
+        return text.equals("[" + key + "]") ? severity.name() : text;
+    }
+
+    /** Localized issue message, falling back to the checker's locale-independent English text. */
+    private static String messageText(Issue iss) {
+        String text = I18N.getString(iss.messageKey, iss.messageArgs);
+        return text.equals("[" + iss.messageKey + "]") ? iss.message : text;
+    }
+
     private void exportCheckCsv(List<Issue> issues) {
         JFileChooser fc = new JFileChooser();
         fc.setDialogTitle(I18N.getString("btn.check.export"));
@@ -1001,10 +1015,13 @@ public class TerminologyPanel extends JPanel {
         try (java.io.Writer w = new java.io.OutputStreamWriter(
                 new java.io.FileOutputStream(fc.getSelectedFile()), java.nio.charset.StandardCharsets.UTF_8)) {
             w.write('\uFEFF'); // BOM for Excel
-            w.write("Severity,Rule,Message,Termbase\r\n");
+            w.write(String.join(",",
+                csvField(I18N.getString("check.col.severity")), csvField(I18N.getString("check.col.rule")),
+                csvField(I18N.getString("check.col.message")), csvField(I18N.getString("check.col.termbase")))
+                + "\r\n");
             for (Issue iss : issues) {
-                w.write(csvField(iss.severity.name()) + "," + csvField(iss.rule) + ","
-                    + csvField(iss.message) + "," + csvField(iss.termbasePath != null ? iss.termbasePath : "") + "\r\n");
+                w.write(csvField(severityText(iss.severity)) + "," + csvField(iss.rule) + ","
+                    + csvField(messageText(iss)) + "," + csvField(iss.termbasePath != null ? iss.termbasePath : "") + "\r\n");
             }
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(),
