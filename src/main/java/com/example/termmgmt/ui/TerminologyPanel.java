@@ -976,6 +976,29 @@ public class TerminologyPanel extends JPanel {
         }
 
         JTable table = new JTable(model);
+        // Show the full text on hover when a cell is clipped, and let the long Message and
+        // Termbase columns scroll horizontally instead of being squeezed to unreadable widths
+        // by the default all-columns auto-resize (defect H sibling, quality-check results table).
+        javax.swing.table.TableCellRenderer tipRenderer = new javax.swing.table.DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                String text = value == null ? "" : value.toString();
+                int colWidth = table.getColumnModel().getColumn(column).getWidth();
+                boolean clipped = getFontMetrics(getFont()).stringWidth(text) > colWidth;
+                setToolTipText(clipped ? text : null);
+                return this;
+            }
+        };
+        table.setDefaultRenderer(Object.class, tipRenderer);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        table.getColumnModel().getColumn(0).setPreferredWidth(90);
+        table.getColumnModel().getColumn(1).setPreferredWidth(150);
+        table.getColumnModel().getColumn(2).setPreferredWidth(430);
+        table.getColumnModel().getColumn(3).setPreferredWidth(360);
+        // Dragging the header used to reorder these columns; keep the fixed column order (sibling of H).
+        table.getTableHeader().setReorderingAllowed(false);
         JScrollPane scroll = new JScrollPane(table);
         scroll.setPreferredSize(new Dimension(700, 400));
 
