@@ -200,6 +200,12 @@ public class TbxTermbaseHandler {
             // 10.2: Remember which final node each entry landed in (claimed or freshly
             // created), so after a successful write we can refresh its ordinal/id in memory.
             Map<Element, TermEntry> nodeToEntry = new IdentityHashMap<>();
+            // Phase C: entries an undo brought back, whose full node is still in the restore stash,
+            // are placed after the main pass; entryToNode lets them find their list neighbours.
+            RestoreStash.Bucket stash = RESTORE_STASH.bucketFor(filePath, config.langPairKey());
+            Set<RestoreStash.Item> usedStash = Collections.newSetFromMap(new IdentityHashMap<>());
+            Map<TermEntry, Element> entryToNode = new IdentityHashMap<>();
+            Map<TermEntry, RestoreStash.Item> restorations = new IdentityHashMap<>();
             for (TermEntry entry : terms) {
                 Element node = null;
                 // Try id-based claim first; fall back to ordinal-based claim for no-id entries.
@@ -226,7 +232,12 @@ public class TbxTermbaseHandler {
                 if (node != null && !kept.contains(node)) {
                     kept.add(node);
                     nodeToEntry.put(node, entry);
+                    entryToNode.put(entry, node);
                     updateEntryNode(doc, node, entry, sourceLang, targetLang, selection);
+                } else if (entry.hasRestoreClaim() && stash.find(entry, usedStash) != null) {
+                    RestoreStash.Item item = stash.find(entry, usedStash);
+                    usedStash.add(item);
+                    restorations.put(entry, item);
                 } else {
                     String newId = nextFreeId(usedIds);
                     usedIds.add(newId);
@@ -243,12 +254,54 @@ public class TbxTermbaseHandler {
                     }
                     body.appendChild(fresh);
                     nodeToEntry.put(fresh, entry);
+                    entryToNode.put(entry, fresh);
                 }
             }
 
+            // Phase C: put the stashed nodes back, each next to the node of its list neighbour.
+            for (int i = 0; i < terms.size(); i++) {
+                TermEntry entry = terms.get(i);
+                RestoreStash.Item item = restorations.get(entry);
+                if (item == null) continue;
+                Element node = parseStashedNode(doc, item.xml);
+                if (node == null) {
+                    // Unusable stash entry: fall back to a terms-only node, as without a stash.
+                    usedStash.remove(item);
+                    node = doc.createElement("termEntry");
+                    node.setAttribute("id", nextFreeId(usedIds));
+                    appendLangSet(node, sourceLang, entry.getSourceTerm());
+                    appendLangSet(node, targetLang, entry.getTargetTerm());
+                }
+                String oldId = node.getAttribute("id");
+                if (oldId.isEmpty()) {
+                    // The node never had an id; keep it that way.
+                } else if (usedIds.contains(oldId)) {
+                    String newId = nextFreeId(usedIds);
+                    node.setAttribute("id", newId);
+                    usedIds.add(newId);
+                } else {
+                    usedIds.add(oldId);
+                }
+                updateEntryNode(doc, node, entry, sourceLang, targetLang, selection);
+                placeRestored(body, node, terms, i, entryToNode);
+                kept.add(node);
+                nodeToEntry.put(node, entry);
+                entryToNode.put(entry, node);
+            }
+
             // 5.2: Only delete loadable unclaimed nodes; non-loadable nodes stay untouched.
-            for (Element e : snapshot) {
+            // Phase C: what is deleted is remembered (committed once the write succeeds), so an
+            // undo can bring the whole node back.
+            List<RestoreStash.Item> newlyStashed = new ArrayList<>();
+            for (int si = 0; si < snapshot.size(); si++) {
+                Element e = snapshot.get(si);
                 if (!kept.contains(e) && isLoadable(e, selection) && e.getParentNode() != null) {
+                    String id = e.getAttribute("id");
+                    String xml = serializeNode(e);
+                    if (xml != null) {
+                        newlyStashed.add(new RestoreStash.Item(id.isEmpty() ? null : id,
+                            nodeFingerprint(e, selection), si, xml));
+                    }
                     e.getParentNode().removeChild(e);
                 }
             }
@@ -297,6 +350,10 @@ public class TbxTermbaseHandler {
                 }
             });
 
+            // Phase C: the write is on disk. Used stash items are spent; this save's deletions are
+            // now restorable.
+            RESTORE_STASH.commit(filePath, config.langPairKey(), usedStash, newlyStashed);
+
             // 10.2: Write reached the disk successfully - now refresh the entries' claiming
             // info. Doing it here (not earlier) guarantees memory and disk never diverge when
             // the write throws. The final node count is the guard bound for the assertion.
@@ -311,6 +368,7 @@ public class TbxTermbaseHandler {
                         + " out of range for " + nodeCount + " nodes");
                 }
                 entry.setEntryOrdinal(ordinal);
+                entry.clearRestoreClaim();
                 entry.setPersistedFingerprint((String) w[3]);
                 if (w[2] != null) {
                     entry.setEntryId((String) w[2]);
@@ -319,6 +377,186 @@ public class TbxTermbaseHandler {
         } catch (Exception e) {
             throw new RuntimeException("Failed to save TBX: " + filePath, e);
         }
+    }
+
+    // ---- Phase C: restore stash ----
+
+    /** Deleted termEntry nodes, remembered per file so an undo can bring back the whole node. */
+    private static final RestoreStash RESTORE_STASH = new RestoreStash();
+
+    /** Test hook: forget every stashed node (as after a restart or an eviction). */
+    static void clearRestoreStash() {
+        RESTORE_STASH.clear();
+    }
+
+    /** Test hook: what is stashed for a file. */
+    static StashProbe stashProbe(String filePath) {
+        return new StashProbe(RESTORE_STASH.sizeOf(filePath));
+    }
+
+    static final class StashProbe {
+        private final int size;
+
+        StashProbe(int size) {
+            this.size = size;
+        }
+
+        int size() {
+            return size;
+        }
+    }
+
+    /**
+     * Bounded, in-memory store of deleted termEntry nodes (as XML text), at most
+     * {@link #PER_FILE} per file (the oldest are dropped first) and {@link #MAX_FILES} files (least
+     * recently used dropped). Each file's bucket remembers the language pair it was filled under
+     * and is not used under another one, since ids and fingerprints depend on the pair.
+     */
+    static final class RestoreStash {
+        static final int PER_FILE = 200;
+        static final int MAX_FILES = 20;
+
+        static final class Item {
+            final String id;
+            final String fingerprint;
+            final int ordinal;
+            final String xml;
+
+            Item(String id, String fingerprint, int ordinal, String xml) {
+                this.id = id;
+                this.fingerprint = fingerprint;
+                this.ordinal = ordinal;
+                this.xml = xml;
+            }
+        }
+
+        static final class Bucket {
+            private final List<Item> items;
+
+            Bucket(List<Item> items) {
+                this.items = items;
+            }
+
+            /**
+             * The stashed node an entry's restore claim points at, not already {@code taken}:
+             * an exact id + fingerprint + ordinal match first, then the id alone, then the
+             * fingerprint with the ordinal (for nodes that had no id).
+             */
+            Item find(TermEntry entry, Set<Item> taken) {
+                Item byId = null;
+                Item byPosition = null;
+                for (Item it : items) {
+                    if (taken.contains(it)) continue;
+                    boolean idMatch = entry.getRestoreId() != null && entry.getRestoreId().equals(it.id);
+                    boolean posMatch = entry.getRestoreFingerprint() != null && it.fingerprint != null
+                        && entry.getRestoreFingerprint().equals(it.fingerprint)
+                        && entry.getRestoreOrdinal() == it.ordinal;
+                    if (idMatch && (posMatch || entry.getRestoreFingerprint() == null)) return it;
+                    if (idMatch && byId == null) byId = it;
+                    if (posMatch && it.id == null && byPosition == null) byPosition = it;
+                }
+                return byId != null ? byId : byPosition;
+            }
+        }
+
+        private static final class FileBucket {
+            String pairKey;
+            final List<Item> items = new ArrayList<>();
+        }
+
+        private final java.util.LinkedHashMap<String, FileBucket> files =
+            new java.util.LinkedHashMap<>(16, 0.75f, true);
+
+        synchronized Bucket bucketFor(String filePath, String pairKey) {
+            FileBucket fb = files.get(filePath);
+            if (fb == null || !Objects.equals(fb.pairKey, pairKey)) {
+                return new Bucket(new ArrayList<>());
+            }
+            return new Bucket(new ArrayList<>(fb.items));
+        }
+
+        synchronized void commit(String filePath, String pairKey, Set<Item> used, List<Item> added) {
+            FileBucket fb = files.get(filePath);
+            if (fb == null || !Objects.equals(fb.pairKey, pairKey)) {
+                fb = new FileBucket();
+                fb.pairKey = pairKey;
+                files.put(filePath, fb);
+            }
+            fb.items.removeIf(used::contains);
+            fb.items.addAll(added);
+            while (fb.items.size() > PER_FILE) {
+                fb.items.remove(0);
+            }
+            if (fb.items.isEmpty()) {
+                files.remove(filePath);
+            }
+            while (files.size() > MAX_FILES) {
+                String eldest = files.keySet().iterator().next();
+                files.remove(eldest);
+            }
+        }
+
+        synchronized int sizeOf(String filePath) {
+            FileBucket fb = files.get(filePath);
+            return fb == null ? 0 : fb.items.size();
+        }
+
+        synchronized void clear() {
+            files.clear();
+        }
+    }
+
+    /** The node as XML text without a declaration, or null if it cannot be serialized. */
+    private static String serializeNode(Element node) {
+        try {
+            Transformer t = newSecureTransformerFactory().newTransformer();
+            t.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
+            t.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+            java.io.StringWriter w = new java.io.StringWriter();
+            t.transform(new DOMSource(node), new StreamResult(w));
+            return w.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Parses stashed XML and imports it into {@code doc}; null if it is no longer parseable. */
+    private static Element parseStashedNode(Document doc, String xml) {
+        try {
+            DocumentBuilderFactory dbf = newSecureDocumentBuilderFactory();
+            dbf.setNamespaceAware(false);
+            Document parsed = dbf.newDocumentBuilder().parse(
+                new org.xml.sax.InputSource(new java.io.StringReader(xml)));
+            Node imported = doc.importNode(parsed.getDocumentElement(), true);
+            return imported instanceof Element && "termEntry".equals(imported.getNodeName())
+                ? (Element) imported : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Puts a restored node into the body: right after the node of the nearest preceding list
+     * entry that has one, else right before the node of the nearest following one, else at the
+     * end.
+     */
+    private static void placeRestored(Element body, Element node, List<TermEntry> terms, int index,
+                                      Map<TermEntry, Element> entryToNode) {
+        for (int j = index - 1; j >= 0; j--) {
+            Element ref = entryToNode.get(terms.get(j));
+            if (ref != null && ref.getParentNode() != null) {
+                ref.getParentNode().insertBefore(node, ref.getNextSibling());
+                return;
+            }
+        }
+        for (int j = index + 1; j < terms.size(); j++) {
+            Element ref = entryToNode.get(terms.get(j));
+            if (ref != null && ref.getParentNode() != null) {
+                ref.getParentNode().insertBefore(node, ref);
+                return;
+            }
+        }
+        body.appendChild(node);
     }
 
     private static Document parseFile(String filePath) throws Exception {

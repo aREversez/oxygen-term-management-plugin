@@ -151,7 +151,9 @@ public final class TermEntryUtils {
      * An entry whose source and target already occur in the list is not inserted again (the
      * user may have re-added it by hand). The restored copies carry no claim on any file
      * node (no TBX id, ordinal or fingerprint), so a save writes them as new nodes instead of
-     * matching them to whatever now occupies their old position.
+     * matching them to whatever now occupies their old position. They do carry a restore claim
+     * (the old id/fingerprint/ordinal), which lets the TBX writer put back the whole deleted node
+     * when it still has it.
      *
      * Positions are best-effort: the list may have gained, lost or reordered entries since the
      * delete, so an old index cannot always be reproduced exactly. Entries are recorded in
@@ -170,6 +172,10 @@ public final class TermEntryUtils {
                 continue;
             }
             TermEntry back = r.getEntry().copy();
+            // What the deleted TBX node was known by, so the writer can fetch its full XML from
+            // the restore stash. Entries that were never on disk have nothing to look up.
+            back.setRestoreClaim(r.getEntry().getEntryId(), r.getEntry().getPersistedFingerprint(),
+                    r.getEntry().getEntryOrdinal());
             back.setEntryId(null);
             back.setEntryOrdinal(-1);
             back.setPersistedFingerprint(null);

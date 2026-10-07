@@ -872,24 +872,26 @@ class TbxTermbaseHandlerTest {
         assertEquals(4, id.size(), "A, B (restored), C and the later D");
         assertEquals("DEF-A", desc.get("A"));
         assertEquals("DEF-C", desc.get("C"));
-        assertEquals("", desc.get("B"), "B is back as a plain node");
+        assertEquals("DEF-B", desc.get("B"), "phase C: B comes back with its descrip, not as a plain node");
         assertTrue(id.containsKey("D"), "the term added after the delete must survive the undo");
 
         // And the file reloads to the expected order: A, B (back in place), C, D.
         List<TermEntry> reloaded = TbxTermbaseHandler.loadTerms(config);
-        assertEquals(List.of("A", "C", "D", "B"),
+        assertEquals(List.of("A", "B", "C", "D"),
             reloaded.stream().map(TermEntry::getSourceTerm).collect(java.util.stream.Collectors.toList()),
-            "TBX saves append new nodes, so the restored node follows the existing ones");
+            "phase C: the restored node is placed after its list neighbour, not appended");
     }
 
     /**
-     * 14 (建议): the contract for a restored TBX entry, pinned in isolation. Undo carries no claim
-     * on the deleted node, so it is written as a brand-new node: appended after the surviving
-     * entries, given a fresh id (the deleted node's id is not reused), and without the unmodelled
-     * content (descrip/note) the plugin never captured. Reloading reflects exactly that order.
+     * 14 (建议): the contract for a restored TBX entry when the restore stash no longer has the
+     * deleted node (evicted, or the plugin was restarted). Undo carries no claim on the deleted
+     * node, so it is written as a brand-new node: appended after the surviving entries, given a
+     * fresh id (the deleted node's id is not reused), and without the unmodelled content
+     * (descrip/note), which was only recoverable from the stash. With the stash present the whole
+     * node comes back instead: see TbxFullRestoreTest.
      */
     @Test
-    void undoRestoredTbxEntry_isANewNodeAppendedWithAFreshId() throws Exception {
+    void undoRestoredTbxEntry_withoutStash_isANewNodeAppendedWithAFreshId() throws Exception {
         Path file = tempDir.resolve("undo_freshid.tbx");
         Files.writeString(file,
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<martif type=\"TBX\">\n  <body>\n"
@@ -908,6 +910,7 @@ class TbxTermbaseHandlerTest {
         List<com.example.termmgmt.util.TermEntryUtils.RemovedEntry> removed =
             com.example.termmgmt.util.TermEntryUtils.removeEntriesRecording(list, List.of(list.get(1)));
         TbxTermbaseHandler.saveTerms(config, list);                 // delete B (id "gone")
+        TbxTermbaseHandler.clearRestoreStash();                     // the stash no longer has it
 
         com.example.termmgmt.util.TermEntryUtils.reinsertRemoved(list, removed);
         TbxTermbaseHandler.saveTerms(config, list);                 // undo B

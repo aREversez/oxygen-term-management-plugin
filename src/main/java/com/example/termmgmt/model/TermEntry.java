@@ -37,6 +37,15 @@ public class TermEntry {
      */
     private volatile String persistedFingerprint;
     /**
+     * Set on an entry brought back by an undo: what the deleted TBX node was known by (its id, its
+     * source/target fingerprint and its document-order ordinal). The TBX writer uses it to find
+     * the node's full XML in its restore stash and put the whole entry back, definition and notes
+     * included. Memory only; cleared by the first save that writes the entry.
+     */
+    private volatile String restoreId;
+    private volatile String restoreFingerprint;
+    private volatile int restoreOrdinal = -1;
+    /**
      * The raw status value as read from the file (column text or TBX administrativeStatus
      * termNote). The handlers use it to tell "cleared since load" from "never had one",
      * and to write an unknown TBX value back verbatim on a no-op save.
@@ -78,6 +87,25 @@ public class TermEntry {
     public void setEntryOrdinal(int entryOrdinal) { this.entryOrdinal = entryOrdinal; }
     public String getPersistedFingerprint() { return persistedFingerprint; }
     public void setPersistedFingerprint(String persistedFingerprint) { this.persistedFingerprint = persistedFingerprint; }
+    public String getRestoreId() { return restoreId; }
+    public String getRestoreFingerprint() { return restoreFingerprint; }
+    public int getRestoreOrdinal() { return restoreOrdinal; }
+
+    public void setRestoreClaim(String id, String fingerprint, int ordinal) {
+        this.restoreId = id;
+        this.restoreFingerprint = fingerprint;
+        this.restoreOrdinal = ordinal;
+    }
+
+    public void clearRestoreClaim() {
+        setRestoreClaim(null, null, -1);
+    }
+
+    /** Whether the entry carries anything the writer could look its deleted node up by. */
+    public boolean hasRestoreClaim() {
+        return restoreId != null || (restoreFingerprint != null && restoreOrdinal >= 0);
+    }
+
     public String getLoadedStatusRaw() { return loadedStatusRaw; }
     public void setLoadedStatusRaw(String loadedStatusRaw) { this.loadedStatusRaw = loadedStatusRaw; }
 
@@ -133,6 +161,9 @@ public class TermEntry {
         c.persistedFingerprint = persistedFingerprint;
         c.loadedStatusRaw = loadedStatusRaw;
         c.statusValue = statusValue;
+        c.restoreId = restoreId;
+        c.restoreFingerprint = restoreFingerprint;
+        c.restoreOrdinal = restoreOrdinal;
         return c;
     }
 
