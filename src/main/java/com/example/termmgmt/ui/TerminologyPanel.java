@@ -5,6 +5,7 @@ import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.service.TermbaseConverter;
+import com.example.termmgmt.service.DitaGlossaryExporter;
 import com.example.termmgmt.util.FileAccessUtils;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
@@ -1078,7 +1079,7 @@ public class TerminologyPanel extends JPanel {
             return;
         }
         // Format selector
-        String[] formats = {"CSV", "XLSX", "TBX"};
+        String[] formats = {"CSV", "XLSX", "TBX", "DITA Glossary"};
         String chosen = (String) JOptionPane.showInputDialog(this,
             I18N.getString("btn.export.format"),
             I18N.getString("btn.export.title"),
@@ -1091,6 +1092,7 @@ public class TerminologyPanel extends JPanel {
         String ext = switch (chosen) {
             case "CSV" -> ".csv";
             case "XLSX" -> ".xlsx";
+            case "DITA Glossary" -> ".dita";
             default -> ".tbx";
         };
         fc.setSelectedFile(new File(currentConfig.getFileName().replaceAll("\\.[^.]+$", "") + ext));
@@ -1117,6 +1119,12 @@ public class TerminologyPanel extends JPanel {
         new SwingWorker<TermbaseConverter.ConversionReport, Void>() {
             @Override
             protected TermbaseConverter.ConversionReport doInBackground() throws Exception {
+                if ("DITA Glossary".equals(finalFormat)) {
+                    List<TermbaseConverter.RichTermEntry> rich = TermbaseConverter.readRich(configSnapshot);
+                    DitaGlossaryExporter.export(rich, configSnapshot.getSourceLang(),
+                        configSnapshot.getTargetLang(), finalTarget.toPath());
+                    return new TermbaseConverter.ConversionReport(rich.size(), List.of());
+                }
                 TermbaseConfig.Format fmt = switch (finalFormat) {
                     case "CSV" -> TermbaseConfig.Format.CSV;
                     case "XLSX" -> TermbaseConfig.Format.XLSX;

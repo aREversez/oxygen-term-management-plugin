@@ -279,6 +279,7 @@
                                 <include>com/example/termmgmt/service/ScanDirection.java</include>
                                 <include>com/example/termmgmt/service/ExternalChangeCheck.java</include>
                                 <include>com/example/termmgmt/service/TermbaseConverter.java</include>
+                                <include>com/example/termmgmt/service/DitaGlossaryExporter.java</include>
                             </includes>
                         </configuration>
                     </plugin>
