@@ -4,6 +4,7 @@ import com.example.termmgmt.model.TermEntry;
 import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
+import com.example.termmgmt.service.TermbaseConverter;
 import com.example.termmgmt.util.FileAccessUtils;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
@@ -40,6 +41,7 @@ import java.util.Map;
 import java.util.function.UnaryOperator;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import java.io.File;
 
 /**
  * Tab 3: Terminology Management panel.
@@ -268,6 +270,11 @@ public class TerminologyPanel extends JPanel {
         checkButton.setToolTipText(I18N.getString("btn.check.tooltip"));
         checkButton.addActionListener(e -> runTermbaseCheck());
         textRow.add(checkButton);
+
+        JButton exportButton = new JButton(I18N.getString("btn.export"));
+        exportButton.setToolTipText(I18N.getString("btn.export.tooltip"));
+        exportButton.addActionListener(e -> showExportDialog());
+        textRow.add(exportButton);
 
         buttonPanel.add(iconRow);
         buttonPanel.add(textRow);
@@ -1060,5 +1067,87 @@ public class TerminologyPanel extends JPanel {
             return "\"" + v.replace("\"", "\"\"") + "\"";
         }
         return v;
+    }
+
+    // ------------------------------------------------------------------ D1: Export dialog
+
+    private void showExportDialog() {
+        if (currentConfig == null) {
+            JOptionPane.showMessageDialog(this, I18N.getString("prefs.select.langs"),
+                I18N.getString("msg.error"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        // Format selector
+        String[] formats = {"CSV", "XLSX", "TBX"};
+        String chosen = (String) JOptionPane.showInputDialog(this,
+            I18N.getString("btn.export.format"),
+            I18N.getString("btn.export.title"),
+            JOptionPane.PLAIN_MESSAGE, null, formats, formats[0]);
+        if (chosen == null) return;
+
+        // File chooser
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle(I18N.getString("btn.export.title"));
+        String ext = switch (chosen) {
+            case "CSV" -> ".csv";
+            case "XLSX" -> ".xlsx";
+            default -> ".tbx";
+        };
+        fc.setSelectedFile(new File(currentConfig.getFileName().replaceAll("\\.[^.]+$", "") + ext));
+        int result = fc.showSaveDialog(this);
+        if (result != JFileChooser.APPROVE_OPTION) return;
+
+        File targetFile = fc.getSelectedFile();
+        // Ensure correct extension
+        if (!targetFile.getName().toLowerCase(java.util.Locale.ROOT).endsWith(ext)) {
+            targetFile = new File(targetFile.getAbsolutePath() + ext);
+        }
+        // Overwrite confirmation
+        if (targetFile.exists()) {
+            int overwrite = JOptionPane.showConfirmDialog(this,
+                I18N.getString("btn.export.confirm.overwrite", targetFile.getName()),
+                I18N.getString("btn.export.title"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (overwrite != JOptionPane.YES_OPTION) return;
+        }
+
+        final File finalTarget = targetFile;
+        final String finalFormat = chosen;
+        // Run in background
+        final TermbaseConfig configSnapshot = currentConfig;
+        new SwingWorker<TermbaseConverter.ConversionReport, Void>() {
+            @Override
+            protected TermbaseConverter.ConversionReport doInBackground() throws Exception {
+                TermbaseConfig.Format fmt = switch (finalFormat) {
+                    case "CSV" -> TermbaseConfig.Format.CSV;
+                    case "XLSX" -> TermbaseConfig.Format.XLSX;
+                    default -> TermbaseConfig.Format.TBX;
+                };
+                return TermbaseConverter.convert(configSnapshot, fmt, finalTarget.toPath());
+            }
+            @Override
+            protected void done() {
+                try {
+                    TermbaseConverter.ConversionReport report = get();
+                    StringBuilder msg = new StringBuilder();
+                    msg.append(I18N.getString("btn.export.success", report.entryCount(), finalTarget.getName()));
+                    if (report.hasLoss()) {
+                        msg.append("\n\n").append(I18N.getString("btn.export.report.dropped")).append("\n");
+                        for (TermbaseConverter.DroppedField df : report.droppedFields()) {
+                            msg.append("  - ").append(df.fieldName())
+                               .append(": ").append(df.affectedEntries()).append(" entries\n");
+                        }
+                    } else {
+                        msg.append("\n").append(I18N.getString("btn.export.report.none"));
+                    }
+                    JOptionPane.showMessageDialog(TerminologyPanel.this, msg.toString(),
+                        I18N.getString("btn.export.report.title"), JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        I18N.getString("btn.export.error", cause.getMessage()),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 }
