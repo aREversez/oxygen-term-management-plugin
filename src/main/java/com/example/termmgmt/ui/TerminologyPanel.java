@@ -6,6 +6,10 @@ import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.service.TermbaseConverter;
 import com.example.termmgmt.service.DitaGlossaryExporter;
+import com.example.termmgmt.service.HttpTransport;
+import com.example.termmgmt.service.OpenAiHttpTransport;
+import com.example.termmgmt.service.SuggestionResult;
+import com.example.termmgmt.service.TranslationSuggester;
 import com.example.termmgmt.util.FileAccessUtils;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
@@ -276,6 +280,11 @@ public class TerminologyPanel extends JPanel {
         exportButton.setToolTipText(I18N.getString("btn.export.tooltip"));
         exportButton.addActionListener(e -> showExportDialog());
         textRow.add(exportButton);
+
+        JButton suggestButton = new JButton(I18N.getString("btn.suggest.translation"));
+        suggestButton.setToolTipText(I18N.getString("btn.suggest.translation.tooltip"));
+        suggestButton.addActionListener(e -> suggestTranslations());
+        textRow.add(suggestButton);
 
         buttonPanel.add(iconRow);
         buttonPanel.add(textRow);
@@ -1068,6 +1077,183 @@ public class TerminologyPanel extends JPanel {
             return "\"" + v.replace("\"", "\"\"") + "\"";
         }
         return v;
+    }
+
+    // ------------------------------------------------------------------ D3: AI translation suggestions
+
+    /** A source term paired with the AI-suggested translation for the review dialog. */
+    private record PendingSuggestion(TermEntry entry, String suggestion) {}
+
+    /** Reads the AI-translation configuration persisted by the preference page. */
+    private TranslationSuggester.Config loadAiConfig() {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return new TranslationSuggester.Config(null, null, null, false);
+            WSOptionsStorage os = w.getOptionsStorage();
+            final String prefix = "com.example.termmgmt.ai-translate.";
+            boolean enabled = Boolean.parseBoolean(os.getOption(prefix + "enabled", "false"));
+            String apiUrl = os.getOption(prefix + "api-url", "");
+            String model = os.getOption(prefix + "model", "");
+            String apiKey = os.getOption(prefix + "api-key", "");
+            return new TranslationSuggester.Config(apiUrl, model, apiKey, enabled);
+        } catch (Exception e) {
+            return new TranslationSuggester.Config(null, null, null, false);
+        }
+    }
+
+    private void suggestTranslations() {
+        if (currentConfig == null) {
+            JOptionPane.showMessageDialog(this, I18N.getString("prefs.select.langs"),
+                I18N.getString("msg.error"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        TranslationSuggester.Config aiConfig = loadAiConfig();
+        if (!aiConfig.enabled()) {
+            JOptionPane.showMessageDialog(this, I18N.getString("btn.suggest.translation.disabled"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (!aiConfig.isValid()) {
+            JOptionPane.showMessageDialog(this, I18N.getString("btn.suggest.translation.notconfigured"),
+                I18N.getString("msg.warning"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        // Only entries whose target translation is blank are candidates.
+        List<TermEntry> blanks = new ArrayList<>();
+        String sourceLang = currentConfig.getSelectedSourceLang() != null
+            ? currentConfig.getSelectedSourceLang() : currentConfig.getSourceLang();
+        String targetLang = currentConfig.getSelectedTargetLang() != null
+            ? currentConfig.getSelectedTargetLang() : currentConfig.getTargetLang();
+        for (TermEntry t : currentTerms) {
+            String target = t.getTargetTerm();
+            if (target == null || target.trim().isEmpty()) {
+                blanks.add(t);
+            }
+        }
+        if (blanks.isEmpty()) {
+            JOptionPane.showMessageDialog(this, I18N.getString("btn.suggest.translation.noneblank"),
+                I18N.getString("msg.info"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        final TermbaseConfig configSnapshot = currentConfig;
+        final List<TermEntry> candidates = new ArrayList<>(blanks);
+        final String src = sourceLang;
+        final String tgt = targetLang;
+        final HttpTransport transport = new OpenAiHttpTransport();
+
+        new SwingWorker<List<PendingSuggestion>, String>() {
+            @Override
+            protected List<PendingSuggestion> doInBackground() {
+                List<PendingSuggestion> results = new ArrayList<>();
+                int done = 0;
+                for (TermEntry entry : candidates) {
+                    String srcTerm = entry.getSourceTerm() != null ? entry.getSourceTerm() : "";
+                    publish(I18N.getString("btn.suggest.translation.progress",
+                        ++done, candidates.size(), srcTerm));
+                    if (srcTerm.isBlank()) continue;
+                    try {
+                        SuggestionResult r =
+                            TranslationSuggester.suggest(srcTerm, src, tgt, aiConfig, transport);
+                        if (r.success() && r.translation() != null && !r.translation().isBlank()) {
+                            results.add(new PendingSuggestion(entry, r.translation().trim()));
+                        }
+                    } catch (Exception ex) {
+                        // Skip this entry; keep going for the rest.
+                    }
+                }
+                return results;
+            }
+
+            @Override
+            protected void process(List<String> chunks) {
+                // Progress is surfaced via the button tooltip; a modal dialog would block the flow.
+                if (!chunks.isEmpty()) {
+                    suggestStatusHint(chunks.get(chunks.size() - 1));
+                }
+            }
+
+            @Override
+            protected void done() {
+                suggestStatusHint(null);
+                List<PendingSuggestion> suggestions;
+                try {
+                    suggestions = get();
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        I18N.getString("btn.suggest.translation.error", cause.getMessage()),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                if (suggestions.isEmpty()) {
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        I18N.getString("btn.suggest.translation.empty"),
+                        I18N.getString("msg.info"), JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                reviewSuggestions(configSnapshot, suggestions);
+            }
+        }.execute();
+    }
+
+    /** Update a lightweight progress hint on the component; {@code null} clears it. */
+    private void suggestStatusHint(String text) {
+        SwingUtilities.invokeLater(() -> {
+            if (text == null) {
+                setToolTipText(null);
+            } else {
+                setToolTipText(text);
+            }
+        });
+    }
+
+    /** Show a checkbox list of suggestions and persist the accepted ones. */
+    private void reviewSuggestions(TermbaseConfig config, List<PendingSuggestion> suggestions) {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        List<JCheckBox> boxes = new ArrayList<>();
+        for (PendingSuggestion s : suggestions) {
+            JCheckBox cb = new JCheckBox(
+                (s.entry().getSourceTerm() != null ? s.entry().getSourceTerm() : "")
+                    + "  \u2192  " + s.suggestion(), true);
+            boxes.add(cb);
+            panel.add(cb);
+        }
+        JScrollPane sp = new JScrollPane(panel);
+        sp.setPreferredSize(new Dimension(420, Math.min(360, 28 * suggestions.size() + 16)));
+
+        int choice = JOptionPane.showConfirmDialog(this, sp,
+            I18N.getString("btn.suggest.translation.review"),
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) return;
+
+        // Collect accepted (original entry -> new target). Apply once, off the shared UI list.
+        List<PendingSuggestion> accepted = new ArrayList<>();
+        for (int i = 0; i < boxes.size(); i++) {
+            if (boxes.get(i).isSelected()) accepted.add(suggestions.get(i));
+        }
+        if (accepted.isEmpty()) return;
+
+        registry.updateTermsAsync(config, terms -> {
+            for (PendingSuggestion s : accepted) {
+                TermEntry edited = s.entry().copy();
+                edited.setTargetTerm(s.suggestion());
+                TermEntryUtils.replaceEntryMerging(terms, s.entry(), edited);
+            }
+            return terms;
+        }).whenComplete((ignored, error) -> {
+            if (error != null) {
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(TerminologyPanel.this,
+                        I18N.getString("btn.suggest.translation.saveerror",
+                            error.getMessage()),
+                        I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                });
+            } else {
+                SwingUtilities.invokeLater(this::loadTermbaseTerms);
+            }
+        });
     }
 
     // ------------------------------------------------------------------ D1: Export dialog

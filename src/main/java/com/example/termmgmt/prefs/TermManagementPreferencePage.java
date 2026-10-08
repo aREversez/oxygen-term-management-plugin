@@ -38,10 +38,17 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
 
     private static final String LAST_TERMBASE_DIR_KEY = "com.example.termmgmt.last-termbase-dir";
 
+    /** D3: key prefix for AI-translation options persisted via OptionsStorage. */
+    private static final String AI_OPTION_PREFIX = "com.example.termmgmt.ai-translate.";
+
     private JPanel ui;
     private JTable termbaseTable;
     private JCheckBox caseSensitiveCheck;
     private JCheckBox matchInflectionsCheck;
+    private JCheckBox aiEnabledCheck;
+    private JTextField aiUrlField;
+    private JTextField aiModelField;
+    private JPasswordField aiKeyField;
     private int reloadGeneration; // EDT only
     private boolean addInProgress; // EDT only
     private DefaultTableModel tableModel;
@@ -75,6 +82,11 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         saveCaseSensitiveOption(caseSensitiveCheck.isSelected());
         registry.setMatchInflections(matchInflectionsCheck.isSelected());
         saveMatchInflectionsOption(matchInflectionsCheck.isSelected());
+        // D3: Save AI config
+        saveAiOption("enabled", String.valueOf(aiEnabledCheck.isSelected()));
+        saveAiOption("api-url", aiUrlField.getText().trim());
+        saveAiOption("model", aiModelField.getText().trim());
+        saveAiOption("api-key", new String(aiKeyField.getPassword()));
         // Propagate the applied changes (added/removed/enabled/disabled rows) to the open panels.
         // Panels no longer re-read OptionsStorage on refresh (defect C), so this is what makes an
         // Apply show up in the term-recognition and terminology combos right away.
@@ -120,6 +132,38 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         matchInflectionsCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
         optionsPanel.add(caseSensitiveCheck);
         optionsPanel.add(matchInflectionsCheck);
+
+        // D3: AI translation settings
+        aiEnabledCheck = new JCheckBox(I18N.getString("prefs.ai.translate.enabled"));
+        aiEnabledCheck.setToolTipText(I18N.getString("prefs.ai.translate.enabled.tooltip"));
+        aiEnabledCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
+        aiEnabledCheck.setSelected(loadAiOption("enabled", "false").equals("true"));
+        aiUrlField = new JTextField(20);
+        aiUrlField.putClientProperty("JTextField.placeholderText", "http://localhost:8080/v1");
+        aiUrlField.setText(loadAiOption("api-url", ""));
+        aiModelField = new JTextField(20);
+        aiModelField.setText(loadAiOption("model", ""));
+        aiKeyField = new JPasswordField(20);
+        aiKeyField.setText(loadAiOption("api-key", ""));
+        JPanel aiPanel = new JPanel();
+        aiPanel.setLayout(new BoxLayout(aiPanel, BoxLayout.Y_AXIS));
+        aiPanel.setBorder(BorderFactory.createTitledBorder(I18N.getString("prefs.ai.translate")));
+        aiEnabledCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
+        aiPanel.add(aiEnabledCheck);
+        JPanel aiUrlRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2));
+        aiUrlRow.add(new JLabel(I18N.getString("prefs.ai.translate.api-url")));
+        aiUrlRow.add(aiUrlField);
+        aiPanel.add(aiUrlRow);
+        JPanel aiModelRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2));
+        aiModelRow.add(new JLabel(I18N.getString("prefs.ai.translate.model")));
+        aiModelRow.add(aiModelField);
+        aiPanel.add(aiModelRow);
+        JPanel aiKeyRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2));
+        aiKeyRow.add(new JLabel(I18N.getString("prefs.ai.translate.api-key")));
+        aiKeyRow.add(aiKeyField);
+        aiPanel.add(aiKeyRow);
+        aiPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        optionsPanel.add(aiPanel);
         JPanel northPanel = new JPanel(new BorderLayout());
         northPanel.add(headerLabel, BorderLayout.NORTH);
         northPanel.add(optionsPanel, BorderLayout.SOUTH);
@@ -730,6 +774,28 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
             if (w == null) return;
             w.getOptionsStorage().setOption(TermbaseRegistry.MATCH_INFLECTIONS_OPTION_KEY, String.valueOf(value));
+        } catch (Exception e) {
+        }
+    }
+
+    /** D3: read an AI-translation option; returns {@code defaultValue} when storage is unavailable. */
+    private String loadAiOption(String suffix, String defaultValue) {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return defaultValue;
+            String v = w.getOptionsStorage().getOption(AI_OPTION_PREFIX + suffix, defaultValue);
+            return v != null ? v : defaultValue;
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
+    /** D3: persist an AI-translation option. */
+    private void saveAiOption(String suffix, String value) {
+        try {
+            PluginWorkspace w = PluginWorkspaceProvider.getPluginWorkspace();
+            if (w == null) return;
+            w.getOptionsStorage().setOption(AI_OPTION_PREFIX + suffix, value != null ? value : "");
         } catch (Exception e) {
         }
     }

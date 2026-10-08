@@ -280,6 +280,10 @@
                                 <include>com/example/termmgmt/service/ExternalChangeCheck.java</include>
                                 <include>com/example/termmgmt/service/TermbaseConverter.java</include>
                                 <include>com/example/termmgmt/service/DitaGlossaryExporter.java</include>
+                                <include>com/example/termmgmt/service/HttpTransport.java</include>
+                                <include>com/example/termmgmt/service/OpenAiHttpTransport.java</include>
+                                <include>com/example/termmgmt/service/SuggestionResult.java</include>
+                                <include>com/example/termmgmt/service/TranslationSuggester.java</include>
                             </includes>
                         </configuration>
                     </plugin>
