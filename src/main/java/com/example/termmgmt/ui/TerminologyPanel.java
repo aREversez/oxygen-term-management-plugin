@@ -299,7 +299,9 @@ public class TerminologyPanel extends JPanel {
             }
             private void showPopup(MouseEvent e) {
                 int row = termTable.rowAtPoint(e.getPoint());
-                if (row >= 0) {
+                // Keep a multi-selection when the click lands inside it, so "Delete Term" from
+                // the context menu acts on every selected row, as the toolbar button does.
+                if (TableRowUtils.shouldSelectOnPopup(row, termTable.getSelectedRows())) {
                     termTable.setRowSelectionInterval(row, row);
                 }
                 popup.show(termTable, e.getX(), e.getY());

@@ -51,4 +51,22 @@ public final class TableRowUtils {
         }
         return rows;
     }
+
+    /**
+     * Whether a right-click on {@code clickedRow} should replace the selection with that row.
+     * Standard table behaviour: a click on a row that is already part of the selection keeps the
+     * whole selection (so a context-menu action applies to every selected row); a click on any
+     * other row selects just that row. A click outside the rows (-1) changes nothing.
+     */
+    public static boolean shouldSelectOnPopup(int clickedRow, int[] selectedViewRows) {
+        if (clickedRow < 0) {
+            return false;
+        }
+        for (int r : selectedViewRows) {
+            if (r == clickedRow) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

@@ -130,4 +130,20 @@ class TableRowUtilsTest {
         assertEquals(1, terms.size());
         assertEquals("b", terms.get(0).getSourceTerm());
     }
+
+    @org.junit.jupiter.api.Test
+    void shouldSelectOnPopup_keepsAMultiSelectionWhenTheClickIsInsideIt() {
+        org.junit.jupiter.api.Assertions.assertFalse(TableRowUtils.shouldSelectOnPopup(2, new int[] {1, 2, 4}));
+    }
+
+    @org.junit.jupiter.api.Test
+    void shouldSelectOnPopup_selectsTheClickedRowWhenItIsOutsideTheSelection() {
+        org.junit.jupiter.api.Assertions.assertTrue(TableRowUtils.shouldSelectOnPopup(3, new int[] {1, 2, 4}));
+        org.junit.jupiter.api.Assertions.assertTrue(TableRowUtils.shouldSelectOnPopup(0, new int[0]));
+    }
+
+    @org.junit.jupiter.api.Test
+    void shouldSelectOnPopup_ignoresAClickBelowTheLastRow() {
+        org.junit.jupiter.api.Assertions.assertFalse(TableRowUtils.shouldSelectOnPopup(-1, new int[] {1}));
+    }
 }
