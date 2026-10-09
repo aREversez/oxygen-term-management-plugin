@@ -608,4 +608,70 @@ class TermbaseConverterTest {
         assertTrue(content.contains("a model"), "The definition column belongs in glossdef");
         assertTrue(report.hasLoss(), "The domain column has nowhere to go: " + report.droppedFields());
     }
+
+    // ------------------------------------------------------------------ TBX export ids
+
+    private static String tbxEntry(String id, String zh, String en) {
+        return "<termEntry" + (id != null ? " id=\"" + id + "\"" : "") + ">"
+            + "<langSet xml:lang=\"zh-CN\"><tig><term>" + zh + "</term></tig></langSet>"
+            + "<langSet xml:lang=\"en-US\"><tig><term>" + en + "</term></tig></langSet>"
+            + "</termEntry>\n";
+    }
+
+    private static String tbxDocument(String... entries) {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<martif type=\"TBX\" xml:lang=\"zh-CN\"><martifHeader><fileDesc><sourceDesc><p>t</p>"
+            + "</sourceDesc></fileDesc></martifHeader><text><body>\n"
+            + String.join("", entries) + "</body></text></martif>\n";
+    }
+
+    private static List<String> termEntryIds(Path tbx) throws IOException {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("<termEntry id=\"([^\"]*)\"")
+            .matcher(Files.readString(tbx, StandardCharsets.UTF_8));
+        List<String> ids = new ArrayList<>();
+        while (m.find()) ids.add(m.group(1));
+        return ids;
+    }
+
+    @Test
+    void tbxExport_mintedIdNeverTakesAnIdAnotherEntryOwns() throws Exception {
+        // Entry 3 has no id. It used to be numbered by its position ("tid3") - the id the
+        // second entry already owns - so the exported file held the same id twice.
+        TermbaseConfig source = tbxConfig(tbxDocument(
+            tbxEntry("tid1", "一", "one"), tbxEntry("tid3", "三", "three"), tbxEntry(null, "新", "new")));
+
+        Path out = tempDir.resolve("ids.tbx");
+        TermbaseConverter.convert(source, Format.TBX, out);
+
+        List<String> ids = termEntryIds(out);
+        assertEquals(3, ids.size());
+        assertEquals(3, new java.util.HashSet<>(ids).size(), "termEntry ids must be unique: " + ids);
+        assertEquals("tid1", ids.get(0), "an id the source already had is kept");
+        assertEquals("tid3", ids.get(1), "an id the source already had is kept");
+    }
+
+    @Test
+    void tbxExport_idsStayUniqueWhenTheSourceRepeatsOne() throws Exception {
+        TermbaseConfig source = tbxConfig(tbxDocument(
+            tbxEntry("dup", "一", "one"), tbxEntry("dup", "二", "two"), tbxEntry(null, "三", "three")));
+
+        Path out = tempDir.resolve("dups.tbx");
+        TermbaseConverter.convert(source, Format.TBX, out);
+
+        List<String> ids = termEntryIds(out);
+        assertEquals(3, ids.size());
+        assertEquals(3, new java.util.HashSet<>(ids).size(), "termEntry ids must be unique: " + ids);
+        assertEquals("dup", ids.get(0), "the first owner of an id keeps it");
+    }
+
+    @Test
+    void tbxExport_idLessSourceStillNumbersFromOne() throws Exception {
+        // The common CSV/XLSX -> TBX case must be unchanged: tid1, tid2, ...
+        TermbaseConfig source = csvConfig("\uFEFFzh-CN,en-US\n一,one\n二,two\n三,three\n");
+
+        Path out = tempDir.resolve("fresh.tbx");
+        TermbaseConverter.convert(source, Format.TBX, out);
+
+        assertEquals(List.of("tid1", "tid2", "tid3"), termEntryIds(out));
+    }
 }

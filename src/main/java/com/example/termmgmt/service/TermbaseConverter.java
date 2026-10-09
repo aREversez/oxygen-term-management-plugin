@@ -21,6 +21,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -679,15 +680,27 @@ public final class TermbaseConverter {
             Element body = doc.createElement("body");
             text.appendChild(body);
 
-            int idCounter = 1;
+            // Ids the entries already carry are reserved up front: a minted "tidN" must never take
+            // one a later entry owns, or the file would hold the same termEntry id twice.
+            Set<String> reservedIds = new HashSet<>();
+            for (TermEntry e : entries) {
+                if (e.getEntryId() != null && !e.getEntryId().isEmpty()) reservedIds.add(e.getEntryId());
+            }
+            Set<String> emittedIds = new HashSet<>();
+            int nextTid = 1;
             for (int idx = 0; idx < entries.size(); idx++) {
                 TermEntry e = entries.get(idx);
                 RichTermEntry r = richEntries.get(idx);
 
                 Element termEntry = doc.createElement("termEntry");
-                String id = e.getEntryId() != null ? e.getEntryId() : "tid" + idCounter;
+                String id = e.getEntryId();
+                if (id == null || id.isEmpty() || !emittedIds.add(id)) {
+                    // No id, or an id an earlier entry already took: mint the next free one.
+                    while (reservedIds.contains("tid" + nextTid)) nextTid++;
+                    id = "tid" + nextTid++;
+                    emittedIds.add(id);
+                }
                 termEntry.setAttribute("id", id);
-                idCounter++;
 
                 // Source langSet: term, unmodelled termNotes, status, definition
                 Element srcLangSet = appendTbxLangSet(doc, termEntry, sourceLang,
