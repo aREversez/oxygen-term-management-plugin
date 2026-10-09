@@ -438,4 +438,121 @@ class TermbaseConverterTest {
             .anyMatch(df -> "term notes".equals(df.fieldName())),
             "Dropped termNotes must appear in the report");
     }
+
+    // ------------------------------------------------------------------ Review rework: TBX -> TBX direction is reported, not silently lossy
+
+    private static final String TBX_MINIMAL =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        + "<martif type=\"TBX\" xml:lang=\"en-US\">\n"
+        + "  <martifHeader><fileDesc><sourceDesc><p>T</p></sourceDesc></fileDesc></martifHeader>\n"
+        + "  <text><body>\n"
+        + "    <termEntry id=\"e1\">\n"
+        + "      <langSet xml:lang=\"zh-CN\"><tig><term>云计算</term></tig></langSet>\n"
+        + "      <langSet xml:lang=\"en-US\"><tig><term>Cloud</term></tig></langSet>\n"
+        + "    </termEntry>\n"
+        + "  </body></text>\n"
+        + "</martif>\n";
+
+    @Test
+    void tbxToTbx_keepsTigEmbeddedDefinition() throws Exception {
+        // TBX-Basic commonly nests the definition descrip inside the tig, not the langSet.
+        String tbx = TBX_MINIMAL.replace(
+            "<term>云计算</term>",
+            "<term>云计算</term><descrip type=\"definition\">tig内嵌定义</descrip>");
+        TermbaseConfig source = tbxConfig(tbx);
+
+        List<TermbaseConverter.RichTermEntry> rich = TermbaseConverter.readRich(source);
+        assertEquals("tig内嵌定义", rich.get(0).definition,
+            "The reader must find a definition nested inside the tig");
+
+        Path tbxOut = tempDir.resolve("tig-def.tbx");
+        TermbaseConverter.ConversionReport report =
+            TermbaseConverter.convert(source, Format.TBX, tbxOut);
+        String content = Files.readString(tbxOut, StandardCharsets.UTF_8);
+        assertTrue(content.contains("tig内嵌定义"), "tig-nested definition must survive TBX -> TBX");
+        assertFalse(report.hasLoss(), "A carried definition is not a drop: " + report.droppedFields());
+    }
+
+    @Test
+    void tbxToTbx_keepsExtraLangTermNote() throws Exception {
+        String tbx = TBX_MINIMAL.replace(
+            "<langSet xml:lang=\"en-US\"><tig><term>Cloud</term></tig></langSet>",
+            "<langSet xml:lang=\"en-US\"><tig><term>Cloud</term></tig></langSet>\n"
+            + "      <langSet xml:lang=\"de-DE\"><tig><term>Cloud-Computing</term>"
+            + "<termNote type=\"partOfSpeech\">Noun</termNote></tig></langSet>");
+        TermbaseConfig source = tbxConfig(tbx);
+
+        Path tbxOut = tempDir.resolve("extra-lang-note.tbx");
+        TermbaseConverter.ConversionReport report =
+            TermbaseConverter.convert(source, Format.TBX, tbxOut);
+        String content = Files.readString(tbxOut, StandardCharsets.UTF_8);
+        assertTrue(content.contains("partOfSpeech") && content.contains("Noun"),
+            "A third language's termNote must survive TBX -> TBX");
+        assertFalse(report.hasLoss(), "Carried extra-language termNotes are not a drop: "
+            + report.droppedFields());
+    }
+
+    @Test
+    void tbxToTbx_reportsAdditionalNotes() throws Exception {
+        // Only the first note is written back; the rest must be reported, not lost silently.
+        String tbx = TBX_WITH_EXTRAS.replace(
+            "<note>示例备注</note>",
+            "<note>示例备注</note><note>第二条备注</note>");
+        TermbaseConfig source = tbxConfig(tbx);
+
+        Path tbxOut = tempDir.resolve("multi-note.tbx");
+        TermbaseConverter.ConversionReport report =
+            TermbaseConverter.convert(source, Format.TBX, tbxOut);
+
+        assertTrue(report.droppedFields().stream()
+            .anyMatch(df -> "additional notes".equals(df.fieldName())),
+            "A dropped second note must appear in the report: " + report.droppedFields());
+    }
+
+    @Test
+    void tbxToTbx_reportsNonDefinitionDescriptions() throws Exception {
+        String tbx = TBX_WITH_EXTRAS.replace(
+            "<descrip type=\"definition\">一种按量付费的计算模式</descrip>",
+            "<descrip type=\"definition\">一种按量付费的计算模式</descrip>"
+            + "<descrip type=\"comment\">词源备注</descrip>");
+        TermbaseConfig source = tbxConfig(tbx);
+
+        Path tbxOut = tempDir.resolve("other-descrip.tbx");
+        TermbaseConverter.ConversionReport report =
+            TermbaseConverter.convert(source, Format.TBX, tbxOut);
+
+        assertTrue(report.droppedFields().stream()
+            .anyMatch(df -> "descriptions other than definition".equals(df.fieldName())),
+            "A non-definition descrip must be reported when dropped: " + report.droppedFields());
+    }
+
+    @Test
+    void tbxToTbx_reportsVariantTermForms() throws Exception {
+        // writeTbx emits one tig per langSet, so a second (variant) tig is dropped.
+        String tbx = TBX_WITH_EXTRAS.replace(
+            "<tig><term>微服务</term></tig>",
+            "<tig><term>微服务</term></tig><tig><term>微服务架构</term></tig>");
+        TermbaseConfig source = tbxConfig(tbx);
+
+        Path tbxOut = tempDir.resolve("variant.tbx");
+        TermbaseConverter.ConversionReport report =
+            TermbaseConverter.convert(source, Format.TBX, tbxOut);
+
+        assertTrue(report.droppedFields().stream()
+            .anyMatch(df -> "variant term forms".equals(df.fieldName())),
+            "A second tig (variant form) must be reported as dropped: " + report.droppedFields());
+    }
+
+    @Test
+    void csvToDita_detectDrops_reportsExtraColumns() throws Exception {
+        // A glossentry holds only term + definition; the other CSV columns are dropped.
+        String csv = "\uFEFFzh-CN,en-US,domain,partOfSpeech,note\n"
+            + "云计算,Cloud Computing,IT,Noun,an example\n";
+        TermbaseConfig source = csvConfig(csv);
+        List<TermbaseConverter.RichTermEntry> rich = TermbaseConverter.readRich(source);
+
+        List<TermbaseConverter.DroppedField> drops = DitaGlossaryExporter.detectDrops(rich);
+        assertTrue(drops.stream().anyMatch(df -> "extra columns".equals(df.fieldName())),
+            "CSV extra columns must be reported as dropped by a DITA export: " + drops);
+    }
 }

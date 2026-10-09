@@ -56,6 +56,10 @@ public final class TermbaseConverter {
         public Map<String, String> extraLangTerms = new LinkedHashMap<>(); // lang -> term for 3rd+ langs
         /** lang -> (termNote type -> text) for types the converter does not model. */
         public Map<String, Map<String, String>> termNotes = new LinkedHashMap<>();
+        /** TBX constructs that a rebuilt TBX target has nowhere to put; drive the drop report. */
+        public int additionalNotes;   // <note> elements beyond the one carried over
+        public int otherDescs;        // <descrip> whose type is not "definition"
+        public int variantTerms;      // tig/ntig containers beyond the first per langSet
 
         public RichTermEntry(TermEntry entry) { this.entry = entry; }
     }
@@ -138,6 +142,9 @@ public final class TermbaseConverter {
                     for (Map.Entry<String, Map<String, String>> langNotes : extras.termNotes.entrySet()) {
                         r.termNotes.put(langNotes.getKey(), new LinkedHashMap<>(langNotes.getValue()));
                     }
+                    r.additionalNotes = extras.additionalNotes;
+                    r.otherDescs = extras.otherDescs;
+                    r.variantTerms = extras.variantTerms;
                 }
                 result.add(r);
             }
@@ -155,6 +162,9 @@ public final class TermbaseConverter {
         String note;
         final Map<String, String> extraLangTerms = new LinkedHashMap<>();
         final Map<String, Map<String, String>> termNotes = new LinkedHashMap<>();
+        int additionalNotes;
+        int otherDescs;
+        int variantTerms;
     }
 
     /**
@@ -181,7 +191,7 @@ public final class TermbaseConverter {
                 String key = (id != null && !id.isEmpty()) ? id : "ordinal_" + i;
 
                 RichExtras extras = new RichExtras();
-                // Definition: look in source langSet for descrip type="definition"
+                // Definition: look in source langSet (its tig/ntig included) for a definition
                 extras.definition = findDefinition(entryNode, sourceLang);
                 // Note: first note element in the termEntry
                 extras.note = findFirstNote(entryNode);
@@ -195,12 +205,19 @@ public final class TermbaseConverter {
                         if (term != null && !term.isEmpty()) {
                             extras.extraLangTerms.put(lang, term);
                         }
-                        continue;
                     }
-                    // Unmodelled termNotes of the pair's own langSets survive a TBX->TBX
-                    // export; administrativeStatus is modelled as the entry status instead.
+                    // termNotes of every language - the pair's own and any third language -
+                    // survive a TBX -> TBX export; administrativeStatus is surfaced as the
+                    // entry status instead, so collectTermNotes skips it.
                     collectTermNotes(ls, extras.termNotes.computeIfAbsent(lang, k -> new LinkedHashMap<>()));
+                    // writeTbx rebuilds one tig per langSet, so a variant tig beyond the first
+                    // is dropped; count it so the report can name it.
+                    int tigs = countTermContainers(ls);
+                    if (tigs > 1) extras.variantTerms += tigs - 1;
                 }
+                // Constructs writeTbx has nowhere to put on a TBX -> TBX export.
+                extras.additionalNotes = Math.max(0, countElements(entryNode, "note") - 1);
+                extras.otherDescs = countNonDefinitionDescs(entryNode);
                 result.put(key, extras);
             }
         } catch (IOException e) {
@@ -247,34 +264,59 @@ public final class TermbaseConverter {
     }
 
     private static String findDefinition(Element termEntry, String sourceLang) {
-        // Look for descrip type="definition" inside the source langSet
+        // A definition may sit as a langSet child or inside its tig / ntig>termGrp container,
+        // so search the whole langSet subtree (TBX-Basic usually nests the descrip in the tig).
         for (Element ls : getLangSets(termEntry)) {
             String lang = getLang(ls);
             if (sourceLang == null || (lang != null && lang.equalsIgnoreCase(sourceLang))) {
-                NodeList children = ls.getChildNodes();
-                for (int i = 0; i < children.getLength(); i++) {
-                    Node child = children.item(i);
-                    if (child.getNodeType() != Node.ELEMENT_NODE) continue;
-                    if ("descrip".equals(child.getNodeName())
-                        && "definition".equals(((Element) child).getAttribute("type"))) {
-                        String text = child.getTextContent();
-                        return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
-                    }
-                }
+                String def = firstDefinitionIn(ls);
+                if (def != null) return def;
             }
         }
-        // Also check at termEntry level (some TBX variants)
-        NodeList children = termEntry.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child.getNodeType() != Node.ELEMENT_NODE) continue;
-            if ("descrip".equals(child.getNodeName())
-                && "definition".equals(((Element) child).getAttribute("type"))) {
-                String text = child.getTextContent();
-                return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
+        // Fall back to the whole entry (some TBX variants keep the descrip at entry level).
+        return firstDefinitionIn(termEntry);
+    }
+
+    /** First {@code descrip type="definition"} text anywhere under {@code root}, or null. */
+    private static String firstDefinitionIn(Element root) {
+        NodeList descs = root.getElementsByTagName("descrip");
+        for (int i = 0; i < descs.getLength(); i++) {
+            Element d = (Element) descs.item(i);
+            if ("definition".equals(d.getAttribute("type"))) {
+                String text = d.getTextContent();
+                if (text != null && !text.trim().isEmpty()) return text.trim();
             }
         }
         return null;
+    }
+
+    /** Number of elements with the given tag name anywhere under {@code root}. */
+    private static int countElements(Element root, String tag) {
+        return root.getElementsByTagName(tag).getLength();
+    }
+
+    /** Count of {@code descrip} elements whose {@code type} is not {@code definition}. */
+    private static int countNonDefinitionDescs(Element root) {
+        NodeList descs = root.getElementsByTagName("descrip");
+        int n = 0;
+        for (int i = 0; i < descs.getLength(); i++) {
+            if (!"definition".equals(((Element) descs.item(i)).getAttribute("type"))) n++;
+        }
+        return n;
+    }
+
+    /** Count the tig / ntig term containers that are direct children of a langSet. */
+    private static int countTermContainers(Element langSet) {
+        int n = 0;
+        NodeList children = langSet.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() == Node.ELEMENT_NODE) {
+                String name = child.getNodeName();
+                if ("tig".equals(name) || "ntig".equals(name)) n++;
+            }
+        }
+        return n;
     }
 
     private static String findFirstNote(Element termEntry) {
@@ -408,6 +450,20 @@ public final class TermbaseConverter {
                     dropped.add(new DroppedField("status", statusCount));
                 }
             }
+        } else if (targetFormat == Format.TBX && sourceConfig.getFormat() == Format.TBX) {
+            // A TBX -> TBX export rebuilds each termEntry from what the model holds, so the
+            // TBX constructs with nowhere to go are lost silently unless reported here.
+            // (Definitions, notes, extra languages and their termNotes, and status are carried.)
+            int addNoteCount = 0, otherDescripCount = 0, variantCount = 0;
+            for (RichTermEntry r : entries) {
+                if (r.additionalNotes > 0) addNoteCount++;
+                if (r.otherDescs > 0) otherDescripCount++;
+                if (r.variantTerms > 0) variantCount++;
+            }
+            if (addNoteCount > 0) dropped.add(new DroppedField("additional notes", addNoteCount));
+            if (otherDescripCount > 0)
+                dropped.add(new DroppedField("descriptions other than definition", otherDescripCount));
+            if (variantCount > 0) dropped.add(new DroppedField("variant term forms", variantCount));
         }
         return dropped;
     }
@@ -554,7 +610,8 @@ public final class TermbaseConverter {
         String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-US";
 
         try {
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilderFactory dbf = TbxTermbaseHandler.newSecureDocumentBuilderFactory();
+            dbf.setNamespaceAware(false);
             DocumentBuilder builder = dbf.newDocumentBuilder();
             Document doc = builder.newDocument();
 
@@ -613,7 +670,8 @@ public final class TermbaseConverter {
 
                 // Extra languages
                 for (Map.Entry<String, String> exLang : r.extraLangTerms.entrySet()) {
-                    appendTbxLangSet(doc, termEntry, exLang.getKey(), exLang.getValue(), null);
+                    appendTbxLangSet(doc, termEntry, exLang.getKey(), exLang.getValue(),
+                        termNotesFor(r, exLang.getKey()));
                 }
 
                 // Note: the TBX <note> element, or the CSV/XLSX "note" column
@@ -647,7 +705,7 @@ public final class TermbaseConverter {
             }
 
             // Write
-            TransformerFactory tf = TransformerFactory.newInstance();
+            TransformerFactory tf = TbxTermbaseHandler.newSecureTransformerFactory();
             Transformer transformer = tf.newTransformer();
             transformer.setOutputProperty(OutputKeys.INDENT, "yes");
             transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");

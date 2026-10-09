@@ -1409,8 +1409,9 @@ public class TerminologyPanel extends JPanel {
     }
 
     /**
-     * Whether {@code file} is one of the registered (enabled) termbases' files, compared
-     * by real path so "other.csv" or a different case does not slip past the check.
+     * Whether {@code file} is one of the registered termbases' files - enabled or not,
+     * since a user can disable a library precisely to export over it - compared by real
+     * path so "other.csv" or a different case does not slip past the check.
      */
     private boolean isRegisteredTermbaseFile(File file) {
         java.nio.file.Path p = file.toPath().toAbsolutePath().normalize();
@@ -1421,7 +1422,7 @@ public class TerminologyPanel extends JPanel {
         } catch (java.io.IOException ignored) {
             // Unresolvable: keep the normalized comparison.
         }
-        for (TermbaseConfig cfg : registry.getEnabledConfigs()) {
+        for (TermbaseConfig cfg : registry.getConfigs()) {
             java.nio.file.Path q = Path.of(cfg.getFilePath()).toAbsolutePath().normalize();
             try {
                 if (java.nio.file.Files.exists(q)) {

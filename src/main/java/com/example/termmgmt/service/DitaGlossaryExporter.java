@@ -52,7 +52,7 @@ public final class DitaGlossaryExporter {
     public static List<DroppedField> detectDrops(List<RichTermEntry> entries) {
         List<DroppedField> dropped = new ArrayList<>();
         if (entries == null || entries.isEmpty()) return dropped;
-        int statusCount = 0, noteCount = 0, extraCount = 0, termNoteCount = 0;
+        int statusCount = 0, noteCount = 0, extraCount = 0, termNoteCount = 0, extraColumnCount = 0;
         for (RichTermEntry r : entries) {
             String status = r.entry.getStoredStatusValue();
             if (status != null && !status.isEmpty()) statusCount++;
@@ -60,11 +60,24 @@ public final class DitaGlossaryExporter {
             if (!r.extraLangTerms.isEmpty()) extraCount++;
             boolean anyTermNote = r.termNotes.values().stream().mapToInt(Map::size).sum() > 0;
             if (anyTermNote) termNoteCount++;
+            // CSV/XLSX columns beyond source/target (domain, partOfSpeech, note, ...) have no
+            // place in a glossentry; only a "definition" column is carried into glossdef, and
+            // status is reported on its own line - so anything else is dropped.
+            for (Map.Entry<String, String> ef : r.entry.getExtraFields().entrySet()) {
+                String name = ef.getKey();
+                String val = ef.getValue();
+                if (val == null || val.isEmpty()) continue;
+                if ("definition".equalsIgnoreCase(name)
+                    || TermEntry.STATUS_FIELD.equalsIgnoreCase(name)) continue;
+                extraColumnCount++;
+                break;
+            }
         }
         if (statusCount > 0) dropped.add(new DroppedField("status", statusCount));
         if (noteCount > 0) dropped.add(new DroppedField("note", noteCount));
         if (extraCount > 0) dropped.add(new DroppedField("extra language terms", extraCount));
         if (termNoteCount > 0) dropped.add(new DroppedField("term notes", termNoteCount));
+        if (extraColumnCount > 0) dropped.add(new DroppedField("extra columns", extraColumnCount));
         return dropped;
     }
 
