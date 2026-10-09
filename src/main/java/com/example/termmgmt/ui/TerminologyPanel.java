@@ -5,7 +5,6 @@ import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.service.TermbaseConverter;
-import com.example.termmgmt.service.DitaGlossaryExporter;
 import com.example.termmgmt.service.HttpTransport;
 import com.example.termmgmt.service.OpenAiHttpTransport;
 import com.example.termmgmt.service.SuggestionResult;
@@ -1360,12 +1359,8 @@ public class TerminologyPanel extends JPanel {
             @Override
             protected TermbaseConverter.ConversionReport doInBackground() throws Exception {
                 if ("DITA Glossary".equals(finalFormat)) {
-                    List<TermbaseConverter.RichTermEntry> rich = TermbaseConverter.readRich(configSnapshot);
-                    DitaGlossaryExporter.export(rich, configSnapshot.getSourceLang(),
-                        configSnapshot.getTargetLang(), finalTarget.toPath());
-                    // A glossary carries only the term and a definition; report the rest.
-                    return new TermbaseConverter.ConversionReport(rich.size(),
-                        DitaGlossaryExporter.detectDrops(rich));
+                    // Same source-file guard as the format converter, inside convertToDita.
+                    return TermbaseConverter.convertToDita(configSnapshot, finalTarget.toPath());
                 }
                 TermbaseConfig.Format fmt = switch (finalFormat) {
                     case "CSV" -> TermbaseConfig.Format.CSV;

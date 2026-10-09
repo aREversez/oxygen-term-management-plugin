@@ -76,11 +76,7 @@ public final class TermbaseConverter {
      */
     public static ConversionReport convert(TermbaseConfig config, Format targetFormat,
                                            Path targetPath) throws IOException {
-        Path sourcePath = Path.of(config.getFilePath());
-        if (sameFile(sourcePath, targetPath)) {
-            throw new IOException(
-                "Export target is the source termbase file; exporting would destroy it");
-        }
+        refuseExportOntoSource(config, targetPath);
         // Read rich entries
         List<RichTermEntry> richEntries = readRich(config);
         List<TermEntry> entries = new ArrayList<>();
@@ -97,6 +93,34 @@ public final class TermbaseConverter {
             case TBX -> writeTbx(targetConfig, entries, richEntries);
         }
         return new ConversionReport(entries.size(), dropped);
+    }
+
+    /**
+     * Export the termbase described by {@code config} as a DITA 1.3 glossary, applying the
+     * same source-file guard as {@link #convert}: a glossary export regenerates the whole
+     * target file too, so letting it land on the source termbase would destroy it even
+     * though the extension differs and the format switch never sees it.
+     */
+    public static ConversionReport convertToDita(TermbaseConfig config, Path targetPath)
+            throws IOException {
+        refuseExportOntoSource(config, targetPath);
+        List<RichTermEntry> richEntries = readRich(config);
+        DitaGlossaryExporter.export(richEntries, config.getSourceLang(),
+            config.getTargetLang(), targetPath);
+        // A glossary carries only the term and a definition; report the rest.
+        return new ConversionReport(richEntries.size(), DitaGlossaryExporter.detectDrops(richEntries));
+    }
+
+    /**
+     * Throw unless {@code targetPath} is a different file than the source termbase.
+     */
+    private static void refuseExportOntoSource(TermbaseConfig config, Path targetPath)
+            throws IOException {
+        Path sourcePath = Path.of(config.getFilePath());
+        if (sameFile(sourcePath, targetPath)) {
+            throw new IOException(
+                "Export target is the source termbase file; exporting would destroy it");
+        }
     }
 
     /** Whether two paths denote the same file; falls back to absolute-path equality. */
@@ -430,19 +454,26 @@ public final class TermbaseConverter {
             if (sourceConfig.getFormat() == Format.TBX) {
                 // TBX definitions, notes, extra languages cannot be held
                 int defCount = 0, noteCount = 0, extraCount = 0, termNoteCount = 0, statusCount = 0;
+                Set<String> termNoteTypes = new LinkedHashSet<>();
                 for (RichTermEntry r : entries) {
                     if (r.definition != null && !r.definition.isEmpty()) defCount++;
                     if (r.note != null && !r.note.isEmpty()) noteCount++;
                     if (!r.extraLangTerms.isEmpty()) extraCount++;
                     boolean anyNote = r.termNotes.values().stream().mapToInt(Map::size).sum() > 0;
-                    if (anyNote) termNoteCount++;
+                    if (anyNote) {
+                        termNoteCount++;
+                        for (Map<String, String> byType : r.termNotes.values()) {
+                            termNoteTypes.addAll(byType.keySet());
+                        }
+                    }
                     if (r.entry.getStoredStatusValue() != null
                         && !r.entry.getStoredStatusValue().isEmpty()) statusCount++;
                 }
                 if (defCount > 0) dropped.add(new DroppedField("definition", defCount));
                 if (noteCount > 0) dropped.add(new DroppedField("note", noteCount));
                 if (extraCount > 0) dropped.add(new DroppedField("extra language terms", extraCount));
-                if (termNoteCount > 0) dropped.add(new DroppedField("term notes", termNoteCount));
+                if (termNoteCount > 0)
+                    dropped.add(new DroppedField(termNotesLabel(termNoteTypes), termNoteCount));
                 // Status is carried into a "status" column (appended when absent); it can only
                 // be lost if the value itself could not be written.
                 if (statusCount > 0
@@ -466,6 +497,16 @@ public final class TermbaseConverter {
             if (variantCount > 0) dropped.add(new DroppedField("variant term forms", variantCount));
         }
         return dropped;
+    }
+
+    /**
+     * Report label for dropped termNotes, naming the types the source actually held
+     * (e.g. {@code term notes (domain, partOfSpeech)}) so a round-tripped CSV column is
+     * recognizable in the report instead of an opaque category.
+     */
+    static String termNotesLabel(Set<String> types) {
+        if (types == null || types.isEmpty()) return "term notes";
+        return "term notes (" + String.join(", ", types) + ")";
     }
 
     private static boolean containsIgnoreCase(List<String> names, String name) {

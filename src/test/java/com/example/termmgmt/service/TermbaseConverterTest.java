@@ -435,8 +435,27 @@ class TermbaseConverterTest {
             TermbaseConverter.convert(source, Format.CSV, csvOut);
 
         assertTrue(report.droppedFields().stream()
-            .anyMatch(df -> "term notes".equals(df.fieldName())),
-            "Dropped termNotes must appear in the report");
+            .anyMatch(df -> "term notes (partOfSpeech)".equals(df.fieldName())),
+            "Dropped termNotes must be named by type in the report: " + report.droppedFields());
+    }
+
+    @Test
+    void csvToTbxToCsv_roundTrippedColumnIsNamedInTheReport() throws Exception {
+        // The review scenario: a CSV "domain" column survives as a termNote in TBX, and when
+        // the way back to CSV drops it, the report must say "domain", not an opaque category.
+        String csv = "\uFEFFzh-CN,en-US,domain\n云计算,Cloud Computing,IT\n";
+        TermbaseConfig source = csvConfig(csv);
+        Path tbxOut = tempDir.resolve("roundtrip-domain.tbx");
+        TermbaseConverter.convert(source, Format.TBX, tbxOut);
+
+        TermbaseConfig tbxAsSource = tbxConfig(Files.readString(tbxOut, StandardCharsets.UTF_8));
+        Path csvOut = tempDir.resolve("roundtrip-domain-back.csv");
+        TermbaseConverter.ConversionReport report =
+            TermbaseConverter.convert(tbxAsSource, Format.CSV, csvOut);
+
+        assertTrue(report.droppedFields().stream()
+            .anyMatch(df -> "term notes (domain)".equals(df.fieldName())),
+            "The round-tripped domain column must be named in the report: " + report.droppedFields());
     }
 
     // ------------------------------------------------------------------ Review rework: TBX -> TBX direction is reported, not silently lossy
@@ -554,5 +573,39 @@ class TermbaseConverterTest {
         List<TermbaseConverter.DroppedField> drops = DitaGlossaryExporter.detectDrops(rich);
         assertTrue(drops.stream().anyMatch(df -> "extra columns".equals(df.fieldName())),
             "CSV extra columns must be reported as dropped by a DITA export: " + drops);
+    }
+
+    // ------------------------------------------------------------------ DITA export shares the source-file guard
+
+    @Test
+    void convertToDita_targetIsSourceFile_throws() throws Exception {
+        // A DITA target has a different extension, but the user can still point the chooser
+        // at the source file; the guard from convert() must refuse exactly the same way.
+        String csv = "\uFEFFzh-CN,en-US\n你好,hello\n";
+        Path file = writeFile("protect-dita.csv", csv);
+        TermbaseConfig c = new TermbaseConfig(file.toString(), Format.CSV, true);
+        TermbaseLoader.loadTerms(c);
+
+        IOException ex = assertThrows(IOException.class, () ->
+            TermbaseConverter.convertToDita(c, file));
+        assertTrue(ex.getMessage().contains("source termbase"));
+        assertEquals(csv, Files.readString(file, StandardCharsets.UTF_8),
+            "The source must survive the refused export untouched");
+    }
+
+    @Test
+    void convertToDita_writesGlossaryWithDropReport() throws Exception {
+        // Happy path: the panel-facing entry point produces the glossary and the drop report.
+        String csv = "\uFEFFzh-CN,en-US,definition,domain\n云计算,Cloud Computing,a model,IT\n";
+        TermbaseConfig source = csvConfig(csv);
+
+        Path ditaOut = tempDir.resolve("glossary.dita");
+        TermbaseConverter.ConversionReport report = TermbaseConverter.convertToDita(source, ditaOut);
+
+        assertEquals(1, report.entryCount());
+        String content = Files.readString(ditaOut, StandardCharsets.UTF_8);
+        assertTrue(content.contains("<glossgroup"), "Output must be a DITA glossary group");
+        assertTrue(content.contains("a model"), "The definition column belongs in glossdef");
+        assertTrue(report.hasLoss(), "The domain column has nowhere to go: " + report.droppedFields());
     }
 }
