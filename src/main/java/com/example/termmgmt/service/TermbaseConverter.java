@@ -1,6 +1,7 @@
 package com.example.termmgmt.service;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.model.TermStatus;
 import com.example.termmgmt.model.TermbaseConfig;
 import com.example.termmgmt.model.TermbaseConfig.Format;
 import com.example.termmgmt.util.AtomicFileWriter;
@@ -21,8 +22,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Exports a termbase from one format (CSV, XLSX, TBX) to another.
@@ -51,6 +54,8 @@ public final class TermbaseConverter {
         public String definition; // descrip type="definition" from source langSet
         public String note;       // first note element text
         public Map<String, String> extraLangTerms = new LinkedHashMap<>(); // lang -> term for 3rd+ langs
+        /** lang -> (termNote type -> text) for types the converter does not model. */
+        public Map<String, Map<String, String>> termNotes = new LinkedHashMap<>();
 
         public RichTermEntry(TermEntry entry) { this.entry = entry; }
     }
@@ -60,9 +65,18 @@ public final class TermbaseConverter {
     /**
      * Convert the termbase described by {@code config} into {@code targetFormat} and write
      * the result to {@code targetPath}. Does not modify the source file or registry.
+     *
+     * @throws IOException when {@code targetPath} is the source termbase itself: the export
+     * regenerates the whole file, so writing onto the source would destroy the fields the
+     * target format cannot carry (the UI refuses registered termbases on top of this).
      */
     public static ConversionReport convert(TermbaseConfig config, Format targetFormat,
                                            Path targetPath) throws IOException {
+        Path sourcePath = Path.of(config.getFilePath());
+        if (sameFile(sourcePath, targetPath)) {
+            throw new IOException(
+                "Export target is the source termbase file; exporting would destroy it");
+        }
         // Read rich entries
         List<RichTermEntry> richEntries = readRich(config);
         List<TermEntry> entries = new ArrayList<>();
@@ -81,36 +95,48 @@ public final class TermbaseConverter {
         return new ConversionReport(entries.size(), dropped);
     }
 
+    /** Whether two paths denote the same file; falls back to absolute-path equality. */
+    private static boolean sameFile(Path a, Path b) {
+        try {
+            Path ra = a.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS);
+            Path rb = b.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS);
+            return ra.equals(rb);
+        } catch (IOException e) {
+            // Target does not exist yet (the normal export case): compare what we can.
+            try {
+                return a.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    .equals(b.toAbsolutePath().normalize());
+            } catch (IOException ignored) {
+                return a.toAbsolutePath().normalize().equals(b.toAbsolutePath().normalize());
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ Reading
 
     /**
-     * Read entries with full TBX field extraction (definition, note, extra languages).
-     * For CSV/XLSX, wraps entries in RichTermEntry with no extras.
+     * Read entries with full TBX field extraction (definition, note, extra languages,
+     * unmodelled termNotes). For CSV/XLSX, wraps entries in RichTermEntry with no extras.
+     * A failed TBX extras parse throws: swallowing it would report "no loss" for fields
+     * the reader never actually saw.
      */
-    public static List<RichTermEntry> readRich(TermbaseConfig config) {
+    public static List<RichTermEntry> readRich(TermbaseConfig config) throws IOException {
         List<TermEntry> raw = TermbaseLoader.loadTerms(config);
         List<RichTermEntry> result = new ArrayList<>();
         if (config.getFormat() == Format.TBX) {
             // Parse DOM for extra fields
-            Map<String, String[]> extraById = parseTbxExtras(config);
+            Map<String, RichExtras> extraById = parseTbxExtras(config);
             for (TermEntry e : raw) {
                 RichTermEntry r = new RichTermEntry(e);
                 String key = e.getEntryId() != null ? e.getEntryId()
                     : "ordinal_" + e.getEntryOrdinal();
-                String[] extras = extraById.get(key);
+                RichExtras extras = extraById.get(key);
                 if (extras != null) {
-                    r.definition = extras[0];
-                    r.note = extras[1];
-                    if (extras.length > 2 && extras[2] != null && !extras[2].isEmpty()) {
-                        // extras[2+] encoded as "lang\u0000term" pairs
-                        for (int i = 2; i < extras.length; i++) {
-                            String pair = extras[i];
-                            if (pair == null) continue;
-                            int sep = pair.indexOf('\u0000');
-                            if (sep > 0) {
-                                r.extraLangTerms.put(pair.substring(0, sep), pair.substring(sep + 1));
-                            }
-                        }
+                    r.definition = extras.definition;
+                    r.note = extras.note;
+                    r.extraLangTerms.putAll(extras.extraLangTerms);
+                    for (Map.Entry<String, Map<String, String>> langNotes : extras.termNotes.entrySet()) {
+                        r.termNotes.put(langNotes.getKey(), new LinkedHashMap<>(langNotes.getValue()));
                     }
                 }
                 result.add(r);
@@ -123,16 +149,28 @@ public final class TermbaseConverter {
         return result;
     }
 
+    /** Unmodelled TBX fields read for one termEntry, before they are folded into a RichTermEntry. */
+    private static final class RichExtras {
+        String definition;
+        String note;
+        final Map<String, String> extraLangTerms = new LinkedHashMap<>();
+        final Map<String, Map<String, String>> termNotes = new LinkedHashMap<>();
+    }
+
     /**
-     * Parse a TBX file's DOM to extract definition, note, and extra language terms per entry.
-     * Returns a map from entry id (or "ordinal_N") to String[]{definition, note, extraLangPairs...}.
+     * Parse a TBX file's DOM to extract definition, note, extra language terms and unmodelled
+     * termNotes per entry, keyed by entry id (or "ordinal_N").
+     * Parsed through {@link TbxTermbaseHandler#newSecureDocumentBuilderFactory()} - termbases
+     * may come from third parties, so external entities must never be expanded. A parse
+     * failure is reported instead of being swallowed: silently returning nothing would turn
+     * every dropped field into a misleading "no loss" report.
      */
-    private static Map<String, String[]> parseTbxExtras(TermbaseConfig config) {
-        Map<String, String[]> result = new LinkedHashMap<>();
+    private static Map<String, RichExtras> parseTbxExtras(TermbaseConfig config) throws IOException {
+        Map<String, RichExtras> result = new LinkedHashMap<>();
         String sourceLang = config.getSourceLang();
         String targetLang = config.getTargetLang();
         try {
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilderFactory dbf = TbxTermbaseHandler.newSecureDocumentBuilderFactory();
             dbf.setNamespaceAware(false);
             DocumentBuilder builder = dbf.newDocumentBuilder();
             Document doc = builder.parse(new File(config.getFilePath()));
@@ -142,33 +180,70 @@ public final class TermbaseConverter {
                 String id = entryNode.getAttribute("id");
                 String key = (id != null && !id.isEmpty()) ? id : "ordinal_" + i;
 
+                RichExtras extras = new RichExtras();
                 // Definition: look in source langSet for descrip type="definition"
-                String definition = findDefinition(entryNode, sourceLang);
+                extras.definition = findDefinition(entryNode, sourceLang);
                 // Note: first note element in the termEntry
-                String note = findFirstNote(entryNode);
-                // Extra languages: langSets beyond source and target
-                List<String> extras = new ArrayList<>();
-                List<Element> langSets = getLangSets(entryNode);
-                for (Element ls : langSets) {
+                extras.note = findFirstNote(entryNode);
+                for (Element ls : getLangSets(entryNode)) {
                     String lang = getLang(ls);
                     if (lang == null) continue;
-                    if (sourceLang != null && lang.equalsIgnoreCase(sourceLang)) continue;
-                    if (targetLang != null && lang.equalsIgnoreCase(targetLang)) continue;
-                    String term = getTermTextInLangSet(ls);
-                    if (term != null && !term.isEmpty()) {
-                        extras.add(lang + "\u0000" + term);
+                    boolean isSource = sourceLang != null && lang.equalsIgnoreCase(sourceLang);
+                    boolean isTarget = targetLang != null && lang.equalsIgnoreCase(targetLang);
+                    if (!isSource && !isTarget) {
+                        String term = getTermTextInLangSet(ls);
+                        if (term != null && !term.isEmpty()) {
+                            extras.extraLangTerms.put(lang, term);
+                        }
+                        continue;
                     }
+                    // Unmodelled termNotes of the pair's own langSets survive a TBX->TBX
+                    // export; administrativeStatus is modelled as the entry status instead.
+                    collectTermNotes(ls, extras.termNotes.computeIfAbsent(lang, k -> new LinkedHashMap<>()));
                 }
-                String[] arr = new String[2 + extras.size()];
-                arr[0] = definition;
-                arr[1] = note;
-                for (int j = 0; j < extras.size(); j++) arr[2 + j] = extras.get(j);
-                result.put(key, arr);
+                result.put(key, extras);
             }
+        } catch (IOException e) {
+            throw e;
         } catch (Exception e) {
-            // If DOM parse fails, return empty (basic loadTerms already succeeded)
+            throw new IOException("Failed to parse TBX extras in " + config.getFilePath(), e);
         }
         return result;
+    }
+
+    /**
+     * Collect the termNotes of a langSet's term container except administrativeStatus, which
+     * the loader already surfaces as the entry status. Later duplicates of a type win.
+     */
+    private static void collectTermNotes(Element langSet, Map<String, String> out) {
+        Element container = termContainer(langSet);
+        if (container == null) return;
+        NodeList children = container.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() != Node.ELEMENT_NODE || !"termNote".equals(child.getNodeName())) continue;
+            String type = ((Element) child).getAttribute("type");
+            if (type.isEmpty() || "administrativeStatus".equals(type)) continue;
+            String text = child.getTextContent();
+            if (text != null && !text.trim().isEmpty()) {
+                out.put(type, text.trim());
+            }
+        }
+    }
+
+    /** The element holding the term and termNote children of a langSet (tig, or ntig/termGrp). */
+    private static Element termContainer(Element langSet) {
+        NodeList children = langSet.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() != Node.ELEMENT_NODE) continue;
+            String name = child.getNodeName();
+            if ("tig".equals(name) || "ntig".equals(name)) {
+                Element termGrp = "ntig".equals(name) ? firstChildElement((Element) child, "termGrp") : null;
+                return termGrp != null ? termGrp : (Element) child;
+            }
+        }
+        return null;
     }
 
     private static String findDefinition(Element termEntry, String sourceLang) {
@@ -262,24 +337,86 @@ public final class TermbaseConverter {
 
     // ------------------------------------------------------------------ Loss detection
 
+    /**
+     * The extra-column values the CSV/XLSX writer will actually persist, name to count of
+     * entries carrying a non-empty value. Shares its column resolution with
+     * {@link #writeCsv}/{@link #writeXlsx} so the report and the file never disagree.
+     */
+    private static Map<String, Integer> writtenExtraColumns(TermbaseConfig config, List<RichTermEntry> entries) {
+        List<String> extraCols = resolvedExtraColumns(config, entries);
+        int statusIdx = CsvTermbaseHandler.findStatusColumn(extraCols);
+        Map<String, Integer> written = new LinkedHashMap<>();
+        for (int i = 0; i < extraCols.size(); i++) {
+            String name = extraCols.get(i);
+            int count = 0;
+            for (RichTermEntry r : entries) {
+                String v = i == statusIdx ? statusForCsvWrite(r)
+                    : valueOfExtra(r.entry, name);
+                if (v != null && !v.isEmpty()) count++;
+            }
+            if (count > 0) written.put(name, count);
+        }
+        return written;
+    }
+
+    /** The status text a CSV/XLSX write would store for this entry, or null/empty for none. */
+    private static String statusForCsvWrite(RichTermEntry r) {
+        String s = normalizeStatusForCsv(r.entry.getStoredStatusValue());
+        if (s != null && !s.isEmpty()) return s;
+        // The loader takes the status column into the entry, not into extraFields.
+        return valueOfExtra(r.entry, TermEntry.STATUS_FIELD);
+    }
+
+    /** Extra-column value from the entry, preferring a case-matched header name. */
+    private static String valueOfExtra(TermEntry e, String name) {
+        String v = e.getExtraFields().get(name);
+        if (v == null && name != null) {
+            for (Map.Entry<String, String> en : e.getExtraFields().entrySet()) {
+                if (name.equalsIgnoreCase(en.getKey())) {
+                    v = en.getValue();
+                    break;
+                }
+            }
+        }
+        return v;
+    }
+
     private static List<DroppedField> detectDrops(TermbaseConfig sourceConfig, Format targetFormat,
                                                   List<RichTermEntry> entries) {
         List<DroppedField> dropped = new ArrayList<>();
         if (targetFormat == Format.CSV || targetFormat == Format.XLSX) {
-            // TBX definitions, notes, extra languages cannot be held
             if (sourceConfig.getFormat() == Format.TBX) {
-                int defCount = 0, noteCount = 0, extraCount = 0;
+                // TBX definitions, notes, extra languages cannot be held
+                int defCount = 0, noteCount = 0, extraCount = 0, termNoteCount = 0, statusCount = 0;
                 for (RichTermEntry r : entries) {
                     if (r.definition != null && !r.definition.isEmpty()) defCount++;
                     if (r.note != null && !r.note.isEmpty()) noteCount++;
                     if (!r.extraLangTerms.isEmpty()) extraCount++;
+                    boolean anyNote = r.termNotes.values().stream().mapToInt(Map::size).sum() > 0;
+                    if (anyNote) termNoteCount++;
+                    if (r.entry.getStoredStatusValue() != null
+                        && !r.entry.getStoredStatusValue().isEmpty()) statusCount++;
                 }
                 if (defCount > 0) dropped.add(new DroppedField("definition", defCount));
                 if (noteCount > 0) dropped.add(new DroppedField("note", noteCount));
                 if (extraCount > 0) dropped.add(new DroppedField("extra language terms", extraCount));
+                if (termNoteCount > 0) dropped.add(new DroppedField("term notes", termNoteCount));
+                // Status is carried into a "status" column (appended when absent); it can only
+                // be lost if the value itself could not be written.
+                if (statusCount > 0
+                    && !writtenExtraColumns(sourceConfig, entries).containsKey(TermEntry.STATUS_FIELD)) {
+                    dropped.add(new DroppedField("status", statusCount));
+                }
             }
         }
         return dropped;
+    }
+
+    private static boolean containsIgnoreCase(List<String> names, String name) {
+        for (String s : names) {
+            if (s.equalsIgnoreCase(name)) return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ Target config helper
@@ -296,13 +433,24 @@ public final class TermbaseConverter {
         return tc;
     }
 
+    /**
+     * The status text a CSV/XLSX write stores: the TBX domain spelling is normalized to the
+     * plain lower-case value the CSV handlers use; unknown text is kept verbatim.
+     */
+    private static String normalizeStatusForCsv(String stored) {
+        if (stored == null || stored.isEmpty()) return null;
+        TermStatus ts = TermStatus.parse(stored);
+        return ts != null ? ts.value() : stored;
+    }
+
     // ------------------------------------------------------------------ CSV writing
 
     private static void writeCsv(TermbaseConfig config, List<TermEntry> entries,
                                  List<RichTermEntry> richEntries) throws IOException {
         String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-CN";
         String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-US";
-        List<String> extraCols = config.getExtraColumns();
+        List<String> extraCols = resolvedExtraColumns(config, richEntries);
+        int statusIdx = CsvTermbaseHandler.findStatusColumn(extraCols);
 
         AtomicFileWriter.write(Path.of(config.getFilePath()), out -> {
             Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
@@ -322,8 +470,8 @@ public final class TermbaseConverter {
                 row[0] = e.getSourceTerm() != null ? e.getSourceTerm() : "";
                 row[1] = e.getTargetTerm() != null ? e.getTargetTerm() : "";
                 for (int i = 0; i < extraCols.size(); i++) {
-                    String colName = extraCols.get(i);
-                    String val = e.getExtraFields().get(colName);
+                    String val = i == statusIdx ? statusForCsvWrite(r)
+                        : valueOfExtra(e, extraCols.get(i));
                     row[2 + i] = val != null ? val : "";
                 }
                 csvWriter.writeNext(row);
@@ -332,13 +480,36 @@ public final class TermbaseConverter {
         });
     }
 
+    /**
+     * The extra columns the export writes, mirroring the CSV/XLSX handlers: the configured
+     * columns first, then entry extras the source config does not list (an export builds a
+     * fresh config, so a TBX->CSV round-trip's columns are only on the entries), and finally
+     * an appended status column when no configured column exists and some entry carries one.
+     */
+    private static List<String> resolvedExtraColumns(TermbaseConfig config, List<RichTermEntry> entries) {
+        List<String> extraCols = new ArrayList<>(config.getExtraColumns());
+        for (RichTermEntry r : entries) {
+            for (String name : r.entry.getExtraFields().keySet()) {
+                if (!containsIgnoreCase(extraCols, name) && !TermEntry.STATUS_FIELD.equalsIgnoreCase(name)) {
+                    extraCols.add(name);
+                }
+            }
+        }
+        if (CsvTermbaseHandler.findStatusColumn(extraCols) < 0
+            && CsvTermbaseHandler.hasStatusColumn(entries.stream().map(r -> r.entry).toList())) {
+            extraCols.add(TermEntry.STATUS_FIELD);
+        }
+        return extraCols;
+    }
+
     // ------------------------------------------------------------------ XLSX writing
 
     private static void writeXlsx(TermbaseConfig config, List<TermEntry> entries,
                                   List<RichTermEntry> richEntries) throws IOException {
         String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-CN";
         String targetLang = config.getTargetLang() != null ? config.getTargetLang() : "en-US";
-        List<String> extraCols = config.getExtraColumns();
+        List<String> extraCols = resolvedExtraColumns(config, richEntries);
+        int statusIdx = CsvTermbaseHandler.findStatusColumn(extraCols);
 
         try {
             var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
@@ -354,11 +525,13 @@ public final class TermbaseConverter {
                 // Data rows
                 for (int idx = 0; idx < entries.size(); idx++) {
                     TermEntry e = entries.get(idx);
+                    RichTermEntry r = richEntries.get(idx);
                     var row = sheet.createRow(idx + 1);
                     row.createCell(0).setCellValue(e.getSourceTerm() != null ? e.getSourceTerm() : "");
                     row.createCell(1).setCellValue(e.getTargetTerm() != null ? e.getTargetTerm() : "");
                     for (int i = 0; i < extraCols.size(); i++) {
-                        String val = e.getExtraFields().get(extraCols.get(i));
+                        String val = i == statusIdx ? statusForCsvWrite(r)
+                            : valueOfExtra(e, extraCols.get(i));
                         row.createCell(2 + i).setCellValue(val != null ? val : "");
                     }
                 }
@@ -418,69 +591,56 @@ public final class TermbaseConverter {
                 termEntry.setAttribute("id", id);
                 idCounter++;
 
-                // Source langSet
-                Element srcLangSet = doc.createElement("langSet");
-                srcLangSet.setAttribute("xml:lang", sourceLang);
-                Element srcTig = doc.createElement("tig");
-                Element srcTerm = doc.createElement("term");
-                srcTerm.setTextContent(e.getSourceTerm() != null ? e.getSourceTerm() : "");
-                srcTig.appendChild(srcTerm);
-                srcLangSet.appendChild(srcTig);
-                // Definition in source langSet
-                if (r.definition != null && !r.definition.isEmpty()) {
+                // Source langSet: term, unmodelled termNotes, status, definition
+                Element srcLangSet = appendTbxLangSet(doc, termEntry, sourceLang,
+                    e.getSourceTerm(), termNotesFor(r, sourceLang));
+                String statusVal = normalizeStatusForTbx(e.getStoredStatusValue());
+                if (statusVal != null) {
+                    setTbxAdministrativeStatus(srcLangSet, statusVal);
+                }
+                String defText = r.definition != null && !r.definition.isEmpty()
+                    ? r.definition : valueOfExtra(e, "definition");
+                if (defText != null && !defText.isEmpty()) {
                     Element descrip = doc.createElement("descrip");
                     descrip.setAttribute("type", "definition");
-                    descrip.setTextContent(r.definition);
+                    descrip.setTextContent(defText);
                     srcLangSet.appendChild(descrip);
                 }
-                termEntry.appendChild(srcLangSet);
 
                 // Target langSet
-                Element tgtLangSet = doc.createElement("langSet");
-                tgtLangSet.setAttribute("xml:lang", targetLang);
-                Element tgtTig = doc.createElement("tig");
-                Element tgtTerm = doc.createElement("term");
-                tgtTerm.setTextContent(e.getTargetTerm() != null ? e.getTargetTerm() : "");
-                tgtTig.appendChild(tgtTerm);
-                tgtLangSet.appendChild(tgtTig);
-                termEntry.appendChild(tgtLangSet);
+                appendTbxLangSet(doc, termEntry, targetLang,
+                    e.getTargetTerm(), termNotesFor(r, targetLang));
 
                 // Extra languages
                 for (Map.Entry<String, String> exLang : r.extraLangTerms.entrySet()) {
-                    Element exLangSet = doc.createElement("langSet");
-                    exLangSet.setAttribute("xml:lang", exLang.getKey());
-                    Element exTig = doc.createElement("tig");
-                    Element exTerm = doc.createElement("term");
-                    exTerm.setTextContent(exLang.getValue());
-                    exTig.appendChild(exTerm);
-                    exLangSet.appendChild(exTig);
-                    termEntry.appendChild(exLangSet);
+                    appendTbxLangSet(doc, termEntry, exLang.getKey(), exLang.getValue(), null);
                 }
 
-                // Note
-                if (r.note != null && !r.note.isEmpty()) {
+                // Note: the TBX <note> element, or the CSV/XLSX "note" column
+                String noteText = r.note != null && !r.note.isEmpty()
+                    ? r.note : valueOfExtra(e, "note");
+                if (noteText != null && !noteText.isEmpty()) {
                     Element note = doc.createElement("note");
-                    note.setTextContent(r.note);
+                    note.setTextContent(noteText);
                     termEntry.appendChild(note);
                 }
 
-                // CSV/XLSX extras: map "definition" and "note" column names
-                if (r.definition == null && r.note == null) {
-                    // Check extraFields for columns named "definition"/"note"
-                    String defVal = e.getExtraFields().get("definition");
-                    String noteVal = e.getExtraFields().get("note");
-                    if (defVal != null && !defVal.isEmpty()) {
-                        // Already handled above if from TBX; here from CSV/XLSX
-                        Element descrip = doc.createElement("descrip");
-                        descrip.setAttribute("type", "definition");
-                        descrip.setTextContent(defVal);
-                        srcLangSet.appendChild(descrip);
-                    }
-                    if (noteVal != null && !noteVal.isEmpty()) {
-                        Element noteElem = doc.createElement("note");
-                        noteElem.setTextContent(noteVal);
-                        termEntry.appendChild(noteElem);
-                    }
+                // Remaining CSV/XLSX extra columns (domain, partOfSpeech, other languages)
+                // are kept as termNotes in the source langSet, matching the per-language
+                // termNote model the TBX rich read uses for a TBX -> TBX export.
+                for (Map.Entry<String, String> ex : e.getExtraFields().entrySet()) {
+                    String name = ex.getKey();
+                    String val = ex.getValue();
+                    if (val == null || val.isEmpty()) continue;
+                    if (TermEntry.STATUS_FIELD.equalsIgnoreCase(name)
+                        || "definition".equalsIgnoreCase(name) || "note".equalsIgnoreCase(name)) continue;
+                    if (name.equalsIgnoreCase(sourceLang) || name.equalsIgnoreCase(targetLang)) continue;
+                    Element container = termContainer(srcLangSet);
+                    if (container == null) continue;
+                    Element termNote = doc.createElement("termNote");
+                    termNote.setAttribute("type", name);
+                    termNote.setTextContent(val);
+                    container.appendChild(termNote);
                 }
 
                 body.appendChild(termEntry);
@@ -505,5 +665,57 @@ public final class TermbaseConverter {
         } catch (Exception e) {
             throw new IOException("Failed to write TBX: " + config.getFilePath(), e);
         }
+    }
+
+    /**
+     * Append a langSet with a tig/term (and, when given, the unmodelled termNotes kept by
+     * the rich read) to a termEntry; returns the langSet so callers can add status or a
+     * definition to it.
+     */
+    private static Element appendTbxLangSet(Document doc, Element termEntry, String lang,
+                                            String termText, Map<String, String> termNotes) {
+        Element langSet = doc.createElement("langSet");
+        langSet.setAttribute("xml:lang", lang);
+        Element tig = doc.createElement("tig");
+        Element term = doc.createElement("term");
+        term.setTextContent(termText != null ? termText : "");
+        tig.appendChild(term);
+        if (termNotes != null) {
+            for (Map.Entry<String, String> tn : termNotes.entrySet()) {
+                Element termNote = doc.createElement("termNote");
+                termNote.setAttribute("type", tn.getKey());
+                termNote.setTextContent(tn.getValue());
+                tig.appendChild(termNote);
+            }
+        }
+        langSet.appendChild(tig);
+        termEntry.appendChild(langSet);
+        return langSet;
+    }
+
+    /** The stored termNotes for a language, matched case-insensitively against the file's tag. */
+    private static Map<String, String> termNotesFor(RichTermEntry r, String lang) {
+        if (lang == null) return null;
+        for (Map.Entry<String, Map<String, String>> en : r.termNotes.entrySet()) {
+            if (lang.equalsIgnoreCase(en.getKey())) return en.getValue();
+        }
+        return null;
+    }
+
+    /** The TBX-Basic domain value for a stored status, or null when there is nothing to write. */
+    private static String normalizeStatusForTbx(String stored) {
+        if (stored == null || stored.isEmpty()) return null;
+        TermStatus ts = TermStatus.parse(stored);
+        return ts != null ? ts.tbxValue() : stored;
+    }
+
+    /** Set the termNote type="administrativeStatus" in the langSet's term container. */
+    private static void setTbxAdministrativeStatus(Element langSet, String statusValue) {
+        Element container = termContainer(langSet);
+        if (container == null) return;
+        Element termNote = container.getOwnerDocument().createElement("termNote");
+        termNote.setAttribute("type", "administrativeStatus");
+        termNote.setTextContent(statusValue);
+        container.appendChild(termNote);
     }
 }

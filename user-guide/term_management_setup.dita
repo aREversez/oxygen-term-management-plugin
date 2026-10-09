@@ -31,6 +31,12 @@
                 <cmd>如果术语库里有两种以上语言（例如 CSV 的 <codeph>zh-cn, en-us, de-de</codeph> 三列，或 TBX 条目里有三种 langSet），选中它并点击 <uicontrol>语言…</uicontrol>，指定哪一种作源语言、哪一种作目标语言。</cmd>
                 <info>默认仍是前两列（TBX 为每个条目的前两种语言）。选择只针对这一个术语库，会保存下来；其他列或语言在保存时原样保留，位置不变。如果之后文件里找不到所选语言，插件改用默认语言对，并在术语库列表的“语言”列注明。更改语言对后，之前的“撤销删除”不再可用。</info>
             </step>
+            <step>
+                <cmd>如需使用 AI 批量补译空白译文（见“术语库维护与编辑”），勾选 <uicontrol>启用 AI 翻译</uicontrol>，并填写 <uicontrol>API 地址</uicontrol>、<uicontrol>模型名称</uicontrol> 和 <uicontrol>API 密钥</uicontrol>。</cmd>
+                <info>
+                    <note type="warning">此功能会把源术语发送到您填写的 API 地址，API 密钥以<b>明文</b>保存在 Oxygen 的选项存储中（<b>未加密</b>）。请仅对您信任或自建的端点启用。</note>
+                </info>
+            </step>
         </steps>
     </taskbody>
 </task>

@@ -32,6 +32,20 @@
             <p>因此，同一个状态值换用不同格式保存时，其作用对象可能不同。将状态清除后，CSV/XLSX 写入空单元格，TBX 则删除对应的 <codeph>termNote</codeph>。</p>
             <p>识别面板中，<uicontrol>deprecated</uicontrol> 词条在作者模式下以红色高亮（其余为黄色），且即使被更长的匹配包含也始终报出，以提醒用户避免使用弃用术语。</p>
         </section>
+        <section>
+            <title>导出与格式转换</title>
+            <p>点击 <uicontrol>导出…</uicontrol>，可将当前术语库另存为另一种格式（<b>CSV ⇄ XLSX ⇄ TBX</b>），或导出为 <b>DITA 术语表</b>（生成一个 <codeph>glossgroup</codeph>，可被 Oxygen 打开并并入 ditamap）。</p>
+            <ul>
+                <li><b>状态随格式互转</b>：CSV/XLSX 的 <codeph>status</codeph> 列与 TBX 的 <codeph>termNote type="administrativeStatus"</codeph> 双向转换；导出为 TBX 时，定义、备注等两列装不下的内容会写成 <codeph>termNote</codeph>，因此 TBX→TBX 不会再把整份文档重建成只剩源语/译语两列。</li>
+                <li><b>导出报告会列出丢失的内容</b>：若目标格式容纳不下某些字段（状态、备注、其他语言等），导出后会弹出“导出报告”列出被丢弃的字段；确实没有丢失时显示“没有字段被丢弃”。读入的 TBX 若格式错误会直接报错，而不是悄悄导出一份空结果。</li>
+                <li><b>不会覆盖源文件或正在使用的术语库</b>：若导出目标就是当前术语库文件本身或任一已启用的术语库，插件会拒绝并提示。若源格式与目标格式相同，默认建议的文件名会带 <codeph>_export</codeph> 后缀，而不是指回原文件。</li>
+            </ul>
+        </section>
+        <section>
+            <title>AI 翻译建议</title>
+            <p>在 <uicontrol>启用 AI 翻译</uicontrol> 并配好 API 后，点击 <uicontrol>建议译文…</uicontrol>，插件会把“有源词、但译文为空”的条目逐个发到 OpenAI 兼容接口，返回的译法先列在审阅对话框中由您逐条接受或拒绝，确认后才写回术语库。</p>
+            <p>请求<b>不跟随重定向</b>（<codeph>Authorization</codeph> 头不会被转发到其他主机），响应体上限 <b>1 MB</b>；一次最多请求 <b>200 条</b>，超出时会先征求确认。请求期间显示带进度条和<b>取消</b>按钮的对话框。隐私提醒见《安装与配置术语库》。</p>
+        </section>
         <postreq>
             <note type="tip">若术语库文件被其他程序（如 Excel）占用，请先关闭该程序，否则无法保存修改。</note>
         </postreq>

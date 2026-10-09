@@ -1,6 +1,7 @@
 package com.example.termmgmt.service;
 
 import com.example.termmgmt.model.TermEntry;
+import com.example.termmgmt.service.TermbaseConverter.DroppedField;
 import com.example.termmgmt.service.TermbaseConverter.RichTermEntry;
 import com.example.termmgmt.util.AtomicFileWriter;
 
@@ -15,8 +16,10 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -40,6 +43,30 @@ public final class DitaGlossaryExporter {
     static final String DOCTYPE_SYSTEM = "glossgroup.dtd";
 
     private DitaGlossaryExporter() {}
+
+    /**
+     * The fields a DITA glossary export cannot carry: only the source term and a definition
+     * survive as {@code glossterm}/{@code glossdef}, everything else (status, notes, other
+     * languages, unmodelled termNotes) is dropped and must be reported to the user.
+     */
+    public static List<DroppedField> detectDrops(List<RichTermEntry> entries) {
+        List<DroppedField> dropped = new ArrayList<>();
+        if (entries == null || entries.isEmpty()) return dropped;
+        int statusCount = 0, noteCount = 0, extraCount = 0, termNoteCount = 0;
+        for (RichTermEntry r : entries) {
+            String status = r.entry.getStoredStatusValue();
+            if (status != null && !status.isEmpty()) statusCount++;
+            if (r.note != null && !r.note.isEmpty()) noteCount++;
+            if (!r.extraLangTerms.isEmpty()) extraCount++;
+            boolean anyTermNote = r.termNotes.values().stream().mapToInt(Map::size).sum() > 0;
+            if (anyTermNote) termNoteCount++;
+        }
+        if (statusCount > 0) dropped.add(new DroppedField("status", statusCount));
+        if (noteCount > 0) dropped.add(new DroppedField("note", noteCount));
+        if (extraCount > 0) dropped.add(new DroppedField("extra language terms", extraCount));
+        if (termNoteCount > 0) dropped.add(new DroppedField("term notes", termNoteCount));
+        return dropped;
+    }
 
     /**
      * Export the given entries as a DITA glossary group file.

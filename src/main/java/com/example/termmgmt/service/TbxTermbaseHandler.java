@@ -40,8 +40,9 @@ public class TbxTermbaseHandler {
      * Termbase files may come from untrusted sources. Turn off external entities and
      * external DTD loading (XXE / SSRF). DOCTYPE declarations stay allowed because real
      * TBX files commonly carry one, but their external DTD is neither fetched nor required.
+     * Package-private so {@link TermbaseConverter} parses TBX through the same guard.
      */
-    private static DocumentBuilderFactory newSecureDocumentBuilderFactory() throws ParserConfigurationException {
+    static DocumentBuilderFactory newSecureDocumentBuilderFactory() throws ParserConfigurationException {
         DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
         setFeatureIfSupported(dbf, XMLConstants.FEATURE_SECURE_PROCESSING, true);
         setFeatureIfSupported(dbf, "http://xml.org/sax/features/external-general-entities", false);
@@ -60,7 +61,7 @@ public class TbxTermbaseHandler {
         }
     }
 
-    private static TransformerFactory newSecureTransformerFactory() {
+    static TransformerFactory newSecureTransformerFactory() {
         TransformerFactory tf = TransformerFactory.newInstance();
         try {
             tf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);

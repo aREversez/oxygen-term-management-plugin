@@ -1,6 +1,8 @@
 package com.example.termmgmt.service;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,7 +17,10 @@ import java.util.Map;
  * <p>Security constraints:
  * <ul>
  *   <li>Only {@code http} and {@code https} schemes are allowed.</li>
- *   <li>Response body is capped at 1 MB.</li>
+ *   <li>Redirects are never followed: the Authorization header (API key) must not be
+ *       replayed to a redirect target the user did not configure.</li>
+ *   <li>Response body is capped at 1 MB, enforced while reading (an oversized response
+ *       is abandoned instead of being buffered in full first).</li>
  *   <li>Request timeout: 30 seconds.</li>
  *   <li>The API key appears only in the Authorization header; never in log output.</li>
  * </ul>
@@ -30,7 +35,9 @@ public final class OpenAiHttpTransport implements HttpTransport {
     public OpenAiHttpTransport() {
         this.client = HttpClient.newBuilder()
             .connectTimeout(TIMEOUT)
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            // NEVER, not NORMAL: NORMAL would forward the Authorization header (the API
+            // key) to a redirect target chosen by the remote server.
+            .followRedirects(HttpClient.Redirect.NEVER)
             .build();
     }
 
@@ -69,20 +76,32 @@ public final class OpenAiHttpTransport implements HttpTransport {
         }
 
         try {
-            HttpResponse<byte[]> response = client.send(reqBuilder.build(),
-                HttpResponse.BodyHandlers.ofByteArray());
+            // Streamed cap: read at most MAX_RESPONSE_BYTES + 1; a body larger than the
+            // limit is abandoned without ever being fully buffered.
+            HttpResponse<InputStream> response = client.send(reqBuilder.build(),
+                HttpResponse.BodyHandlers.ofInputStream());
 
             int status = response.statusCode();
             if (status < 200 || status >= 300) {
+                try (InputStream ignored = response.body()) {
+                    // Drain/close so the connection can be reused.
+                }
+                if (status >= 300 && status < 400) {
+                    // Redirects are not followed by design; report them as such.
+                    throw new IOException("HTTP redirect (" + status + ") from " + sanitizeUrl(url)
+                        + " is not followed; configure the final endpoint URL");
+                }
                 // Log without exposing the API key
                 throw new IOException("HTTP " + status + " from " + sanitizeUrl(url));
             }
 
-            byte[] body = response.body();
-            if (body != null && body.length > MAX_RESPONSE_BYTES) {
-                throw new IOException("Response exceeds 1 MB limit (" + body.length + " bytes)");
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream(Math.min(64 * 1024, MAX_RESPONSE_BYTES));
+            IOException[] readError = new IOException[1];
+            drainBounded(response.body(), buffer, readError);
+            if (readError[0] != null) {
+                throw readError[0];
             }
-            return body != null ? new String(body, StandardCharsets.UTF_8) : "";
+            return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Request interrupted", e);
@@ -90,6 +109,27 @@ public final class OpenAiHttpTransport implements HttpTransport {
             throw e;
         } catch (Exception e) {
             throw new IOException("HTTP request failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** Copies the response stream into {@code out}, failing on more than {@link #MAX_RESPONSE_BYTES}. */
+    private static void drainBounded(InputStream in, ByteArrayOutputStream out, IOException[] error) {
+        try (InputStream stream = in) {
+            byte[] chunk = new byte[8192];
+            int total = 0;
+            int n;
+            while ((n = stream.read(chunk)) != -1) {
+                total += n;
+                if (total > MAX_RESPONSE_BYTES) {
+                    error[0] = new IOException("Response exceeds 1 MB limit (" + total + " bytes)");
+                    return;
+                }
+                out.write(chunk, 0, n);
+            }
+        } catch (IOException e) {
+            if (error[0] == null) {
+                error[0] = e;
+            }
         }
     }
 

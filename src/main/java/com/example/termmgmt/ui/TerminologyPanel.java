@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.UnaryOperator;
 import java.util.Locale;
+import java.nio.file.Path;
 import java.util.regex.Pattern;
 import java.io.File;
 
@@ -1084,6 +1085,13 @@ public class TerminologyPanel extends JPanel {
     /** A source term paired with the AI-suggested translation for the review dialog. */
     private record PendingSuggestion(TermEntry entry, String suggestion) {}
 
+    /**
+     * Cap on how many blank entries one suggestion run may request: requests are serial,
+     * so an unbounded run against a large termbase would hammer the endpoint (and the user
+     * would wait far too long for the review dialog to appear).
+     */
+    static final int MAX_SUGGESTION_REQUESTS = 200;
+
     /** Reads the AI-translation configuration persisted by the preference page. */
     private TranslationSuggester.Config loadAiConfig() {
         try {
@@ -1135,12 +1143,47 @@ public class TerminologyPanel extends JPanel {
                 I18N.getString("msg.info"), JOptionPane.INFORMATION_MESSAGE);
             return;
         }
+        // Serial requests need a bound; ask before trimming the tail.
+        if (blanks.size() > MAX_SUGGESTION_REQUESTS) {
+            int proceed = JOptionPane.showConfirmDialog(this,
+                I18N.getString("btn.suggest.translation.limit",
+                    blanks.size(), MAX_SUGGESTION_REQUESTS, currentConfig.getFileName()),
+                I18N.getString("btn.suggest.translation"),
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (proceed != JOptionPane.OK_OPTION) return;
+            blanks = new ArrayList<>(blanks.subList(0, MAX_SUGGESTION_REQUESTS));
+        }
 
         final TermbaseConfig configSnapshot = currentConfig;
         final List<TermEntry> candidates = new ArrayList<>(blanks);
         final String src = sourceLang;
         final String tgt = targetLang;
         final HttpTransport transport = new OpenAiHttpTransport();
+        final java.util.concurrent.atomic.AtomicBoolean cancelled =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        JProgressBar progressBar = new JProgressBar(0, candidates.size());
+        progressBar.setStringPainted(true);
+        JButton cancelBtn = new JButton(I18N.getString("btn.cancel"));
+        cancelBtn.addActionListener(e -> {
+            cancelled.set(true);
+            cancelBtn.setEnabled(false);   // single shot; the loop stops on the next check
+        });
+        JPanel progressPanel = new JPanel(new BorderLayout(8, 8));
+        progressPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        progressPanel.add(new JLabel(I18N.getString("btn.suggest.translation.dialog.progress")),
+            BorderLayout.NORTH);
+        progressPanel.add(progressBar, BorderLayout.CENTER);
+        JPanel southRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        southRow.add(cancelBtn);
+        progressPanel.add(southRow, BorderLayout.SOUTH);
+        final JDialog progressDialog = new JDialog(SwingUtilities.getWindowAncestor(this),
+            I18N.getString("btn.suggest.translation"),
+            Dialog.ModalityType.MODELESS);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        progressDialog.add(progressPanel);
+        progressDialog.pack();
+        progressDialog.setLocationRelativeTo(this);
 
         new SwingWorker<List<PendingSuggestion>, String>() {
             @Override
@@ -1148,9 +1191,18 @@ public class TerminologyPanel extends JPanel {
                 List<PendingSuggestion> results = new ArrayList<>();
                 int done = 0;
                 for (TermEntry entry : candidates) {
+                    if (cancelled.get() || isCancelled()) {
+                        break;
+                    }
                     String srcTerm = entry.getSourceTerm() != null ? entry.getSourceTerm() : "";
-                    publish(I18N.getString("btn.suggest.translation.progress",
-                        ++done, candidates.size(), srcTerm));
+                    final int shown = done;
+                    final String termName = srcTerm;
+                    SwingUtilities.invokeLater(() -> {
+                        progressBar.setValue(shown);
+                        progressBar.setString(I18N.getString("btn.suggest.translation.progress",
+                            shown, candidates.size(), termName));
+                    });
+                    done++;
                     if (srcTerm.isBlank()) continue;
                     try {
                         SuggestionResult r =
@@ -1162,20 +1214,18 @@ public class TerminologyPanel extends JPanel {
                         // Skip this entry; keep going for the rest.
                     }
                 }
+                final int finalDone = done;
+                SwingUtilities.invokeLater(() -> progressBar.setValue(finalDone));
                 return results;
             }
 
             @Override
-            protected void process(List<String> chunks) {
-                // Progress is surfaced via the button tooltip; a modal dialog would block the flow.
-                if (!chunks.isEmpty()) {
-                    suggestStatusHint(chunks.get(chunks.size() - 1));
-                }
-            }
-
-            @Override
             protected void done() {
-                suggestStatusHint(null);
+                progressDialog.setVisible(false);
+                progressDialog.dispose();
+                if (cancelled.get()) {
+                    return;   // the run was abandoned: nothing to review or save
+                }
                 List<PendingSuggestion> suggestions;
                 try {
                     suggestions = get();
@@ -1195,17 +1245,8 @@ public class TerminologyPanel extends JPanel {
                 reviewSuggestions(configSnapshot, suggestions);
             }
         }.execute();
-    }
-
-    /** Update a lightweight progress hint on the component; {@code null} clears it. */
-    private void suggestStatusHint(String text) {
-        SwingUtilities.invokeLater(() -> {
-            if (text == null) {
-                setToolTipText(null);
-            } else {
-                setToolTipText(text);
-            }
-        });
+        // Show only after execute() so done() can never run against an unassigned field.
+        progressDialog.setVisible(true);
     }
 
     /** Show a checkbox list of suggestions and persist the accepted ones. */
@@ -1281,7 +1322,11 @@ public class TerminologyPanel extends JPanel {
             case "DITA Glossary" -> ".dita";
             default -> ".tbx";
         };
-        fc.setSelectedFile(new File(currentConfig.getFileName().replaceAll("\\.[^.]+$", "") + ext));
+        String base = currentConfig.getFileName().replaceAll("\\.[^.]+$", "");
+        // A same-format export would otherwise default straight onto the source file, one
+        // "Yes" click away from destroying the termbase; aim beside it instead.
+        String suggested = ext.equals(sourceExtension()) ? base + "_export" + ext : base + ext;
+        fc.setSelectedFile(new File(suggested));
         int result = fc.showSaveDialog(this);
         if (result != JFileChooser.APPROVE_OPTION) return;
 
@@ -1289,6 +1334,15 @@ public class TerminologyPanel extends JPanel {
         // Ensure correct extension
         if (!targetFile.getName().toLowerCase(java.util.Locale.ROOT).endsWith(ext)) {
             targetFile = new File(targetFile.getAbsolutePath() + ext);
+        }
+        // Never export onto a termbase the workspace knows: the export regenerates whole
+        // files, so landing on a registered termbase (source included) would destroy it.
+        if (isRegisteredTermbaseFile(targetFile)) {
+            JOptionPane.showMessageDialog(this,
+                I18N.getString("btn.export.error.target_is_registered",
+                    targetFile.getAbsolutePath()),
+                I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+            return;
         }
         // Overwrite confirmation
         if (targetFile.exists()) {
@@ -1309,7 +1363,9 @@ public class TerminologyPanel extends JPanel {
                     List<TermbaseConverter.RichTermEntry> rich = TermbaseConverter.readRich(configSnapshot);
                     DitaGlossaryExporter.export(rich, configSnapshot.getSourceLang(),
                         configSnapshot.getTargetLang(), finalTarget.toPath());
-                    return new TermbaseConverter.ConversionReport(rich.size(), List.of());
+                    // A glossary carries only the term and a definition; report the rest.
+                    return new TermbaseConverter.ConversionReport(rich.size(),
+                        DitaGlossaryExporter.detectDrops(rich));
                 }
                 TermbaseConfig.Format fmt = switch (finalFormat) {
                     case "CSV" -> TermbaseConfig.Format.CSV;
@@ -1343,5 +1399,39 @@ public class TerminologyPanel extends JPanel {
                 }
             }
         }.execute();
+    }
+
+    /** Extension of the current termbase file, lower case, including the dot; "" if none. */
+    private String sourceExtension() {
+        String name = currentConfig != null ? currentConfig.getFileName() : "";
+        int dot = name.lastIndexOf('.');
+        return dot >= 0 ? name.substring(dot).toLowerCase(java.util.Locale.ROOT) : "";
+    }
+
+    /**
+     * Whether {@code file} is one of the registered (enabled) termbases' files, compared
+     * by real path so "other.csv" or a different case does not slip past the check.
+     */
+    private boolean isRegisteredTermbaseFile(File file) {
+        java.nio.file.Path p = file.toPath().toAbsolutePath().normalize();
+        try {
+            if (java.nio.file.Files.exists(p)) {
+                p = p.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS);
+            }
+        } catch (java.io.IOException ignored) {
+            // Unresolvable: keep the normalized comparison.
+        }
+        for (TermbaseConfig cfg : registry.getEnabledConfigs()) {
+            java.nio.file.Path q = Path.of(cfg.getFilePath()).toAbsolutePath().normalize();
+            try {
+                if (java.nio.file.Files.exists(q)) {
+                    q = q.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS);
+                }
+            } catch (java.io.IOException ignored) {
+                // As above.
+            }
+            if (p.equals(q)) return true;
+        }
+        return false;
     }
 }
