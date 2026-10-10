@@ -139,6 +139,82 @@ class TranslationSuggesterTest {
         assertTrue(r.errorMessage().contains("length"), r.errorMessage());
     }
 
+    // ------------------------------------------------------------------ Batch request / reply
+
+    private static String content(String c) {
+        return "{\"choices\":[{\"message\":{\"content\":" + new com.google.gson.Gson().toJson(c) + "}}]}";
+    }
+
+    @Test
+    void buildBatchRequest_numbersTheTerms_andKeepsTheReferencesInTheSystemMessage() {
+        String json = TranslationSuggester.buildBatchRequest(java.util.List.of("pump", "seal"), "en", "zh", "m",
+            java.util.List.of(new TranslationSuggester.Reference("valve", "阀")));
+        com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+        String system = root.getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString();
+        String user = root.getAsJsonArray("messages").get(1).getAsJsonObject().get("content").getAsString();
+        assertTrue(system.contains("- valve => 阀"));
+        assertFalse(user.contains("阀"));
+        com.google.gson.JsonObject numbered = com.google.gson.JsonParser.parseString(user).getAsJsonObject();
+        assertEquals("pump", numbered.get("1").getAsString());
+        assertEquals("seal", numbered.get("2").getAsString());
+    }
+
+    @Test
+    void buildBatchRequest_withoutReferences_hasNoReferenceSection() {
+        String json = TranslationSuggester.buildBatchRequest(java.util.List.of("pump"), "en", "zh", "m",
+            java.util.List.of());
+        assertFalse(json.contains("Reference translations"));
+    }
+
+    @Test
+    void buildRequest_withReferences_addsThemToTheSystemMessage_andWithoutKeepsTheOldPrompt() {
+        String plain = TranslationSuggester.buildRequest("pump", "en", "zh", "m");
+        assertEquals(plain, TranslationSuggester.buildRequest("pump", "en", "zh", "m", java.util.List.of()));
+        String with = TranslationSuggester.buildRequest("pump", "en", "zh", "m",
+            java.util.List.of(new TranslationSuggester.Reference("valve", "阀")));
+        String system = com.google.gson.JsonParser.parseString(with).getAsJsonObject()
+            .getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString();
+        assertTrue(system.contains("- valve => 阀"), system);
+    }
+
+    @Test
+    void parseBatchResponse_readsTheNumberedAnswers() {
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(
+            content("{\"1\": \"泵\", \"2\": \" 密封件 \"}"), 2);
+        assertNull(r.error());
+        assertEquals(Map.of(1, "泵", 2, "密封件"), r.translations());
+    }
+
+    @Test
+    void parseBatchResponse_toleratesACodeFenceAndThinking() {
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(
+            content("<think>domain: hydraulics</think>\n```json\n{\"1\":\"泵\"}\n```"), 1);
+        assertEquals(Map.of(1, "泵"), r.translations());
+    }
+
+    @Test
+    void parseBatchResponse_ignoresUnknownNumbersBlankAndNonTextValues() {
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(
+            content("{\"0\":\"a\",\"1\":\"\",\"2\":\"B\",\"3\":\"c\",\"x\":\"d\",\"2.5\":\"e\"}"), 2);
+        assertEquals(Map.of(2, "B"), r.translations());
+    }
+
+    @Test
+    void parseBatchResponse_notJson_isAnErrorNotARequestFailure() {
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(content("Sure, here you go"), 2);
+        assertTrue(r.translations().isEmpty());
+        assertNotNull(r.error());
+        assertFalse(r.requestFailed());
+    }
+
+    @Test
+    void suggestBatch_aFailedRequest_isReportedAsRequestFailed() {
+        TranslationSuggester.BatchResult r = TranslationSuggester.suggestBatch(java.util.List.of("a"), "en", "zh",
+            java.util.List.of(), ENABLED_CONFIG, throwingTransport(new IOException("HTTP 401 from x")));
+        assertTrue(r.requestFailed());
+        assertTrue(r.error().contains("401"));
+    }
+
     // ------------------------------------------------------------------ URL building
 
     @Test

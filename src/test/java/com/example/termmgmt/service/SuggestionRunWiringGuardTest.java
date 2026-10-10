@@ -26,6 +26,8 @@ class SuggestionRunWiringGuardTest {
 
         assertTrue(src.contains("SuggestionRun.run("),
             "the run must go through SuggestionRun, which accounts for every term");
+        assertTrue(src.contains("SuggestionRun.selectReferences("),
+            "the run must send termbase pairs as context so the model can tell the domain");
         assertTrue(src.contains("omissionNotice(outcome, candidates)"),
             "terms that got no suggestion must be named in the review dialog");
         assertTrue(src.contains("outcome.firstError()"), "an all-failed run must show the reason");

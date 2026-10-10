@@ -34,6 +34,17 @@ public final class TranslationSuggester {
         }
     }
 
+    /** An approved source/target pair from the termbase, sent as context so the model can tell the domain. */
+    public record Reference(String source, String target) {}
+
+    /**
+     * Outcome of one batch request. {@code translations} maps the 1-based number of each term
+     * to its translation (only the numbers the model answered); {@code requestFailed} is true when
+     * the request itself failed (HTTP error, timeout) as opposed to the model answering badly.
+     */
+    public record BatchResult(java.util.Map<Integer, String> translations, String error,
+                              boolean requestFailed) {}
+
     /**
      * Bookkeeping for a serial run of suggestion requests. It keeps the first error, so a run that
      * produced nothing can tell the user why, and says when to stop: several failures in a row
@@ -84,6 +95,16 @@ public final class TranslationSuggester {
                                            String targetLang,
                                            Config config,
                                            HttpTransport transport) throws IOException {
+        return suggest(sourceTerm, sourceLang, targetLang, java.util.List.of(), config, transport);
+    }
+
+    /** As {@link #suggest(String, String, String, Config, HttpTransport)}, with termbase pairs as context. */
+    public static SuggestionResult suggest(String sourceTerm,
+                                           String sourceLang,
+                                           String targetLang,
+                                           java.util.List<Reference> references,
+                                           Config config,
+                                           HttpTransport transport) throws IOException {
         if (config == null || !config.enabled()) {
             return SuggestionResult.fail("AI translation is disabled");
         }
@@ -92,7 +113,7 @@ public final class TranslationSuggester {
         }
 
         String url = buildUrl(config.apiUrl());
-        String requestBody = buildRequest(sourceTerm, sourceLang, targetLang, config.model());
+        String requestBody = buildRequest(sourceTerm, sourceLang, targetLang, config.model(), references);
 
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
@@ -130,28 +151,157 @@ public final class TranslationSuggester {
      * Build the JSON request body for the chat completions endpoint.
      */
     static String buildRequest(String sourceTerm, String sourceLang, String targetLang, String model) {
+        return buildRequest(sourceTerm, sourceLang, targetLang, model, java.util.List.of());
+    }
+
+    static String buildRequest(String sourceTerm, String sourceLang, String targetLang, String model,
+                               java.util.List<Reference> references) {
+        String system = "Translate the following term from " + sourceLang + " to " + targetLang
+            + ". Reply with only the translation, nothing else.";
+        if (references != null && !references.isEmpty()) {
+            system += "\nThe term comes from a termbase. Infer its subject domain from the reference "
+                + "translations below and translate it as it is used in that domain, keeping their "
+                + "wording and style. The references are context only; do not return them.\n"
+                + referenceLines(references);
+        }
+        return chatBody(model, system, sourceTerm);
+    }
+
+    /**
+     * One request for several terms. The reference translations are part of the (identical across
+     * batches) system message and are sent once per batch instead of once per term; the user
+     * message is a JSON object of number to term, and the reply must be a JSON object of number to
+     * translation, so an answer can be matched to its term and a missing one is detectable.
+     */
+    static String buildBatchRequest(java.util.List<String> terms, String sourceLang, String targetLang,
+                                    String model, java.util.List<Reference> references) {
+        boolean hasRefs = references != null && !references.isEmpty();
+        StringBuilder system = new StringBuilder()
+            .append("You translate terminology from ").append(sourceLang).append(" to ").append(targetLang)
+            .append(".\nThe numbered terms in the user message (a JSON object of number to term) all come ")
+            .append("from the same termbase. Infer the subject domain from ")
+            .append(hasRefs ? "the reference translations below and " : "")
+            .append("the terms themselves, and translate each term as it is used in that domain")
+            .append(hasRefs ? ", keeping the wording and style of the references" : "")
+            .append(".\n");
+        if (hasRefs) {
+            system.append("Reference translations (approved entries from the same termbase, context only; ")
+                .append("do not return them):\n").append(referenceLines(references)).append('\n');
+        }
+        system.append("Reply with only a JSON object that maps each term's number to its translation, ")
+            .append("for example {\"1\": \"...\", \"2\": \"...\"}. Include every number. No explanations.");
+
+        JsonObject numbered = new JsonObject();
+        for (int i = 0; i < terms.size(); i++) {
+            numbered.addProperty(String.valueOf(i + 1), terms.get(i));
+        }
+        return chatBody(model, system.toString(), new Gson().toJson(numbered));
+    }
+
+    private static String referenceLines(java.util.List<Reference> references) {
+        StringBuilder out = new StringBuilder();
+        for (Reference r : references) {
+            if (out.length() > 0) {
+                out.append('\n');
+            }
+            out.append("- ").append(r.source()).append(" => ").append(r.target());
+        }
+        return out.toString();
+    }
+
+    private static String chatBody(String model, String system, String user) {
         JsonObject body = new JsonObject();
         body.addProperty("model", model);
         body.addProperty("temperature", 0.1);
 
         JsonArray messages = new JsonArray();
-
-        // System message
         JsonObject systemMsg = new JsonObject();
         systemMsg.addProperty("role", "system");
-        systemMsg.addProperty("content",
-            "Translate the following term from " + sourceLang + " to " + targetLang
-            + ". Reply with only the translation, nothing else.");
+        systemMsg.addProperty("content", system);
         messages.add(systemMsg);
 
-        // User message
         JsonObject userMsg = new JsonObject();
         userMsg.addProperty("role", "user");
-        userMsg.addProperty("content", sourceTerm);
+        userMsg.addProperty("content", user);
         messages.add(userMsg);
 
         body.add("messages", messages);
         return new Gson().toJson(body);
+    }
+
+    /**
+     * Ask for several terms at once. Never throws: a failed request is reported in the result.
+     * Terms the model did not answer are simply absent from {@link BatchResult#translations()}.
+     */
+    public static BatchResult suggestBatch(java.util.List<String> terms,
+                                           String sourceLang,
+                                           String targetLang,
+                                           java.util.List<Reference> references,
+                                           Config config,
+                                           HttpTransport transport) {
+        if (config == null || !config.enabled()) {
+            return new BatchResult(java.util.Map.of(), "AI translation is disabled", true);
+        }
+        if (!config.isValid()) {
+            return new BatchResult(java.util.Map.of(),
+                "AI translation config incomplete (url and model required)", true);
+        }
+        String url = buildUrl(config.apiUrl());
+        String requestBody = buildBatchRequest(terms, sourceLang, targetLang, config.model(), references);
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        if (config.apiKey() != null && !config.apiKey().isBlank()) {
+            headers.put("Authorization", "Bearer " + config.apiKey());
+        }
+        try {
+            String response = transport.post(url, headers, requestBody);
+            return parseBatchResponse(response, terms.size());
+        } catch (IOException e) {
+            System.err.println("TranslationSuggester: batch request to " + OpenAiHttpTransport.sanitizeUrl(url)
+                + " model=" + config.model() + " failed: " + e.getMessage());
+            return new BatchResult(java.util.Map.of(), e.getMessage(), true);
+        }
+    }
+
+    /**
+     * Reads a batch reply: a JSON object of number to translation, possibly wrapped in a code fence
+     * or prose. Numbers outside 1..count, blank values and non-text values are ignored, so what comes
+     * back is only answers that can be matched to a term.
+     */
+    static BatchResult parseBatchResponse(String jsonResponse, int count) {
+        Reply reply = readReply(jsonResponse);
+        if (reply.error() != null) {
+            return new BatchResult(java.util.Map.of(), reply.error(), false);
+        }
+        String text = reply.text();
+        int open = text.indexOf('{');
+        int close = text.lastIndexOf('}');
+        if (open < 0 || close < open) {
+            return new BatchResult(java.util.Map.of(), "Reply is not a JSON object", false);
+        }
+        try {
+            JsonObject answers = JsonParser.parseString(text.substring(open, close + 1)).getAsJsonObject();
+            java.util.Map<Integer, String> out = new java.util.TreeMap<>();
+            for (Map.Entry<String, JsonElement> e : answers.entrySet()) {
+                int number;
+                try {
+                    number = Integer.parseInt(e.getKey().trim());
+                } catch (NumberFormatException nfe) {
+                    continue;
+                }
+                JsonElement v = e.getValue();
+                if (number < 1 || number > count || !v.isJsonPrimitive()) {
+                    continue;
+                }
+                String t = v.getAsString().trim();
+                if (!t.isEmpty()) {
+                    out.put(number, t);
+                }
+            }
+            return new BatchResult(out, null, false);
+        } catch (Exception ex) {
+            return new BatchResult(java.util.Map.of(), "Reply is not valid JSON: " + ex.getMessage(), false);
+        }
     }
 
     /**
@@ -163,28 +313,36 @@ public final class TranslationSuggester {
      * a reply that consists only of thinking, and a reply cut off by the token limit.
      */
     static SuggestionResult parseResponse(String jsonResponse) {
+        Reply reply = readReply(jsonResponse);
+        return reply.error() != null ? SuggestionResult.fail(reply.error()) : SuggestionResult.ok(reply.text());
+    }
+
+    /** Text of the first choice (thinking removed, trimmed), or the reason there is none. */
+    private record Reply(String text, String error) {}
+
+    private static Reply readReply(String jsonResponse) {
         try {
             JsonObject root = JsonParser.parseString(jsonResponse).getAsJsonObject();
             JsonArray choices = root.getAsJsonArray("choices");
             if (choices == null || choices.isEmpty()) {
-                return SuggestionResult.fail("No choices in API response");
+                return new Reply(null, "No choices in API response");
             }
             JsonObject first = choices.get(0).getAsJsonObject();
             JsonObject message = first.getAsJsonObject("message");
             if (message == null) {
-                return SuggestionResult.fail("No message in choice");
+                return new Reply(null, "No message in choice");
             }
             String text = replyText(first, message);
             if (text == null || text.isBlank()) {
-                return SuggestionResult.fail(emptyReason(first));
+                return new Reply(null, emptyReason(first));
             }
             if ("length".equals(finishReason(first))) {
-                return SuggestionResult.fail("Reply was cut off by the model's token limit "
+                return new Reply(null, "Reply was cut off by the model's token limit "
                     + "(finish_reason=length), so the translation may be incomplete");
             }
-            return SuggestionResult.ok(text.trim());
+            return new Reply(text.trim(), null);
         } catch (Exception e) {
-            return SuggestionResult.fail("Failed to parse API response: " + e.getMessage());
+            return new Reply(null, "Failed to parse API response: " + e.getMessage());
         }
     }
 

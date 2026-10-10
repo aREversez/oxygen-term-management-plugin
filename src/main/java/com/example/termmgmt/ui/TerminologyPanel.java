@@ -1255,6 +1255,16 @@ public class TerminologyPanel extends JPanel {
         for (TermEntry c : candidates) {
             sourceTerms.add(c.getSourceTerm());
         }
+        // Existing complete pairs of this termbase, sent with each batch as context so the model
+        // can tell the domain and match the termbase's wording.
+        List<TranslationSuggester.Reference> pool = new ArrayList<>();
+        for (TermEntry t : currentTerms) {
+            if (t.getSourceTerm() != null && t.getTargetTerm() != null) {
+                pool.add(new TranslationSuggester.Reference(t.getSourceTerm(), t.getTargetTerm()));
+            }
+        }
+        final List<TranslationSuggester.Reference> references = SuggestionRun.selectReferences(
+            pool, SuggestionRun.MAX_REFERENCE_PAIRS, SuggestionRun.MAX_REFERENCE_CHARS);
         final java.util.concurrent.atomic.AtomicBoolean cancelled =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
@@ -1280,7 +1290,7 @@ public class TerminologyPanel extends JPanel {
         final SwingWorker<SuggestionRun.Outcome, Void> worker = new SwingWorker<>() {
             @Override
             protected SuggestionRun.Outcome doInBackground() {
-                return SuggestionRun.run(sourceTerms, src, tgt, aiConfig, transport,
+                return SuggestionRun.run(sourceTerms, src, tgt, references, aiConfig, transport,
                     () -> cancelled.get() || isCancelled(),
                     (done, total, current) -> SwingUtilities.invokeLater(() -> {
                         progressBar.setValue(done);
