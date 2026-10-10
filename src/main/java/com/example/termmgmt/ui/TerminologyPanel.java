@@ -7,7 +7,7 @@ import com.example.termmgmt.service.TermbaseRegistry;
 import com.example.termmgmt.service.TermbaseConverter;
 import com.example.termmgmt.service.HttpTransport;
 import com.example.termmgmt.service.OpenAiHttpTransport;
-import com.example.termmgmt.service.SuggestionResult;
+import com.example.termmgmt.service.SuggestionRun;
 import com.example.termmgmt.service.TranslationSuggester;
 import com.example.termmgmt.util.FileAccessUtils;
 import com.example.termmgmt.util.I18N;
@@ -1225,7 +1225,8 @@ public class TerminologyPanel extends JPanel {
             ? currentConfig.getSelectedTargetLang() : currentConfig.getTargetLang();
         for (TermEntry t : currentTerms) {
             String target = t.getTargetTerm();
-            if (target == null || target.trim().isEmpty()) {
+            String source = t.getSourceTerm();
+            if ((target == null || target.trim().isEmpty()) && source != null && !source.isBlank()) {
                 blanks.add(t);
             }
         }
@@ -1250,7 +1251,10 @@ public class TerminologyPanel extends JPanel {
         final String src = sourceLang;
         final String tgt = targetLang;
         final HttpTransport transport = new OpenAiHttpTransport();
-        final TranslationSuggester.RunGuard guard = new TranslationSuggester.RunGuard();
+        final List<String> sourceTerms = new ArrayList<>();
+        for (TermEntry c : candidates) {
+            sourceTerms.add(c.getSourceTerm());
+        }
         final java.util.concurrent.atomic.AtomicBoolean cancelled =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
@@ -1273,46 +1277,16 @@ public class TerminologyPanel extends JPanel {
         progressDialog.pack();
         progressDialog.setLocationRelativeTo(this);
 
-        final SwingWorker<List<PendingSuggestion>, String> worker = new SwingWorker<>() {
+        final SwingWorker<SuggestionRun.Outcome, Void> worker = new SwingWorker<>() {
             @Override
-            protected List<PendingSuggestion> doInBackground() {
-                List<PendingSuggestion> results = new ArrayList<>();
-                int done = 0;
-                for (TermEntry entry : candidates) {
-                    if (cancelled.get() || isCancelled()) {
-                        break;
-                    }
-                    String srcTerm = entry.getSourceTerm() != null ? entry.getSourceTerm() : "";
-                    final int shown = done;
-                    final String termName = srcTerm;
-                    SwingUtilities.invokeLater(() -> {
-                        progressBar.setValue(shown);
+            protected SuggestionRun.Outcome doInBackground() {
+                return SuggestionRun.run(sourceTerms, src, tgt, aiConfig, transport,
+                    () -> cancelled.get() || isCancelled(),
+                    (done, total, current) -> SwingUtilities.invokeLater(() -> {
+                        progressBar.setValue(done);
                         progressBar.setString(I18N.getString("btn.suggest.translation.progress",
-                            shown, candidates.size(), termName));
-                    });
-                    done++;
-                    if (srcTerm.isBlank()) continue;
-                    try {
-                        SuggestionResult r =
-                            TranslationSuggester.suggest(srcTerm, src, tgt, aiConfig, transport);
-                        if (r.success() && r.translation() != null && !r.translation().isBlank()) {
-                            results.add(new PendingSuggestion(entry, r.translation().trim()));
-                            guard.recordSuccess();
-                        } else {
-                            guard.recordFailure(r.errorMessage());
-                        }
-                    } catch (Exception ex) {
-                        guard.recordFailure(ex.getMessage());
-                    }
-                    if (guard.shouldAbort()) {
-                        // The endpoint keeps failing: stop here instead of repeating the same
-                        // failure for every remaining term, and let done() report the reason.
-                        break;
-                    }
-                }
-                final int finalDone = done;
-                SwingUtilities.invokeLater(() -> progressBar.setValue(finalDone));
-                return results;
+                            done, total, current));
+                    }));
             }
 
             @Override
@@ -1322,9 +1296,9 @@ public class TerminologyPanel extends JPanel {
                 if (cancelled.get()) {
                     return;   // the run was abandoned: nothing to review or save
                 }
-                List<PendingSuggestion> suggestions;
+                SuggestionRun.Outcome outcome;
                 try {
-                    suggestions = get();
+                    outcome = get();
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
@@ -1332,12 +1306,14 @@ public class TerminologyPanel extends JPanel {
                         I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                     return;
                 }
+                List<PendingSuggestion> suggestions = new ArrayList<>();
+                outcome.translations().forEach((index, text) ->
+                    suggestions.add(new PendingSuggestion(candidates.get(index), text)));
                 if (suggestions.isEmpty()) {
-                    String failure = guard.firstError();
-                    if (failure != null) {
+                    if (outcome.firstError() != null) {
                         // Every request failed: say why instead of "no suggestions were returned".
                         JOptionPane.showMessageDialog(TerminologyPanel.this,
-                            I18N.getString("btn.suggest.translation.error", failure),
+                            I18N.getString("btn.suggest.translation.error", outcome.firstError()),
                             I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                     } else {
                         JOptionPane.showMessageDialog(TerminologyPanel.this,
@@ -1346,7 +1322,7 @@ public class TerminologyPanel extends JPanel {
                     }
                     return;
                 }
-                reviewSuggestions(configSnapshot, suggestions);
+                reviewSuggestions(configSnapshot, suggestions, omissionNotice(outcome, candidates));
             }
         };
         // Cancel closes the dialog at once and interrupts the worker: the request in flight is
@@ -1370,8 +1346,44 @@ public class TerminologyPanel extends JPanel {
         progressDialog.setVisible(true);
     }
 
+    /** How many source terms are named in the "got no suggestion" notice before it says "...". */
+    private static final int MAX_OMITTED_TERMS_SHOWN = 5;
+
+    /**
+     * Names the terms that stay blank and why, so a suggestion that never came back is visible
+     * instead of silently missing from the list. Null when every term got a suggestion.
+     */
+    private static String omissionNotice(SuggestionRun.Outcome outcome, List<TermEntry> candidates) {
+        if (outcome.omitted() == 0) {
+            return null;
+        }
+        StringBuilder notice = new StringBuilder();
+        if (!outcome.failures().isEmpty()) {
+            StringBuilder details = new StringBuilder();
+            int shown = 0;
+            for (Map.Entry<Integer, String> f : outcome.failures().entrySet()) {
+                if (shown == MAX_OMITTED_TERMS_SHOWN) {
+                    details.append("; ...");
+                    break;
+                }
+                if (shown++ > 0) details.append("; ");
+                details.append(candidates.get(f.getKey()).getSourceTerm()).append(" (")
+                    .append(f.getValue()).append(')');
+            }
+            notice.append(I18N.getString("btn.suggest.translation.omitted",
+                outcome.failures().size(), outcome.total(), details.toString()));
+        }
+        if (outcome.unprocessed() > 0) {
+            if (notice.length() > 0) notice.append("\n");
+            notice.append(I18N.getString("btn.suggest.translation.aborted",
+                outcome.firstError() != null ? outcome.firstError() : "-", outcome.unprocessed()));
+        }
+        return notice.toString();
+    }
+
     /** Show a checkbox list of suggestions and persist the accepted ones. */
-    private void reviewSuggestions(TermbaseConfig config, List<PendingSuggestion> suggestions) {
+    private void reviewSuggestions(TermbaseConfig config, List<PendingSuggestion> suggestions,
+                                   String notice) {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         List<JCheckBox> boxes = new ArrayList<>();
@@ -1385,7 +1397,17 @@ public class TerminologyPanel extends JPanel {
         JScrollPane sp = new JScrollPane(panel);
         sp.setPreferredSize(new Dimension(420, Math.min(360, 28 * suggestions.size() + 16)));
 
-        int choice = JOptionPane.showConfirmDialog(this, sp,
+        JPanel content = new JPanel(new BorderLayout(0, 8));
+        if (notice != null) {
+            JTextArea note = new JTextArea(notice, 0, 40);
+            note.setEditable(false);
+            note.setLineWrap(true);
+            note.setWrapStyleWord(true);
+            note.setOpaque(false);
+            content.add(note, BorderLayout.NORTH);
+        }
+        content.add(sp, BorderLayout.CENTER);
+        int choice = JOptionPane.showConfirmDialog(this, content,
             I18N.getString("btn.suggest.translation.review"),
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (choice != JOptionPane.OK_OPTION) return;

@@ -96,6 +96,49 @@ class TranslationSuggesterTest {
         assertFalse(result.success());
     }
 
+    // ------------------------------------------------------------------ Replies without a usable translation
+
+    private static String reply(String contentJson, String finishReason) {
+        return "{\"choices\":[{\"finish_reason\":\"" + finishReason + "\",\"message\":{\"content\":"
+            + contentJson + "}}]}";
+    }
+
+    @Test
+    void parseResponse_nullContent_failsWithAReason_notAParseError() {
+        SuggestionResult r = TranslationSuggester.parseResponse(reply("null", "stop"));
+        assertFalse(r.success());
+        assertFalse(r.errorMessage().contains("Failed to parse"), r.errorMessage());
+    }
+
+    @Test
+    void parseResponse_thinkingIsStripped() {
+        SuggestionResult r = TranslationSuggester.parseResponse(
+            reply("\"<think>maybe a pump?\\nor a seal</think>\\n\\n轴承\"", "stop"));
+        assertTrue(r.success());
+        assertEquals("轴承", r.translation());
+    }
+
+    @Test
+    void parseResponse_aReplyThatIsOnlyThinking_isAFailure() {
+        assertFalse(TranslationSuggester.parseResponse(reply("\"<think>hmm\"", "length")).success());
+        assertFalse(TranslationSuggester.parseResponse(reply("\"<think>hmm</think>\"", "stop")).success());
+    }
+
+    @Test
+    void parseResponse_aClosingThinkTagWithoutAnOpeningOne() {
+        SuggestionResult r = TranslationSuggester.parseResponse(
+            reply("\"reasoning...</think>轴承\"", "stop"));
+        assertTrue(r.success());
+        assertEquals("轴承", r.translation());
+    }
+
+    @Test
+    void parseResponse_cutOffByTheTokenLimit_isNotAcceptedAsATranslation() {
+        SuggestionResult r = TranslationSuggester.parseResponse(reply("\"轴\"", "length"));
+        assertFalse(r.success());
+        assertTrue(r.errorMessage().contains("length"), r.errorMessage());
+    }
+
     // ------------------------------------------------------------------ URL building
 
     @Test

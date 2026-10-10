@@ -10,9 +10,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * The AI suggestion run used to swallow every failed request: a wrong address or key meant up
- * to 200 serial failures and then "no suggestions were returned" with no reason. The decision
- * logic lives in {@link TranslationSuggester.RunGuard} and is unit-tested in
- * TranslationSuggesterTest; the Swing panel is not compiled in CI, so this guard reads its
+ * to 200 serial failures and then "no suggestions were returned" with no reason, and a term the
+ * model returned nothing for just vanished. The logic lives in {@link SuggestionRun} and is
+ * unit-tested in SuggestionRunTest; the Swing panel is not compiled in CI, so this guard reads its
  * source to keep the run wired to that logic (same approach as UndoDeleteWiringGuardTest).
  */
 class SuggestionRunWiringGuardTest {
@@ -24,10 +24,13 @@ class SuggestionRunWiringGuardTest {
             + System.getProperty("user.dir"));
         String src = Files.readString(panel);
 
-        assertTrue(src.contains("new TranslationSuggester.RunGuard()"), "the run needs a RunGuard");
-        assertTrue(src.contains("guard.recordFailure("), "failed requests must be recorded, not skipped");
-        assertTrue(src.contains("guard.shouldAbort()"), "the run must stop once the endpoint keeps failing");
-        assertTrue(src.contains("guard.firstError()"), "an all-failed run must show the reason");
+        assertTrue(src.contains("SuggestionRun.run("),
+            "the run must go through SuggestionRun, which accounts for every term");
+        assertTrue(src.contains("omissionNotice(outcome, candidates)"),
+            "terms that got no suggestion must be named in the review dialog");
+        assertTrue(src.contains("outcome.firstError()"), "an all-failed run must show the reason");
+        assertFalse(src.contains("TranslationSuggester.suggest("),
+            "the panel must not call the suggester term by term and drop what fails");
     }
 
     @Test

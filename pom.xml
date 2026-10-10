@@ -284,6 +284,7 @@
                                 <include>com/example/termmgmt/service/OpenAiHttpTransport.java</include>
                                 <include>com/example/termmgmt/service/SuggestionResult.java</include>
                                 <include>com/example/termmgmt/service/TranslationSuggester.java</include>
+                                <include>com/example/termmgmt/service/SuggestionRun.java</include>
                             </includes>
                         </configuration>
                     </plugin>

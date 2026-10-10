@@ -2,6 +2,7 @@ package com.example.termmgmt.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -155,6 +156,11 @@ public final class TranslationSuggester {
 
     /**
      * Parse the API response JSON to extract the suggested translation.
+     *
+     * <p>Every way a reply can come back without a usable translation is reported with its own
+     * reason (it is shown to the user), instead of collapsing into a vague parse error:
+     * a {@code null} content (reasoning models put their text elsewhere, or the reply is a refusal),
+     * a reply that consists only of thinking, and a reply cut off by the token limit.
      */
     static SuggestionResult parseResponse(String jsonResponse) {
         try {
@@ -168,13 +174,63 @@ public final class TranslationSuggester {
             if (message == null) {
                 return SuggestionResult.fail("No message in choice");
             }
-            String content = message.get("content").getAsString();
-            if (content == null || content.isBlank()) {
-                return SuggestionResult.fail("Empty translation in response");
+            String text = replyText(first, message);
+            if (text == null || text.isBlank()) {
+                return SuggestionResult.fail(emptyReason(first));
             }
-            return SuggestionResult.ok(content.trim());
+            if ("length".equals(finishReason(first))) {
+                return SuggestionResult.fail("Reply was cut off by the model's token limit "
+                    + "(finish_reason=length), so the translation may be incomplete");
+            }
+            return SuggestionResult.ok(text.trim());
         } catch (Exception e) {
             return SuggestionResult.fail("Failed to parse API response: " + e.getMessage());
         }
+    }
+
+    /** The reply text with any reasoning removed; null when the message carries no text. */
+    static String replyText(JsonObject choice, JsonObject message) {
+        JsonElement content = message.get("content");
+        if (content == null || !content.isJsonPrimitive()) {
+            return null;   // JSON null, absent, or a structured value we do not understand
+        }
+        return stripThinking(content.getAsString());
+    }
+
+    private static String finishReason(JsonObject choice) {
+        JsonElement f = choice.get("finish_reason");
+        return f != null && f.isJsonPrimitive() ? f.getAsString() : null;
+    }
+
+    private static String emptyReason(JsonObject choice) {
+        String finish = finishReason(choice);
+        if ("length".equals(finish)) {
+            return "Empty reply: the model ran out of tokens before answering (finish_reason=length)";
+        }
+        if ("content_filter".equals(finish)) {
+            return "Empty reply: blocked by the provider's content filter";
+        }
+        return "Empty translation in response";
+    }
+
+    /**
+     * Drops {@code <think>...</think>} blocks that reasoning models put in the content. A block
+     * that never closes (the reply was cut off while thinking) removes everything after it, and a
+     * closing tag with no opening one (some servers strip it) removes everything before it.
+     */
+    static String stripThinking(String text) {
+        if (text == null) {
+            return null;
+        }
+        String out = text.replaceAll("(?is)<think>.*?</think>", "");
+        int open = out.toLowerCase(java.util.Locale.ROOT).indexOf("<think>");
+        if (open >= 0) {
+            out = out.substring(0, open);
+        }
+        int close = out.toLowerCase(java.util.Locale.ROOT).lastIndexOf("</think>");
+        if (close >= 0) {
+            out = out.substring(close + "</think>".length());
+        }
+        return out;
     }
 }
