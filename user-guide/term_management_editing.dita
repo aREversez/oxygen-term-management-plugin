@@ -43,7 +43,7 @@
         </section>
         <section>
             <title>AI 翻译建议</title>
-            <p>在 <uicontrol>启用 AI 翻译</uicontrol> 并配好 API 后，点击 <uicontrol>建议译文…</uicontrol>，插件会把“有源词、但译文为空”的条目逐个发到 OpenAI 兼容接口，返回的译法先列在审阅对话框中由您逐条接受或拒绝，确认后才写回术语库。</p>
+            <p>在 <uicontrol>启用 AI 翻译</uicontrol> 并配好 API 后，点击 <uicontrol>AI 翻译…</uicontrol>，插件会把“有源词、但译文为空”的条目逐个发到 OpenAI 兼容接口，返回的译法先列在审阅对话框中由您逐条接受或拒绝，确认后才写回术语库。</p>
             <p>请求<b>不跟随重定向</b>（<codeph>Authorization</codeph> 头不会被转发到其他主机），响应体上限 <b>1 MB</b>；一次最多请求 <b>200 条</b>，超出时会先征求确认。请求期间显示带进度条和<b>取消</b>按钮的对话框。隐私提醒见《安装与配置术语库》。</p>
         </section>
         <postreq>

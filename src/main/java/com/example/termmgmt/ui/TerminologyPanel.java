@@ -216,15 +216,16 @@ public class TerminologyPanel extends JPanel {
         addTableContextMenu();
         add(new JScrollPane(termTable), BorderLayout.CENTER);
 
-        // Button bar in two rows. FlowLayout always reports a single-row preferred
-        // height, whatever the available width, so letting it wrap would push the
-        // last buttons below the height BorderLayout.SOUTH gives them and make them
-        // unreachable in a narrow view. Two explicit rows keep the preferred height
-        // covering every button at any width.
+        // Button bar in two rows. A plain FlowLayout always reports a single-row
+        // preferred height whatever the available width, so when the panel is
+        // narrower than the row (a docked sidebar) the trailing buttons are clipped
+        // and unreachable. WrapPanel keeps FlowLayout's centering but recomputes its
+        // preferred height for however many rows the current width actually needs,
+        // so the bar grows vertically and every button stays reachable at any width.
         JPanel buttonPanel = new JPanel();
         buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
-        JPanel iconRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 5));
-        JPanel textRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 5));
+        JPanel iconRow = new WrapPanel(8, 4);
+        JPanel textRow = new WrapPanel(8, 4);
 
         JButton reloadButton = new JButton(IconUtils.loadIcon("reload", 16));
         reloadButton.setToolTipText(I18N.getString("btn.reload.tooltip"));
@@ -286,6 +287,20 @@ public class TerminologyPanel extends JPanel {
         suggestButton.addActionListener(e -> suggestTranslations());
         textRow.add(suggestButton);
 
+        // The text buttons ate too much room in the narrow sidebar. Shrink their font a
+        // step below the platform default and trim the padding between the label and the
+        // border on all four sides, so each button is visibly more compact while the text
+        // still breathes; the full description stays in each button's tooltip.
+        Font baseFont = UIManager.getFont("Button.font");
+        if (baseFont == null) baseFont = textRow.getFont();
+        Font compactFont = baseFont.deriveFont(Math.max(10f, baseFont.getSize2D() - 1.5f));
+        for (Component c : textRow.getComponents()) {
+            if (c instanceof JButton) {
+                ((JButton) c).setFont(compactFont);
+                ((JButton) c).setMargin(new Insets(1, 4, 1, 4));
+            }
+        }
+
         buttonPanel.add(iconRow);
         buttonPanel.add(textRow);
 
@@ -293,6 +308,68 @@ public class TerminologyPanel extends JPanel {
 
         // Load enabled termbases
         loadTermbaseList();
+    }
+
+    /**
+     * A centered flow row whose preferred height reflects how many rows the current
+     * width actually needs. {@link FlowLayout} reports a single-row preferred height
+     * regardless of width, so in a narrow docked panel its trailing components are
+     * clipped by {@code BorderLayout.SOUTH}. This subclass mirrors FlowLayout's own
+     * wrapping algorithm to return a multi-row preferred height once the width is
+     * known, letting the button bar grow vertically instead of losing buttons.
+     */
+    private static final class WrapPanel extends JPanel {
+        private final int hgap;
+        private final int vgap;
+        private int lastWidth = -1;
+
+        WrapPanel(int hgap, int vgap) {
+            super(new FlowLayout(FlowLayout.CENTER, hgap, vgap));
+            this.hgap = hgap;
+            this.vgap = vgap;
+            // getPreferredSize can only size the wrapped rows once the real width is
+            // known, but on the very first pass the width is still 0 (single-row
+            // fallback). Revalidate when the width settles so the parent hands back
+            // the extra height the wrap needs instead of clipping the last row.
+            addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentResized(java.awt.event.ComponentEvent e) {
+                    if (getWidth() != lastWidth) {
+                        lastWidth = getWidth();
+                        revalidate();
+                    }
+                }
+            });
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            Dimension single = getLayout().preferredLayoutSize(this);
+            int width = getWidth();
+            if (width <= 0) {
+                return single;   // not laid out yet: fall back to one row
+            }
+            Insets ins = getInsets();
+            int maxWidth = width - ins.left - ins.right;
+            int x = 0;
+            int rowHeight = 0;
+            int totalHeight = 0;
+            for (Component c : getComponents()) {
+                if (!c.isVisible()) continue;
+                Dimension d = c.getPreferredSize();
+                if (x > 0 && x + d.width > maxWidth) {
+                    totalHeight += rowHeight + vgap;
+                    x = 0;
+                    rowHeight = 0;
+                }
+                x += d.width + hgap;
+                rowHeight = Math.max(rowHeight, d.height);
+            }
+            totalHeight += rowHeight;
+            // FlowLayout pads the first row's top and the last row's bottom with a vgap
+            // too; without this the bottom row is clipped (the reported "obscured" bar).
+            return new Dimension(width, totalHeight + 2 * vgap + ins.top + ins.bottom);
+        }
     }
 
     private void addTableContextMenu() {
@@ -885,8 +962,23 @@ public class TerminologyPanel extends JPanel {
             return I18N.getString(config.getFormat() == TermbaseConfig.Format.XLSX
                 ? "msg.file.locked.xlsx" : "msg.file.locked");
         }
-        String msg = ex.getMessage();
+        // CompletableFuture wraps the failure in a CompletionException whose message is just
+        // the outer RuntimeException's toString ("java.lang.RuntimeException: Failed to save
+        // termbase: <path>"), hiding the real reason. Walk to the deepest cause that carries a
+        // message so the dialog names what actually went wrong.
+        String msg = rootCauseMessage(ex);
         return I18N.getString("msg.failed.save.termbase.generic", msg != null ? msg : "Unknown error");
+    }
+
+    /** The message of the last throwable in the cause chain that has one, or null. */
+    private static String rootCauseMessage(Throwable ex) {
+        String best = null;
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            String m = t.getMessage();
+            if (m != null && !m.isBlank()) best = m;
+            if (t.getCause() == t) break;
+        }
+        return best;
     }
 
     /**
@@ -1302,10 +1394,13 @@ public class TerminologyPanel extends JPanel {
         }).whenComplete((ignored, error) -> {
             if (error != null) {
                 SwingUtilities.invokeLater(() -> {
+                    // Same handling as an inline edit: name the real reason (and tell the user
+                    // to close Excel when the file is locked), then reload so the table shows
+                    // what is actually stored, since nothing was written.
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        I18N.getString("btn.suggest.translation.saveerror",
-                            error.getMessage()),
+                        getFileLockedMessage(error, config),
                         I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                    loadTermbaseTerms();
                 });
             } else {
                 SwingUtilities.invokeLater(this::loadTermbaseTerms);
