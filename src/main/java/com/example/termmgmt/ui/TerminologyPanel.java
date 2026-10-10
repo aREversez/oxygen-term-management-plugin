@@ -1158,6 +1158,7 @@ public class TerminologyPanel extends JPanel {
         final String src = sourceLang;
         final String tgt = targetLang;
         final HttpTransport transport = new OpenAiHttpTransport();
+        final TranslationSuggester.RunGuard guard = new TranslationSuggester.RunGuard();
         final java.util.concurrent.atomic.AtomicBoolean cancelled =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
@@ -1208,9 +1209,17 @@ public class TerminologyPanel extends JPanel {
                             TranslationSuggester.suggest(srcTerm, src, tgt, aiConfig, transport);
                         if (r.success() && r.translation() != null && !r.translation().isBlank()) {
                             results.add(new PendingSuggestion(entry, r.translation().trim()));
+                            guard.recordSuccess();
+                        } else {
+                            guard.recordFailure(r.errorMessage());
                         }
                     } catch (Exception ex) {
-                        // Skip this entry; keep going for the rest.
+                        guard.recordFailure(ex.getMessage());
+                    }
+                    if (guard.shouldAbort()) {
+                        // The endpoint keeps failing: stop here instead of repeating the same
+                        // failure for every remaining term, and let done() report the reason.
+                        break;
                     }
                 }
                 final int finalDone = done;
@@ -1236,9 +1245,17 @@ public class TerminologyPanel extends JPanel {
                     return;
                 }
                 if (suggestions.isEmpty()) {
-                    JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        I18N.getString("btn.suggest.translation.empty"),
-                        I18N.getString("msg.info"), JOptionPane.INFORMATION_MESSAGE);
+                    String failure = guard.firstError();
+                    if (failure != null) {
+                        // Every request failed: say why instead of "no suggestions were returned".
+                        JOptionPane.showMessageDialog(TerminologyPanel.this,
+                            I18N.getString("btn.suggest.translation.error", failure),
+                            I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(TerminologyPanel.this,
+                            I18N.getString("btn.suggest.translation.empty"),
+                            I18N.getString("msg.info"), JOptionPane.INFORMATION_MESSAGE);
+                    }
                     return;
                 }
                 reviewSuggestions(configSnapshot, suggestions);

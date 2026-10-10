@@ -34,6 +34,41 @@ public final class TranslationSuggester {
     }
 
     /**
+     * Bookkeeping for a serial run of suggestion requests. It keeps the first error, so a run that
+     * produced nothing can tell the user why, and says when to stop: several failures in a row
+     * mean the address, key or model is wrong, and asking for the remaining terms (up to a couple
+     * of hundred, each possibly waiting out the request timeout) would only repeat the failure.
+     * Not thread-safe; one run uses one guard from one thread.
+     */
+    public static final class RunGuard {
+        /** Consecutive failed requests after which a run is abandoned. */
+        public static final int MAX_CONSECUTIVE_FAILURES = 3;
+
+        private int consecutiveFailures;
+        private String firstError;
+
+        public void recordSuccess() {
+            consecutiveFailures = 0;
+        }
+
+        public void recordFailure(String message) {
+            consecutiveFailures++;
+            if (firstError == null) {
+                firstError = (message == null || message.isBlank()) ? "unknown error" : message;
+            }
+        }
+
+        public boolean shouldAbort() {
+            return consecutiveFailures >= MAX_CONSECUTIVE_FAILURES;
+        }
+
+        /** The first failure of the run, or null when no request has failed. */
+        public String firstError() {
+            return firstError;
+        }
+    }
+
+    /**
      * Request a translation suggestion for a single source term.
      *
      * @param sourceTerm the source-language term

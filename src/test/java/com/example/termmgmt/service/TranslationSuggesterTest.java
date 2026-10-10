@@ -173,4 +173,60 @@ class TranslationSuggesterTest {
         assertTrue(json.contains("Translate the following term from en-US to zh-CN"));
         assertTrue(json.contains("\"content\":\"hello\""));
     }
+
+    // ------------------------------------------------------------------ RunGuard (serial batch runs)
+
+    @Test
+    void runGuard_abortsAfterThreeFailuresInARow() {
+        TranslationSuggester.RunGuard guard = new TranslationSuggester.RunGuard();
+        guard.recordFailure("a");
+        guard.recordFailure("b");
+        assertFalse(guard.shouldAbort());
+        guard.recordFailure("c");
+        assertTrue(guard.shouldAbort());
+    }
+
+    @Test
+    void runGuard_aSuccessResetsTheStreak() {
+        TranslationSuggester.RunGuard guard = new TranslationSuggester.RunGuard();
+        guard.recordFailure("a");
+        guard.recordFailure("b");
+        guard.recordSuccess();
+        guard.recordFailure("c");
+        guard.recordFailure("d");
+        assertFalse(guard.shouldAbort(), "failures separated by a success are not a streak");
+    }
+
+    @Test
+    void runGuard_keepsTheFirstErrorAndNeverInventsOne() {
+        TranslationSuggester.RunGuard guard = new TranslationSuggester.RunGuard();
+        assertNull(guard.firstError());
+        guard.recordFailure("HTTP 401 from http://localhost:8080/v1/chat/completions");
+        guard.recordFailure("later error");
+        assertEquals("HTTP 401 from http://localhost:8080/v1/chat/completions", guard.firstError());
+    }
+
+    @Test
+    void runGuard_blankMessageStillCountsAsAnError() {
+        TranslationSuggester.RunGuard guard = new TranslationSuggester.RunGuard();
+        guard.recordFailure(null);
+        assertEquals("unknown error", guard.firstError());
+    }
+
+    @Test
+    void runGuard_unreachableEndpoint_stopsAfterThreeRequestsAndKeepsTheReason() throws IOException {
+        int[] calls = {0};
+        HttpTransport down = (url, headers, body) -> {
+            calls[0]++;
+            throw new IOException("HTTP 401 from http://localhost:8080/v1/chat/completions");
+        };
+        TranslationSuggester.RunGuard guard = new TranslationSuggester.RunGuard();
+        // The loop the Terminology panel runs over up to 200 blank entries.
+        for (int i = 0; i < 200 && !guard.shouldAbort(); i++) {
+            SuggestionResult r = TranslationSuggester.suggest("term" + i, "zh-CN", "en-US", ENABLED_CONFIG, down);
+            if (r.success()) guard.recordSuccess(); else guard.recordFailure(r.errorMessage());
+        }
+        assertEquals(TranslationSuggester.RunGuard.MAX_CONSECUTIVE_FAILURES, calls[0]);
+        assertTrue(guard.firstError().contains("HTTP 401"));
+    }
 }
