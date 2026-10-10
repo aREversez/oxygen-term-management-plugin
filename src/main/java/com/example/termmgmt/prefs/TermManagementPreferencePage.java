@@ -120,23 +120,27 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         JLabel headerLabel = new JLabel(I18N.getString("prefs.add.termbases"));
         headerLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        // Matching option, applied on OK/Apply together with the termbase list
+        // Matching options, applied on OK/Apply together with the termbase list.
         caseSensitiveCheck = new JCheckBox(I18N.getString("prefs.case-sensitive"));
         caseSensitiveCheck.setSelected(loadCaseSensitiveOption());
         matchInflectionsCheck = new JCheckBox(I18N.getString("prefs.match-inflections"));
         matchInflectionsCheck.setToolTipText(I18N.getString("prefs.match-inflections.tooltip"));
         matchInflectionsCheck.setSelected(loadMatchInflectionsOption());
-        JPanel optionsPanel = new JPanel();
-        optionsPanel.setLayout(new BoxLayout(optionsPanel, BoxLayout.Y_AXIS));
-        caseSensitiveCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
-        matchInflectionsCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
-        optionsPanel.add(caseSensitiveCheck);
-        optionsPanel.add(matchInflectionsCheck);
+        // Options live in one single-column GridBag: every row shares the same left edge, so
+        // nothing drifts to the centre the way BoxLayout centre-aligned rows used to.
+        JPanel optionsPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints optGbc = new GridBagConstraints();
+        optGbc.gridx = 0;
+        optGbc.gridy = GridBagConstraints.RELATIVE;
+        optGbc.anchor = GridBagConstraints.WEST;
+        optGbc.fill = GridBagConstraints.HORIZONTAL;
+        optGbc.weightx = 1.0;
+        addOption(optionsPanel, caseSensitiveCheck, optGbc, false);
+        addOption(optionsPanel, matchInflectionsCheck, optGbc, false);
 
         // D3: AI translation settings
         aiEnabledCheck = new JCheckBox(I18N.getString("prefs.ai.translate.enabled"));
         aiEnabledCheck.setToolTipText(I18N.getString("prefs.ai.translate.enabled.tooltip"));
-        aiEnabledCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
         aiEnabledCheck.setSelected(loadAiOption("enabled", "false").equals("true"));
         aiUrlField = new JTextField(20);
         aiUrlField.putClientProperty("JTextField.placeholderText", "http://localhost:8080/v1");
@@ -146,24 +150,32 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         aiKeyField = new JPasswordField(20);
         aiKeyField.setText(loadAiOption("api-key", ""));
         JPanel aiPanel = new JPanel();
-        aiPanel.setLayout(new BoxLayout(aiPanel, BoxLayout.Y_AXIS));
+        // GridLayout(0, 1) stacks the rows one per line and stretches EVERY row to the full
+        // panel width - unlike BoxLayout it has no alignmentX or maximumSize quirks, so a
+        // plain left-flowed row can never drift to the centre. GridBag is out too: Oxygen's
+        // option-page container mis-sizes its cells (the API URL field once vanished into a
+        // zero-sized cell).
+        aiPanel.setLayout(new java.awt.GridLayout(0, 1));
         aiPanel.setBorder(BorderFactory.createTitledBorder(I18N.getString("prefs.ai.translate")));
-        aiEnabledCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
-        aiPanel.add(aiEnabledCheck);
-        JPanel aiUrlRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2));
-        aiUrlRow.add(new JLabel(I18N.getString("prefs.ai.translate.api-url")));
-        aiUrlRow.add(aiUrlField);
-        aiPanel.add(aiUrlRow);
-        JPanel aiModelRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2));
-        aiModelRow.add(new JLabel(I18N.getString("prefs.ai.translate.model")));
-        aiModelRow.add(aiModelField);
-        aiPanel.add(aiModelRow);
-        JPanel aiKeyRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2));
-        aiKeyRow.add(new JLabel(I18N.getString("prefs.ai.translate.api-key")));
-        aiKeyRow.add(aiKeyField);
-        aiPanel.add(aiKeyRow);
-        aiPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        optionsPanel.add(aiPanel);
+        // The check box rides in exactly the same kind of row as the fields so every line
+        // shares one left inset; the fields share one fixed label/field width so they start
+        // and end at the same x.
+        aiPanel.add(aiFlowRow(aiEnabledCheck));
+        JLabel urlLabel = new JLabel(I18N.getString("prefs.ai.translate.api-url"));
+        JLabel modelLabel = new JLabel(I18N.getString("prefs.ai.translate.model"));
+        JLabel keyLabel = new JLabel(I18N.getString("prefs.ai.translate.api-key"));
+        int labelWidth = Math.max(urlLabel.getPreferredSize().width,
+            Math.max(modelLabel.getPreferredSize().width, keyLabel.getPreferredSize().width));
+        int fieldWidth = Math.max(aiUrlField.getPreferredSize().width,
+            Math.max(aiModelField.getPreferredSize().width, aiKeyField.getPreferredSize().width));
+        aiPanel.add(aiFieldRow(urlLabel, aiUrlField, labelWidth, fieldWidth));
+        aiPanel.add(aiFieldRow(modelLabel, aiModelField, labelWidth, fieldWidth));
+        aiPanel.add(aiFieldRow(keyLabel, aiKeyField, labelWidth, fieldWidth));
+        addOption(optionsPanel, aiPanel, optGbc, false);
+        // BoxLayout/Y_AXIS and short-content GridBag columns render at the preferred width
+        // inside Oxygen's option page, centring the whole block; the maximumSize lift lets
+        // the single GridBag column fill the page so its left edge is the page's left edge.
+        optionsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, optionsPanel.getPreferredSize().height));
         JPanel northPanel = new JPanel(new BorderLayout());
         northPanel.add(headerLabel, BorderLayout.NORTH);
         northPanel.add(optionsPanel, BorderLayout.SOUTH);
@@ -180,13 +192,22 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         tableModel = new DefaultTableModel(columns, 0);
         termbaseTable = new JTable(tableModel);
         termbaseTable.setFillsViewportHeight(true);
-        // Keep the columns where they were laid out: dragging a header divider must not reorder
-        // them, and the file-name/path columns need enough room to be readable (defect H). With
-        // auto-resize off the columns honour their preferred widths and the scroll pane scrolls.
+        // Header dragging must not reorder columns (defect H). Columns start at the readable
+        // widths from applyColumnWidths() but stretch with the dialog, so no empty strip with
+        // its own border line is left over to the right of the last column.
         termbaseTable.getTableHeader().setReorderingAllowed(false);
-        termbaseTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        termbaseTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        // Oxygen paints its own grid lines and its header and body disagree on the exact
+        // column boundary by a pixel. Drop the vertical lines (the row separators stay): no
+        // line, no mismatch, and the cleaner flat look matches the rest of the dialog. The
+        // trailing-line client properties are honoured when Oxygen's FlatLaf-based look and
+        // feel renders the table, and are inert otherwise.
+        termbaseTable.setShowVerticalLines(false);
+        termbaseTable.setGridColor(termbaseTable.getBackground());
+        termbaseTable.putClientProperty("Table.showTrailingVerticalLine", Boolean.FALSE);
+        termbaseTable.getTableHeader().putClientProperty("TableHeader.showTrailingVerticalLine", Boolean.FALSE);
         applyColumnWidths();
-        // The file name / path may still exceed the fixed column widths and get clipped to an
+        // The file name / path may still exceed the column width and get clipped to an
         // ellipsis. Show the full value on hover, but only when it is actually clipped so a
         // readable cell does not raise a redundant tooltip (defect H).
         javax.swing.table.TableCellRenderer tipRenderer = new javax.swing.table.DefaultTableCellRenderer() {
@@ -204,6 +225,12 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         termbaseTable.getColumnModel().getColumn(0).setCellRenderer(tipRenderer);
         termbaseTable.getColumnModel().getColumn(1).setCellRenderer(tipRenderer);
         JScrollPane scrollPane = new JScrollPane(termbaseTable);
+        // Oxygen reserves the vertical scrollbar gutter but leaves it unpainted, which showed
+        // up as a stray box in the header's top-right corner. An always-visible scroll bar
+        // matches Oxygen's own option pages (the Batch Documents Converter table for example)
+        // and turns that leftover gutter into a normal, useful control.
+        scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         scrollPane.setPreferredSize(new Dimension(500, 200));
 
         // Button panel
@@ -241,13 +268,49 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
         reloadSettings();
     }
 
-    /** Readable default widths for the six termbase-table columns; the file name gets room. */
+    /**
+     * Readable default widths for the six termbase-table columns; the file name gets room.
+     * With AUTO_RESIZE_ALL_COLUMNS the widths are the initial proportions and any leftover
+     * space is distributed over the columns so the table reaches exactly to the right edge.
+     */
     private void applyColumnWidths() {
         int[] widths = { 170, 320, 70, 90, 80, 150 };
         javax.swing.table.TableColumnModel cm = termbaseTable.getColumnModel();
         for (int i = 0; i < widths.length && i < cm.getColumnCount(); i++) {
-            cm.getColumn(i).setPreferredWidth(widths[i]);
+            javax.swing.table.TableColumn column = cm.getColumn(i);
+            column.setMinWidth(60);
+            column.setPreferredWidth(widths[i]);
         }
+    }
+
+    /** Add a component to a single-column GridBag, optionally leaving a gap under it. */
+    private static void addOption(JPanel panel, JComponent component, GridBagConstraints gbc, boolean gapBelow) {
+        gbc.insets = new Insets(0, 0, gapBelow ? 8 : 0, 0);
+        panel.add(component, gbc);
+    }
+
+    /** Wrap a component in a left-flowed row; the parent GridLayout stretches it full width. */
+    private static JComponent aiFlowRow(JComponent component) {
+        JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2));
+        row.add(component);
+        return row;
+    }
+
+    /**
+     * One "label + field" row for the AI section: a left-flowed row whose label occupies a
+     * fixed width so the field always starts at the same x, with a fixed field width so all
+     * three rows end at the same x. The parent GridLayout stretches the row to the full
+     * panel width, so only the fixed label/field sizes determine the positions.
+     */
+    private static JComponent aiFieldRow(JLabel label, JComponent field, int labelWidth, int fieldWidth) {
+        JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2));
+        Dimension labelSize = new Dimension(labelWidth + 8, label.getPreferredSize().height);
+        label.setPreferredSize(labelSize);
+        label.setHorizontalAlignment(SwingConstants.RIGHT);
+        field.setPreferredSize(new Dimension(fieldWidth, field.getPreferredSize().height));
+        row.add(label);
+        row.add(field);
+        return row;
     }
 
     private void reloadSettings() {
