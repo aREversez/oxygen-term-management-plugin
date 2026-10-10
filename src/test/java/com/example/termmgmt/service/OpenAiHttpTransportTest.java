@@ -8,6 +8,8 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -72,6 +74,42 @@ class OpenAiHttpTransportTest {
         } finally {
             api.stop(0);
             other.stop(0);
+        }
+    }
+
+    /**
+     * Cancelling an AI suggestion run interrupts the worker thread. The request in flight must be
+     * abandoned right then, not waited out for the 30 s request timeout while tokens are spent.
+     */
+    @Test
+    void anInterruptedPost_abandonsTheRequestAtOnce() throws Exception {
+        HttpServer s = server();
+        CountDownLatch release = new CountDownLatch(1);
+        s.createContext("/slow", ex -> {
+            try { release.await(60, TimeUnit.SECONDS); } catch (InterruptedException ignored) { }
+            ex.close();
+        });
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch finished = new CountDownLatch(1);
+        Thread worker = new Thread(() -> {
+            try {
+                new OpenAiHttpTransport().post(url(s, "/slow"), Map.of(), "{}");
+            } catch (Throwable t) {
+                failure.set(t);
+            } finally {
+                finished.countDown();
+            }
+        });
+        try {
+            worker.start();
+            Thread.sleep(500);               // let the request reach the server and hang there
+            worker.interrupt();
+            assertTrue(finished.await(5, TimeUnit.SECONDS),
+                "an interrupted post must return promptly instead of waiting for the response");
+            assertTrue(failure.get() instanceof IOException, String.valueOf(failure.get()));
+        } finally {
+            release.countDown();
+            s.stop(0);
         }
     }
 

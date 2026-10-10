@@ -30,6 +30,23 @@ class SuggestionRunWiringGuardTest {
         assertTrue(src.contains("guard.firstError()"), "an all-failed run must show the reason");
     }
 
+    @Test
+    void terminologyPanel_cancelClosesTheDialogAndInterruptsTheWorker() throws IOException {
+        Path panel = findPanelSource();
+        assertTrue(Files.exists(panel), "could not locate TerminologyPanel.java");
+        String src = Files.readString(panel);
+
+        assertTrue(src.contains("worker.cancel(true)"),
+            "Cancel must interrupt the worker so the request in flight is abandoned");
+        assertTrue(src.contains("windowClosing"),
+            "closing the progress window must cancel the run too");
+        int cancelRun = src.indexOf("final Runnable cancelRun");
+        assertTrue(cancelRun > 0, "the cancel action must be a single shared Runnable");
+        String body = src.substring(cancelRun, src.indexOf("worker.execute()", cancelRun));
+        assertTrue(body.contains("progressDialog.setVisible(false)") && body.contains("progressDialog.dispose()"),
+            "Cancel must close the dialog at once, not wait for the worker to finish");
+    }
+
     private static Path findPanelSource() {
         String rel = "src/main/java/com/example/termmgmt/ui/TerminologyPanel.java";
         Path[] bases = {

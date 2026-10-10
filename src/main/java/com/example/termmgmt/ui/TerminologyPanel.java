@@ -1257,10 +1257,6 @@ public class TerminologyPanel extends JPanel {
         JProgressBar progressBar = new JProgressBar(0, candidates.size());
         progressBar.setStringPainted(true);
         JButton cancelBtn = new JButton(I18N.getString("btn.cancel"));
-        cancelBtn.addActionListener(e -> {
-            cancelled.set(true);
-            cancelBtn.setEnabled(false);   // single shot; the loop stops on the next check
-        });
         JPanel progressPanel = new JPanel(new BorderLayout(8, 8));
         progressPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         progressPanel.add(new JLabel(I18N.getString("btn.suggest.translation.dialog.progress")),
@@ -1277,7 +1273,7 @@ public class TerminologyPanel extends JPanel {
         progressDialog.pack();
         progressDialog.setLocationRelativeTo(this);
 
-        new SwingWorker<List<PendingSuggestion>, String>() {
+        final SwingWorker<List<PendingSuggestion>, String> worker = new SwingWorker<>() {
             @Override
             protected List<PendingSuggestion> doInBackground() {
                 List<PendingSuggestion> results = new ArrayList<>();
@@ -1352,7 +1348,24 @@ public class TerminologyPanel extends JPanel {
                 }
                 reviewSuggestions(configSnapshot, suggestions);
             }
-        }.execute();
+        };
+        // Cancel closes the dialog at once and interrupts the worker: the request in flight is
+        // abandoned (no more tokens spent) instead of being waited out for up to its timeout.
+        final Runnable cancelRun = () -> {
+            if (!cancelled.compareAndSet(false, true)) return;
+            cancelBtn.setEnabled(false);
+            progressDialog.setVisible(false);
+            progressDialog.dispose();
+            worker.cancel(true);
+        };
+        cancelBtn.addActionListener(e -> cancelRun.run());
+        progressDialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                cancelRun.run();
+            }
+        });
+        worker.execute();
         // Show only after execute() so done() can never run against an unassigned field.
         progressDialog.setVisible(true);
     }
