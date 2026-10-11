@@ -9,6 +9,8 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Calls an OpenAI-compatible chat-completions API to suggest translations for source terms
@@ -148,6 +150,21 @@ public final class TranslationSuggester {
     }
 
     /**
+     * Reply budget for one batch request. A batch answer is roughly twenty times as long as a
+     * single one, and a provider that stops at its own default limit cuts it off mid-JSON, which
+     * used to throw away every answer of the batch. A batch therefore asks for
+     * {@value #BATCH_REPLY_TOKEN_BASE} plus {@value #BATCH_REPLY_TOKENS_PER_TERM} tokens per term:
+     * a term is a couple of tokens, the rest covers the separators and a model that reasons inside
+     * the answer. Sent as a number so a provider that ignores it loses nothing.
+     */
+    static final int BATCH_REPLY_TOKEN_BASE = 200;
+    static final int BATCH_REPLY_TOKENS_PER_TERM = 30;
+
+    static int batchReplyTokens(int termCount) {
+        return BATCH_REPLY_TOKEN_BASE + BATCH_REPLY_TOKENS_PER_TERM * termCount;
+    }
+
+    /**
      * Build the JSON request body for the chat completions endpoint.
      */
     static String buildRequest(String sourceTerm, String sourceLang, String targetLang, String model) {
@@ -195,7 +212,7 @@ public final class TranslationSuggester {
         for (int i = 0; i < terms.size(); i++) {
             numbered.addProperty(String.valueOf(i + 1), terms.get(i));
         }
-        return chatBody(model, system.toString(), new Gson().toJson(numbered));
+        return chatBody(model, system.toString(), new Gson().toJson(numbered), batchReplyTokens(terms.size()));
     }
 
     private static String referenceLines(java.util.List<Reference> references) {
@@ -210,9 +227,17 @@ public final class TranslationSuggester {
     }
 
     private static String chatBody(String model, String system, String user) {
+        return chatBody(model, system, user, null);
+    }
+
+    /** As {@link #chatBody(String, String, String)}, with a ceiling on the reply length. */
+    private static String chatBody(String model, String system, String user, Integer maxTokens) {
         JsonObject body = new JsonObject();
         body.addProperty("model", model);
         body.addProperty("temperature", 0.1);
+        if (maxTokens != null) {
+            body.addProperty("max_tokens", maxTokens.intValue());
+        }
 
         JsonArray messages = new JsonArray();
         JsonObject systemMsg = new JsonObject();
@@ -265,8 +290,12 @@ public final class TranslationSuggester {
 
     /**
      * Reads a batch reply: a JSON object of number to translation, possibly wrapped in a code fence
-     * or prose. Numbers outside 1..count, blank values and non-text values are ignored, so what comes
-     * back is only answers that can be matched to a term.
+     * or prose. Numbers outside 1..count, blank values and values that are not JSON strings are
+     * ignored, so what comes back is only answers that can be matched to a term.
+     *
+     * <p>A reply that was cut off by the token limit, or that cannot be parsed as one object (prose
+     * around more than one object), does not void the batch: every complete {@code "number": "text"}
+     * answer is kept and only the terms without one are asked again.
      */
     static BatchResult parseBatchResponse(String jsonResponse, int count) {
         Reply reply = readReply(jsonResponse);
@@ -276,32 +305,80 @@ public final class TranslationSuggester {
         String text = reply.text();
         int open = text.indexOf('{');
         int close = text.lastIndexOf('}');
-        if (open < 0 || close < open) {
+        java.util.Map<Integer, String> answers = null;
+        if (open >= 0 && close > open) {
+            try {
+                answers = readAnswers(
+                    JsonParser.parseString(text.substring(open, close + 1)).getAsJsonObject(), count);
+            } catch (Exception malformed) {
+                answers = null;   // not one JSON object after all; salvage what is readable below
+            }
+        } else if (open < 0) {
             return new BatchResult(java.util.Map.of(), "Reply is not a JSON object", false);
         }
-        try {
-            JsonObject answers = JsonParser.parseString(text.substring(open, close + 1)).getAsJsonObject();
-            java.util.Map<Integer, String> out = new java.util.TreeMap<>();
-            for (Map.Entry<String, JsonElement> e : answers.entrySet()) {
-                int number;
-                try {
-                    number = Integer.parseInt(e.getKey().trim());
-                } catch (NumberFormatException nfe) {
-                    continue;
-                }
-                JsonElement v = e.getValue();
-                if (number < 1 || number > count || !v.isJsonPrimitive()) {
-                    continue;
-                }
-                String t = v.getAsString().trim();
-                if (!t.isEmpty()) {
-                    out.put(number, t);
-                }
+        if (answers == null) {
+            answers = salvageAnswers(text, count);
+            if (answers.isEmpty()) {
+                return new BatchResult(java.util.Map.of(),
+                    reply.truncated() ? TRUNCATED_REPLY : "Reply is not valid JSON", false);
             }
-            return new BatchResult(out, null, false);
-        } catch (Exception ex) {
-            return new BatchResult(java.util.Map.of(), "Reply is not valid JSON: " + ex.getMessage(), false);
         }
+        return new BatchResult(answers, null, false);
+    }
+
+    /** Collects the valid number-to-text entries of a parsed answer object (sorted by number). */
+    private static java.util.Map<Integer, String> readAnswers(JsonObject parsed, int count) {
+        java.util.Map<Integer, String> out = new java.util.TreeMap<>();
+        for (Map.Entry<String, JsonElement> e : parsed.entrySet()) {
+            int number;
+            try {
+                number = Integer.parseInt(e.getKey().trim());
+            } catch (NumberFormatException nfe) {
+                continue;
+            }
+            JsonElement v = e.getValue();
+            if (number < 1 || number > count || !v.isJsonPrimitive() || !v.getAsJsonPrimitive().isString()) {
+                continue;   // a boolean or a number is not a translation
+            }
+            String t = v.getAsString().trim();
+            if (!t.isEmpty()) {
+                out.put(number, t);
+            }
+        }
+        return out;
+    }
+
+    private static final String TRUNCATED_REPLY =
+        "Reply was cut off by the model's token limit (finish_reason=length), so the translation may be incomplete";
+
+    /** A complete {@code "number": "translation"} pair, for rescuing answers from a broken reply. */
+    private static final Pattern NUMBERED_ANSWER =
+        Pattern.compile("\"(\\d{1,9})\"\\s*:\\s*(\"(?:[^\"\\\\\\u0000-\\u001F]|\\\\.)*\")");
+
+    /**
+     * Picks out the complete answers from text that is not parseable as one JSON object — a reply
+     * cut off mid-value keeps every pair closed before the cut. Values are decoded JSON strings, so
+     * an escape at the cut point simply makes that pair unreadable and it is skipped.
+     */
+    private static java.util.Map<Integer, String> salvageAnswers(String text, int count) {
+        java.util.Map<Integer, String> out = new java.util.TreeMap<>();
+        Matcher m = NUMBERED_ANSWER.matcher(text);
+        Gson gson = new Gson();
+        while (m.find()) {
+            try {
+                int number = Integer.parseInt(m.group(1));
+                if (number < 1 || number > count) {
+                    continue;
+                }
+                String value = gson.fromJson(m.group(2), String.class).trim();
+                if (!value.isEmpty()) {
+                    out.putIfAbsent(number, value);
+                }
+            } catch (Exception skipped) {
+                // an answer that cannot be decoded is an answer the model did not give
+            }
+        }
+        return out;
     }
 
     /**
@@ -310,39 +387,44 @@ public final class TranslationSuggester {
      * <p>Every way a reply can come back without a usable translation is reported with its own
      * reason (it is shown to the user), instead of collapsing into a vague parse error:
      * a {@code null} content (reasoning models put their text elsewhere, or the reply is a refusal),
-     * a reply that consists only of thinking, and a reply cut off by the token limit.
+     * a reply that consists only of thinking, and a reply cut off by the token limit. A single
+     * truncated translation cannot be offered as-is, so it stays a failure here; the batch parser
+     * instead keeps the answers that did come through.
      */
     static SuggestionResult parseResponse(String jsonResponse) {
         Reply reply = readReply(jsonResponse);
-        return reply.error() != null ? SuggestionResult.fail(reply.error()) : SuggestionResult.ok(reply.text());
+        if (reply.error() != null) {
+            return SuggestionResult.fail(reply.error());
+        }
+        if (reply.truncated()) {
+            return SuggestionResult.fail(TRUNCATED_REPLY);
+        }
+        return SuggestionResult.ok(reply.text());
     }
 
-    /** Text of the first choice (thinking removed, trimmed), or the reason there is none. */
-    private record Reply(String text, String error) {}
+    /** Text of the first choice (thinking removed, trimmed), the reason there is none, truncation flag. */
+    private record Reply(String text, String error, boolean truncated) {}
 
     private static Reply readReply(String jsonResponse) {
         try {
             JsonObject root = JsonParser.parseString(jsonResponse).getAsJsonObject();
             JsonArray choices = root.getAsJsonArray("choices");
             if (choices == null || choices.isEmpty()) {
-                return new Reply(null, "No choices in API response");
+                return new Reply(null, "No choices in API response", false);
             }
             JsonObject first = choices.get(0).getAsJsonObject();
             JsonObject message = first.getAsJsonObject("message");
             if (message == null) {
-                return new Reply(null, "No message in choice");
+                return new Reply(null, "No message in choice", false);
             }
+            boolean truncated = "length".equals(finishReason(first));
             String text = replyText(first, message);
             if (text == null || text.isBlank()) {
-                return new Reply(null, emptyReason(first));
+                return new Reply(null, emptyReason(first), truncated);
             }
-            if ("length".equals(finishReason(first))) {
-                return new Reply(null, "Reply was cut off by the model's token limit "
-                    + "(finish_reason=length), so the translation may be incomplete");
-            }
-            return new Reply(text.trim(), null);
+            return new Reply(text.trim(), null, truncated);
         } catch (Exception e) {
-            return new Reply(null, "Failed to parse API response: " + e.getMessage());
+            return new Reply(null, "Failed to parse API response: " + e.getMessage(), false);
         }
     }
 

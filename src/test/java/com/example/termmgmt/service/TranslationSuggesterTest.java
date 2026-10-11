@@ -200,6 +200,70 @@ class TranslationSuggesterTest {
     }
 
     @Test
+    void parseBatchResponse_ignoresJsonBooleanAndNumberValues() {
+        // {"2":true} is an answer, not a translation; getAsString() would hand back "true".
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(
+            content("{\"1\":true,\"2\":\"B\",\"3\":42}"), 3);
+        assertEquals(Map.of(2, "B"), r.translations());
+    }
+
+    @Test
+    void buildBatchRequest_setsAReplyBudgetThatGrowsWithTheBatch() {
+        String json = TranslationSuggester.buildBatchRequest(java.util.List.of("a", "b"), "en", "zh", "m",
+            java.util.List.of());
+        com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+        assertEquals(TranslationSuggester.batchReplyTokens(2), root.get("max_tokens").getAsInt());
+        assertEquals(800, TranslationSuggester.batchReplyTokens(20), "200 + 30 per term");
+        // A single-term request leaves the ceiling to the provider's default.
+        assertFalse(com.google.gson.JsonParser.parseString(
+                TranslationSuggester.buildRequest("a", "en", "zh", "m")).getAsJsonObject()
+            .has("max_tokens"));
+    }
+
+    @Test
+    void parseBatchResponse_aTruncatedReply_keepsTheAnswersThatAreComplete() {
+        // finish_reason=length with the JSON cut off mid-value: the closed pairs survive.
+        String cut = "{\"choices\":[{\"finish_reason\":\"length\",\"message\":{\"content\":"
+            + new com.google.gson.Gson().toJson("{\"1\": \"泵\", \"2\": \"密封件\", \"3\": \"\")") + "}}]}";
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(cut, 3);
+        assertEquals(Map.of(1, "泵", 2, "密封件"), r.translations());
+        assertNull(r.error(), "a partial batch is a success whose gaps are asked again");
+        assertFalse(r.requestFailed());
+    }
+
+    @Test
+    void parseBatchResponse_aTruncatedReplyWithNoCompleteAnswer_isAnError() {
+        String cut = "{\"choices\":[{\"finish_reason\":\"length\",\"message\":{\"content\":"
+            + new com.google.gson.Gson().toJson("{\"1\": \"泵") + "}}]}";
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(cut, 2);
+        assertTrue(r.translations().isEmpty());
+        assertTrue(r.error().contains("length"), r.error());
+    }
+
+    @Test
+    void parseBatchResponse_textAroundTwoObjects_salvagesTheAnswersInsteadOfFailing() {
+        // The greedy first-{..last-} span is not valid JSON; the pairs inside it are.
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(
+            content("Here: {\"1\": \"泵\"} and {\"2\": \"阀\"} — done"), 2);
+        assertEquals(Map.of(1, "泵", 2, "阀"), r.translations());
+    }
+
+    @Test
+    void parseBatchResponse_salvagingKeepsEscapeDecodingAndSkipsBadOnes() {
+        TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(
+            content("{\"1\": \"a\\\"b\", \"2\": \"\\u00e9\", \"3\": \"cut"), 3);
+        assertEquals(Map.of(1, "a\"b", 2, "é"), r.translations());
+    }
+    @Test
+    void parseResponse_aTruncatedSingleReply_isStillRejected() {
+        String cut = "{\"choices\":[{\"finish_reason\":\"length\",\"message\":{\"content\":"
+            + new com.google.gson.Gson().toJson("轴承") + "}}]}";
+        SuggestionResult r = TranslationSuggester.parseResponse(cut);
+        assertFalse(r.success());
+        assertTrue(r.errorMessage().contains("length"), r.errorMessage());
+    }
+
+    @Test
     void parseBatchResponse_notJson_isAnErrorNotARequestFailure() {
         TranslationSuggester.BatchResult r = TranslationSuggester.parseBatchResponse(content("Sure, here you go"), 2);
         assertTrue(r.translations().isEmpty());
