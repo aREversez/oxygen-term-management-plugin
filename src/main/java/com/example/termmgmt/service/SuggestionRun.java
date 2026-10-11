@@ -17,7 +17,8 @@ import java.util.function.BooleanSupplier;
  * <p>Terms are sent in batches of {@link #BATCH_SIZE}. Each batch is one request that carries the
  * reference translations once (rather than once per term) and lets the model see the terms of the
  * batch together, which helps it settle on the domain. The reply is matched to terms by number, so
- * a term the model skipped is noticed and asked again on its own.
+ * a term the model skipped is noticed and asked again on its own — those follow-up requests carry a
+ * trimmed reference block, because the full one has already been paid for by the batch.
  *
  * <p>Pure logic, no Swing: the panel only supplies the terms, the cancel flag and a progress sink.
  */
@@ -31,6 +32,13 @@ public final class SuggestionRun {
     public static final int MAX_REFERENCE_PAIRS = 20;
     /** Budget for the reference text of one request, so a termbase of long entries cannot bloat it. */
     public static final int MAX_REFERENCE_CHARS = 2000;
+    /**
+     * Reference budget of the one-term requests that follow a batch: the batch already sent the full
+     * references once, and re-sending ~2 KB with every fallback term is what turned a skipped answer
+     * into a request twenty times the size it needs. A handful of pairs is enough to keep the domain.
+     */
+    public static final int FALLBACK_MAX_REFERENCE_PAIRS = 5;
+    public static final int FALLBACK_MAX_REFERENCE_CHARS = 500;
     /** A pair with a longer side is a sentence or a definition, not a term, and is not a useful reference. */
     private static final int MAX_REFERENCE_SIDE = 80;
 
@@ -80,7 +88,8 @@ public final class SuggestionRun {
     /**
      * What a run produced. Keys are indexes into the list of terms that was passed in.
      *
-     * @param translations  index to suggested translation, in input order
+     * @param translations  index to suggested translation, sorted by term order so it matches the
+     *                      table even when terms were answered by a later fallback request
      * @param failures      index to the reason no translation was obtained
      * @param total         number of terms in the run
      * @param aborted       true when the run stopped early because requests kept failing
@@ -88,6 +97,11 @@ public final class SuggestionRun {
      */
     public record Outcome(Map<Integer, String> translations, Map<Integer, String> failures,
                           int total, boolean aborted, String firstError) {
+
+        public Outcome {
+            translations = java.util.Collections.unmodifiableMap(new java.util.TreeMap<>(translations));
+            failures = java.util.Collections.unmodifiableMap(new java.util.TreeMap<>(failures));
+        }
 
         /** Terms with neither a translation nor a failure: never requested (cancelled or aborted). */
         public int unprocessed() {
@@ -120,6 +134,10 @@ public final class SuggestionRun {
         Map<Integer, String> failures = new LinkedHashMap<>();
         TranslationSuggester.RunGuard guard = new TranslationSuggester.RunGuard();
         boolean aborted = false;
+        // The one-term requests that follow a batch carry a trimmed reference block; the batch
+        // itself already sent the full one.
+        List<TranslationSuggester.Reference> fallbackRefs = selectReferences(
+            references, FALLBACK_MAX_REFERENCE_PAIRS, FALLBACK_MAX_REFERENCE_CHARS);
 
         batches:
         for (int start = 0; start < terms.size(); start += BATCH_SIZE) {
@@ -150,14 +168,19 @@ public final class SuggestionRun {
             for (Map.Entry<Integer, String> answer : reply.translations().entrySet()) {
                 translations.put(start + answer.getKey() - 1, answer.getValue());
             }
-            // Whatever the model skipped (or garbled) is asked again on its own.
+            // Whatever the model skipped, garbled or left past a truncation is asked again on its
+            // own, with a trimmed reference block and without waiting for the next batch to move
+            // the progress bar.
             for (int i = start; i < end; i++) {
                 if (translations.containsKey(i)) continue;
                 if (stop(cancelled)) break batches;
+                if (progress != null) {
+                    progress.update(translations.size() + failures.size(), terms.size(), terms.get(i));
+                }
                 String failure = null;
                 try {
                     SuggestionResult r = TranslationSuggester.suggest(
-                        terms.get(i), sourceLang, targetLang, references, config, transport);
+                        terms.get(i), sourceLang, targetLang, fallbackRefs, config, transport);
                     if (r.success() && r.translation() != null && !r.translation().isBlank()) {
                         translations.put(i, r.translation().trim());
                         guard.recordSuccess();

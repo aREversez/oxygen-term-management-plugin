@@ -186,6 +186,104 @@ class SuggestionRunTest {
         assertEquals(List.of(0), new ArrayList<>(o.failures().keySet()));
     }
 
+    @Test
+    void aTruncatedBatchReply_keepsTheAnswersItGot_andAsksOnlyForTheRest() {
+        // A reply cut off mid-JSON used to void the whole batch, exploding into one full-size
+        // request per term. Now the closed pairs survive and only the gaps are re-asked.
+        AtomicInteger singles = new AtomicInteger();
+        HttpTransport truncated = (url, headers, body) -> {
+            JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+            String system = root.getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString();
+            if (system.startsWith("You translate terminology")) {
+                return "{\"choices\":[{\"finish_reason\":\"length\",\"message\":{\"content\":"
+                    + text("{\"1\": \"A\", \"2\": \"B\"}") + "}}]}";
+            }
+            singles.incrementAndGet();
+            return reply("\"late\"");
+        };
+        SuggestionRun.Outcome o = run(List.of("t1", "t2", "t3"), truncated, NO_REFS);
+        assertEquals("A", o.translations().get(0));
+        assertEquals("B", o.translations().get(1));
+        assertEquals("late", o.translations().get(2));
+        assertEquals(1, singles.get(), "only the term the cut reply never reached is asked again");
+    }
+
+    @Test
+    void aFallbackRequest_carriesATrimmedReferenceBlock_notTheFullOne() {
+        List<TranslationSuggester.Reference> refs = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            refs.add(new TranslationSuggester.Reference("source term " + i, "target term " + i));
+        }
+        AtomicInteger asked = new AtomicInteger();
+        FakeModel model = new FakeModel(t -> {
+            if (t.equals("term1") && asked.getAndIncrement() == 0) return null;   // skipped in the batch
+            return "T:" + t;
+        });
+        run(List.of("term0", "term1", "term2"), model, refs);
+        assertEquals(1, model.singleRequests);
+        String fallbackSystem = model.systemMessages.get(model.systemMessages.size() - 1);
+        long pairs = fallbackSystem.lines().filter(l -> l.startsWith("- ")).count();
+        assertTrue(pairs <= SuggestionRun.FALLBACK_MAX_REFERENCE_PAIRS,
+            "a fallback request re-sends the references the batch already paid for: " + pairs + " pairs");
+        assertTrue(model.systemMessages.get(0).lines().filter(l -> l.startsWith("- ")).count() > pairs,
+            "the batch itself keeps the full reference block");
+    }
+
+    @Test
+    void translationsAreOrderedByTermIndex_evenWhenAFallbackFillsAnEarlierGap() {
+        // term0 is only answered by a fallback request (the batch skips it), so insertion order
+        // would list it last; the review dialog must still follow the table.
+        AtomicInteger asked = new AtomicInteger();
+        FakeModel model = new FakeModel(t -> {
+            if (t.equals("term0") && asked.getAndIncrement() == 0) return null;
+            return "T:" + t;
+        });
+        SuggestionRun.Outcome o = run(List.of("term0", "term1", "term2"), model, NO_REFS);
+        assertEquals(List.of(0, 1, 2), new ArrayList<>(o.translations().keySet()));
+    }
+
+    @Test
+    void cancellingDuringTheFallbackPhase_stopsBeforeTheNextFallback() {
+        AtomicInteger singles = new AtomicInteger();
+        HttpTransport skipping = (url, headers, body) -> {
+            JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+            String system = root.getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString();
+            if (system.startsWith("You translate terminology")) {
+                return reply(text("{}"));   // answered nothing: every term falls back
+            }
+            singles.incrementAndGet();
+            return reply("\"x\"");
+        };
+        SuggestionRun.Outcome o = SuggestionRun.run(terms(5), "en", "zh", NO_REFS, CONFIG, skipping,
+            () -> singles.get() >= 1, null);
+        assertEquals(1, singles.get(), "cancel is honoured between fallback requests too");
+        assertEquals(1, o.translations().size());
+        assertEquals(4, o.unprocessed());
+        assertFalse(o.aborted());
+    }
+
+    @Test
+    void aLastBatchOfOne_isStillRequested() {
+        FakeModel model = new FakeModel(t -> "T:" + t);
+        SuggestionRun.Outcome o = run(terms(SuggestionRun.BATCH_SIZE * 2 + 1), model, NO_REFS);
+        assertEquals(terms(SuggestionRun.BATCH_SIZE * 2 + 1).size(), o.translations().size());
+        assertEquals(3, model.batchRequests, "20 + 20 + 1");
+        assertEquals("T:term40", o.translations().get(40));
+    }
+
+    @Test
+    void progressKeepsMovingWhileFallbacksRun() {
+        AtomicInteger asked = new AtomicInteger();
+        FakeModel model = new FakeModel(t -> {
+            if (t.equals("term1") && asked.getAndIncrement() == 0) return null;
+            return "T:" + t;
+        });
+        List<String> seen = new ArrayList<>();
+        SuggestionRun.run(List.of("term0", "term1", "term2"), "en", "zh", NO_REFS, CONFIG, model,
+            () -> false, (done, total, current) -> seen.add(done + "/" + total + ":" + current));
+        assertTrue(seen.contains("2/3:term1"), "a fallback term must not stall the bar: " + seen);
+    }
+
     // ------------------------------------------------------------------ failing endpoint, cancel, progress
 
     @Test
