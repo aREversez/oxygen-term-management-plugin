@@ -98,6 +98,11 @@ public final class OpenAiHttpTransport implements HttpTransport {
             ByteArrayOutputStream buffer = new ByteArrayOutputStream(Math.min(64 * 1024, MAX_RESPONSE_BYTES));
             IOException[] readError = new IOException[1];
             drainBounded(response.body(), buffer, readError);
+            if (Thread.currentThread().isInterrupted()) {
+                // Cancelled while the body was arriving: the response is never parsed, so drop it
+                // and say the request was interrupted instead of pretending the run finished.
+                throw new IOException("Request interrupted");
+            }
             if (readError[0] != null) {
                 throw readError[0];
             }
@@ -112,13 +117,29 @@ public final class OpenAiHttpTransport implements HttpTransport {
         }
     }
 
-    /** Copies the response stream into {@code out}, failing on more than {@link #MAX_RESPONSE_BYTES}. */
+    /**
+     * Copies the response stream into {@code out}, failing on more than {@link #MAX_RESPONSE_BYTES}.
+     *
+     * <p>The request timeout only covers up to the response, and a blocking socket read is not
+     * woken by an interrupt, so cancelling a run while its body is still arriving would leave the
+     * worker thread parked on {@code read} and holding the connection. The loop therefore checks
+     * the interrupt flag between chunks and gives up by closing the stream, which makes the next
+     * read (or a blocked one) fail rather than continue.
+     */
     private static void drainBounded(InputStream in, ByteArrayOutputStream out, IOException[] error) {
         try (InputStream stream = in) {
             byte[] chunk = new byte[8192];
             int total = 0;
             int n;
-            while ((n = stream.read(chunk)) != -1) {
+            while (true) {
+                if (Thread.currentThread().isInterrupted()) {
+                    error[0] = new IOException("Request interrupted while reading the response");
+                    return;
+                }
+                n = stream.read(chunk);
+                if (n == -1) {
+                    return;
+                }
                 total += n;
                 if (total > MAX_RESPONSE_BYTES) {
                     error[0] = new IOException("Response exceeds 1 MB limit (" + total + " bytes)");

@@ -113,6 +113,53 @@ class OpenAiHttpTransportTest {
         }
     }
 
+    /**
+     * The same, with the interrupt landing while the response body is still arriving: the 30 s
+     * timeout covers the request up to the response, and a blocking read is not woken by an
+     * interrupt, so the drain loop itself has to notice it and give up.
+     */
+    @Test
+    void anInterruptedBodyRead_givesUpInsteadOfWaitingForTheRestOfTheStream() throws Exception {
+        HttpServer s = server();
+        s.createContext("/drip", ex -> {
+            ex.sendResponseHeaders(200, 0);          // chunked, the client cannot know the length
+            try (OutputStream o = ex.getResponseBody()) {
+                for (int i = 0; i < 60; i++) {       // ~5 seconds of trickle if nobody cancels
+                    o.write(new byte[64 * 1024]);
+                    o.flush();
+                    Thread.sleep(80);
+                }
+            } catch (Exception ignored) {
+                // the client hung up: nothing to report
+            }
+        });
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch finished = new CountDownLatch(1);
+        Thread worker = new Thread(() -> {
+            try {
+                new OpenAiHttpTransport().post(url(s, "/drip"), Map.of(), "{}");
+            } catch (Throwable t) {
+                failure.set(t);
+            } finally {
+                finished.countDown();
+            }
+        });
+        long startedAt;
+        try {
+            worker.start();
+            Thread.sleep(500);                   // some of the body has arrived, more is coming
+            startedAt = System.nanoTime();
+            worker.interrupt();
+            assertTrue(finished.await(4, TimeUnit.SECONDS),
+                "an interrupted body read must return promptly instead of trickling on");
+            assertTrue(failure.get() instanceof IOException, String.valueOf(failure.get()));
+            assertTrue(java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                    System.nanoTime() - startedAt) < 3000, "returned too late to be a cancellation");
+        } finally {
+            s.stop(0);
+        }
+    }
+
     @Test
     void aResponseOverOneMegabyte_isRefused() throws Exception {
         HttpServer s = server();

@@ -1177,11 +1177,11 @@ public class TerminologyPanel extends JPanel {
     private record PendingSuggestion(TermEntry entry, String suggestion) {}
 
     /**
-     * Cap on how many blank entries one suggestion run may request: requests are serial,
-     * so an unbounded run against a large termbase would hammer the endpoint (and the user
-     * would wait far too long for the review dialog to appear).
+     * Cap on how many blank entries one suggestion run may cover: requests go out serially, so
+     * an unbounded run against a large termbase would hammer the endpoint (and the user would
+     * wait far too long for the review dialog to appear).
      */
-    static final int MAX_SUGGESTION_REQUESTS = 200;
+    static final int MAX_SUGGESTION_TERMS = 200;
 
     /** Reads the AI-translation configuration persisted by the preference page. */
     private TranslationSuggester.Config loadAiConfig() {
@@ -1236,14 +1236,14 @@ public class TerminologyPanel extends JPanel {
             return;
         }
         // Serial requests need a bound; ask before trimming the tail.
-        if (blanks.size() > MAX_SUGGESTION_REQUESTS) {
+        if (blanks.size() > MAX_SUGGESTION_TERMS) {
             int proceed = JOptionPane.showConfirmDialog(this,
                 I18N.getString("btn.suggest.translation.limit",
-                    blanks.size(), MAX_SUGGESTION_REQUESTS, currentConfig.getFileName()),
+                    blanks.size(), MAX_SUGGESTION_TERMS, currentConfig.getFileName()),
                 I18N.getString("btn.suggest.translation"),
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
             if (proceed != JOptionPane.OK_OPTION) return;
-            blanks = new ArrayList<>(blanks.subList(0, MAX_SUGGESTION_REQUESTS));
+            blanks = new ArrayList<>(blanks.subList(0, MAX_SUGGESTION_TERMS));
         }
 
         final TermbaseConfig configSnapshot = currentConfig;
@@ -1303,8 +1303,11 @@ public class TerminologyPanel extends JPanel {
             protected void done() {
                 progressDialog.setVisible(false);
                 progressDialog.dispose();
-                if (cancelled.get()) {
-                    return;   // the run was abandoned: nothing to review or save
+                // The worker's own state, not the cancel flag: if Cancel arrived after
+                // doInBackground had already returned, worker.cancel(true) did nothing and the
+                // finished run — paid for with tokens — is shown instead of dropped.
+                if (isCancelled()) {
+                    return;   // the run really stopped: nothing to review or save
                 }
                 SuggestionRun.Outcome outcome;
                 try {
@@ -1383,7 +1386,7 @@ public class TerminologyPanel extends JPanel {
             notice.append(I18N.getString("btn.suggest.translation.omitted",
                 outcome.failures().size(), outcome.total(), details.toString()));
         }
-        if (outcome.unprocessed() > 0) {
+        if (outcome.aborted() && outcome.unprocessed() > 0) {
             if (notice.length() > 0) notice.append("\n");
             notice.append(I18N.getString("btn.suggest.translation.aborted",
                 outcome.firstError() != null ? outcome.firstError() : "-", outcome.unprocessed()));
