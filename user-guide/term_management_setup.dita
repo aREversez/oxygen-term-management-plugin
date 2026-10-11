@@ -34,7 +34,7 @@
             <step>
                 <cmd>如需使用 AI 批量补译空白译文（见“术语库维护与编辑”），勾选 <uicontrol>启用 AI 翻译</uicontrol>，并填写 <uicontrol>API 地址</uicontrol>、<uicontrol>模型名称</uicontrol> 和 <uicontrol>API 密钥</uicontrol>。</cmd>
                 <info>
-                    <note type="warning">此功能会把源术语发送到您填写的 API 地址，API 密钥以<b>明文</b>保存在 Oxygen 的选项存储中（<b>未加密</b>）。请仅对您信任或自建的端点启用。</note>
+                    <note type="warning">此功能会把缺译的源术语，连同<b>最多 20 条该术语库中已审定的源/译对照</b>（作为语境参考，每批一次）一起发送到您填写的 API 地址；API 密钥以<b>明文</b>保存在 Oxygen 的选项存储中（<b>未加密</b>）。若术语库内容涉密，请仅对您信任或自建的端点启用。</note>
                 </info>
             </step>
         </steps>
