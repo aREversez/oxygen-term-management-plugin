@@ -108,10 +108,10 @@ public final class TranslationSuggester {
                                            Config config,
                                            HttpTransport transport) throws IOException {
         if (config == null || !config.enabled()) {
-            return SuggestionResult.fail("AI translation is disabled");
+            return SuggestionResult.fail(SuggestionFailures.code(SuggestionFailures.KEY_DISABLED));
         }
         if (!config.isValid()) {
-            return SuggestionResult.fail("AI translation config incomplete (url and model required)");
+            return SuggestionResult.fail(SuggestionFailures.code(SuggestionFailures.KEY_INCOMPLETE_CONFIG));
         }
 
         String url = buildUrl(config.apiUrl());
@@ -265,11 +265,12 @@ public final class TranslationSuggester {
                                            Config config,
                                            HttpTransport transport) {
         if (config == null || !config.enabled()) {
-            return new BatchResult(java.util.Map.of(), "AI translation is disabled", true);
+            return new BatchResult(java.util.Map.of(),
+                SuggestionFailures.code(SuggestionFailures.KEY_DISABLED), true);
         }
         if (!config.isValid()) {
             return new BatchResult(java.util.Map.of(),
-                "AI translation config incomplete (url and model required)", true);
+                SuggestionFailures.code(SuggestionFailures.KEY_INCOMPLETE_CONFIG), true);
         }
         String url = buildUrl(config.apiUrl());
         String requestBody = buildBatchRequest(terms, sourceLang, targetLang, config.model(), references);
@@ -314,13 +315,15 @@ public final class TranslationSuggester {
                 answers = null;   // not one JSON object after all; salvage what is readable below
             }
         } else if (open < 0) {
-            return new BatchResult(java.util.Map.of(), "Reply is not a JSON object", false);
+            return new BatchResult(java.util.Map.of(),
+                SuggestionFailures.code(SuggestionFailures.KEY_NOT_A_JSON_OBJECT), false);
         }
         if (answers == null) {
             answers = salvageAnswers(text, count);
             if (answers.isEmpty()) {
                 return new BatchResult(java.util.Map.of(),
-                    reply.truncated() ? TRUNCATED_REPLY : "Reply is not valid JSON", false);
+                    reply.truncated() ? TRUNCATED_REPLY
+                    : SuggestionFailures.code(SuggestionFailures.KEY_NOT_VALID_JSON), false);
             }
         }
         return new BatchResult(answers, null, false);
@@ -348,8 +351,8 @@ public final class TranslationSuggester {
         return out;
     }
 
-    private static final String TRUNCATED_REPLY =
-        "Reply was cut off by the model's token limit (finish_reason=length), so the translation may be incomplete";
+    private static final String TRUNCATED_REPLY = SuggestionFailures.code(
+        SuggestionFailures.KEY_TRUNCATED, "finish_reason=length");
 
     /** A complete {@code "number": "translation"} pair, for rescuing answers from a broken reply. */
     private static final Pattern NUMBERED_ANSWER =
@@ -397,7 +400,7 @@ public final class TranslationSuggester {
             return SuggestionResult.fail(reply.error());
         }
         if (reply.truncated()) {
-            return SuggestionResult.fail(TRUNCATED_REPLY);
+            return SuggestionResult.fail(TRUNCATED_REPLY);   // code, rendered by the UI
         }
         return SuggestionResult.ok(reply.text());
     }
@@ -410,12 +413,12 @@ public final class TranslationSuggester {
             JsonObject root = JsonParser.parseString(jsonResponse).getAsJsonObject();
             JsonArray choices = root.getAsJsonArray("choices");
             if (choices == null || choices.isEmpty()) {
-                return new Reply(null, "No choices in API response", false);
+                return new Reply(null, SuggestionFailures.code(SuggestionFailures.KEY_NO_CHOICES), false);
             }
             JsonObject first = choices.get(0).getAsJsonObject();
             JsonObject message = first.getAsJsonObject("message");
             if (message == null) {
-                return new Reply(null, "No message in choice", false);
+                return new Reply(null, SuggestionFailures.code(SuggestionFailures.KEY_NO_MESSAGE), false);
             }
             boolean truncated = "length".equals(finishReason(first));
             String text = replyText(first, message);
@@ -424,7 +427,7 @@ public final class TranslationSuggester {
             }
             return new Reply(text.trim(), null, truncated);
         } catch (Exception e) {
-            return new Reply(null, "Failed to parse API response: " + e.getMessage(), false);
+            return new Reply(null, SuggestionFailures.code(SuggestionFailures.KEY_PARSE, e.getMessage()), false);
         }
     }
 
@@ -445,12 +448,12 @@ public final class TranslationSuggester {
     private static String emptyReason(JsonObject choice) {
         String finish = finishReason(choice);
         if ("length".equals(finish)) {
-            return "Empty reply: the model ran out of tokens before answering (finish_reason=length)";
+            return SuggestionFailures.code(SuggestionFailures.KEY_TOKEN_LIMIT_EMPTY, "finish_reason=length");
         }
         if ("content_filter".equals(finish)) {
-            return "Empty reply: blocked by the provider's content filter";
+            return SuggestionFailures.code(SuggestionFailures.KEY_CONTENT_FILTER);
         }
-        return "Empty translation in response";
+        return SuggestionFailures.code(SuggestionFailures.KEY_EMPTY);
     }
 
     /**

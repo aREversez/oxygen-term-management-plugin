@@ -211,6 +211,9 @@ public final class SuggestionRun {
     }
 
     private static String reasonOrDefault(String message) {
-        return message == null || message.isBlank() ? "no translation returned" : message;
+        // The reason comes from the service as a failure code (see SuggestionFailures); a missing
+        // one gets one too, so the UI can render it in the user's language instead of English.
+        return message == null || message.isBlank()
+            ? SuggestionFailures.code(SuggestionFailures.KEY_NO_ANSWER) : message;
     }
 }

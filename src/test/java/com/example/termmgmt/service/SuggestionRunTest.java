@@ -243,8 +243,7 @@ class SuggestionRunTest {
     }
 
     @Test
-    void cancellingDuringTheFallbackPhase_stopsBeforeTheNextFallback() {
-        AtomicInteger singles = new AtomicInteger();
+    void cancellingDuringTheFallbackPhase_stopsBeforeTheNextFallback() {        AtomicInteger singles = new AtomicInteger();
         HttpTransport skipping = (url, headers, body) -> {
             JsonObject root = JsonParser.parseString(body).getAsJsonObject();
             String system = root.getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString();
@@ -314,8 +313,30 @@ class SuggestionRunTest {
     }
 
     @Test
-    void progressIsReportedBeforeEachBatch() {
-        List<String> seen = new ArrayList<>();
+    void anInterruptedThreadStopsTheRunWithNoCancelFlag() {
+        // SwingWorker.cancel(true) interrupts the worker; the flag alone is what reaches us then.
+        AtomicInteger calls = new AtomicInteger();
+        HttpTransport model = (url, headers, body) -> {
+            if (calls.getAndIncrement() == 0) {
+                return reply(text("{\"1\": \"A\"}"));   // batch answers the first term only
+            }
+            Thread.currentThread().interrupt();          // as if Cancel had just been pressed
+            return reply("\"late\"");
+        };
+        SuggestionRun.Outcome o;
+        try {
+            o = SuggestionRun.run(terms(5), "en", "zh", NO_REFS, CONFIG, model, () -> false, null);
+        } finally {
+            Thread.interrupted();   // do not leak the flag into the next test
+        }
+        assertEquals(2, calls.get(), "the run stops at the next check after the interrupt");
+        assertEquals(2, o.translations().size());
+        assertEquals(3, o.unprocessed());
+        assertFalse(o.aborted(), "an interrupt is a cancel, not a failure");
+    }
+
+    @Test
+    void progressIsReportedBeforeEachBatch() {        List<String> seen = new ArrayList<>();
         SuggestionRun.run(terms(25), "en", "zh", NO_REFS, CONFIG, new FakeModel(t -> "T:" + t),
             () -> false, (done, total, current) -> seen.add(done + "/" + total + ":" + current));
         assertEquals(List.of("0/25:term0", "20/25:term20", "25/25:"), seen);

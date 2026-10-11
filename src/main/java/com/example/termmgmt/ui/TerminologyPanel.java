@@ -1315,7 +1315,8 @@ public class TerminologyPanel extends JPanel {
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     JOptionPane.showMessageDialog(TerminologyPanel.this,
-                        I18N.getString("btn.suggest.translation.error", cause.getMessage()),
+                        I18N.getString("btn.suggest.translation.error",
+                            reasonText(cause.getMessage())),
                         I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                     return;
                 }
@@ -1326,7 +1327,8 @@ public class TerminologyPanel extends JPanel {
                     if (outcome.firstError() != null) {
                         // Every request failed: say why instead of "no suggestions were returned".
                         JOptionPane.showMessageDialog(TerminologyPanel.this,
-                            I18N.getString("btn.suggest.translation.error", outcome.firstError()),
+                            I18N.getString("btn.suggest.translation.error",
+                                reasonText(outcome.firstError())),
                             I18N.getString("msg.error"), JOptionPane.ERROR_MESSAGE);
                     } else {
                         JOptionPane.showMessageDialog(TerminologyPanel.this,
@@ -1381,7 +1383,7 @@ public class TerminologyPanel extends JPanel {
                 }
                 if (shown++ > 0) details.append("; ");
                 details.append(candidates.get(f.getKey()).getSourceTerm()).append(" (")
-                    .append(f.getValue()).append(')');
+                    .append(reasonText(f.getValue())).append(')');
             }
             notice.append(I18N.getString("btn.suggest.translation.omitted",
                 outcome.failures().size(), outcome.total(), details.toString()));
@@ -1389,9 +1391,26 @@ public class TerminologyPanel extends JPanel {
         if (outcome.aborted() && outcome.unprocessed() > 0) {
             if (notice.length() > 0) notice.append("\n");
             notice.append(I18N.getString("btn.suggest.translation.aborted",
-                outcome.firstError() != null ? outcome.firstError() : "-", outcome.unprocessed()));
+                outcome.firstError() != null ? reasonText(outcome.firstError()) : "-",
+                outcome.unprocessed()));
         }
         return notice.toString();
+    }
+
+    /**
+     * A failure reason in the UI language. The service layer reports stable codes
+     * ({@code code:ai.fail.<name>[|<detail>]}, see SuggestionFailures) instead of English
+     * sentences, because these reasons are embedded in a translated notice; reasons that are
+     * already display text (an HTTP failure, a timeout) are shown as they came.
+     */
+    private static String reasonText(String reason) {
+        String key = com.example.termmgmt.service.SuggestionFailures.keyOf(reason);
+        if (key == null) {
+            return reason;
+        }
+        String detail = com.example.termmgmt.service.SuggestionFailures.detailOf(reason);
+        String label = I18N.getString(key);
+        return detail == null || detail.isEmpty() ? label : label + " (" + detail + ")";
     }
 
     /** Show a checkbox list of suggestions and persist the accepted ones. */
