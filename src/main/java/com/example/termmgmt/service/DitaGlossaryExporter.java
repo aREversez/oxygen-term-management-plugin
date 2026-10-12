@@ -243,8 +243,8 @@ public final class DitaGlossaryExporter {
 
     /**
      * Whether the entry's target translation can be exported: it needs a non-empty target
-     * term and a target language distinct from the source one (otherwise the translation
-     * would be a duplicate {@code glossentry} of the source term).
+     * term and a target language distinct from the source one (otherwise the
+     * {@code glossSynonym} would only repeat the source term in its own language).
      */
     static boolean canExportTarget(RichTermEntry r, String sourceLang, String targetLang) {
         if (r == null || r.entry == null) return false;

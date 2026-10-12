@@ -109,7 +109,8 @@ public final class TermbaseConverter {
         DitaGlossaryExporter.export(richEntries, config.getSourceLang(),
             config.getTargetLang(), targetPath);
         // A glossary carries the source term, a definition, and - for a distinct target
-        // language - the translation as a linked glossentry; report the rest.
+        // language - the translation as a glossSynonym inside the same glossentry; report
+        // the rest.
         return new ConversionReport(richEntries.size(),
             DitaGlossaryExporter.detectDrops(richEntries, config.getSourceLang(),
                 config.getTargetLang()));
