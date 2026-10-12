@@ -87,8 +87,8 @@ public final class DitaGlossaryExporter {
 
     /**
      * As {@link #detectDrops(List)}, knowing the language pair of the export so that target
-     * translations which will in fact be written as linked {@code glossentry} elements are
-     * not reported as dropped.
+     * translations which will in fact be written as {@code glossSynonym} elements inside the
+     * same {@code glossentry} are not reported as dropped.
      */
     public static List<DroppedField> detectDrops(List<RichTermEntry> entries,
                                                  String sourceLang, String targetLang) {
