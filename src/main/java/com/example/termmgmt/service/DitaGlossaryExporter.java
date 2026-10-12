@@ -52,10 +52,21 @@ public final class DitaGlossaryExporter {
     /** The XML namespace, whose {@code xml} prefix is predefined and always bound. */
     private static final String XML_NS = "http://www.w3.org/XML/1998/namespace";
 
+    /**
+     * A language tag as BCP 47 writes it: trimmed, with the underscore some locale APIs use
+     * ({@code zh_CN}) turned into the hyphen {@code xml:lang} requires. Null when unknown.
+     */
+    static String normalizeLang(String lang) {
+        if (lang == null) return null;
+        String t = lang.trim().replace('_', '-');
+        return t.isEmpty() ? null : t;
+    }
+
     /** Set the standard {@code xml:lang} attribute on an element when the tag is known. */
     static void setLang(Element e, String lang) {
-        if (lang != null && !lang.isEmpty()) {
-            e.setAttributeNS(XML_NS, "xml:lang", lang);
+        String tag = normalizeLang(lang);
+        if (tag != null) {
+            e.setAttributeNS(XML_NS, "xml:lang", tag);
         }
     }
 
@@ -253,11 +264,15 @@ public final class DitaGlossaryExporter {
         return isDistinctLang(sourceLang, targetLang);
     }
 
-    /** True when both tags are known and denote different languages (case-insensitive). */
+    /**
+     * True when both tags are known and denote different languages (case-insensitive, and
+     * {@code zh_CN} counts as {@code zh-CN}).
+     */
     static boolean isDistinctLang(String sourceLang, String targetLang) {
-        if (sourceLang == null || sourceLang.isEmpty()) return false;
-        if (targetLang == null || targetLang.isEmpty()) return false;
-        return !sourceLang.equalsIgnoreCase(targetLang);
+        String source = normalizeLang(sourceLang);
+        String target = normalizeLang(targetLang);
+        if (source == null || target == null) return false;
+        return !source.equalsIgnoreCase(target);
     }
 
     /**

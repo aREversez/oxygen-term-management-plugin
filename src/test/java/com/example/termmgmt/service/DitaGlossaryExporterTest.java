@@ -274,6 +274,28 @@ class DitaGlossaryExporterTest {
     }
 
     @Test
+    void underscoreLanguageTags_areWrittenAsBcp47() throws Exception {
+        List<RichTermEntry> entries = List.of(rich("云计算", "Cloud Computing", "u1", null));
+        Path out = tempDir.resolve("gloss.dita");
+        DitaGlossaryExporter.export(entries, "zh_CN", "en_US", out);
+
+        Element source = entryById(parseOutput(out), "u1");
+        assertEquals("zh-CN", source.getAttribute("xml:lang"));
+        assertEquals("en-US",
+            ((Element) source.getElementsByTagName("glossSynonym").item(0)).getAttribute("xml:lang"),
+            "xml:lang takes a hyphen, never an underscore");
+    }
+
+    @Test
+    void isDistinctLang_ignoresCaseAndUnderscore() {
+        assertFalse(DitaGlossaryExporter.isDistinctLang("zh_CN", "zh-cn"));
+        assertFalse(DitaGlossaryExporter.isDistinctLang(" en-US ", "en_us"));
+        assertTrue(DitaGlossaryExporter.isDistinctLang("en-US", "en-GB"));
+        assertFalse(DitaGlossaryExporter.isDistinctLang("en-US", null));
+        assertFalse(DitaGlossaryExporter.isDistinctLang("  ", "en-US"));
+    }
+
+    @Test
     void detectDrops_targetCarried_whenLanguagesDiffer() {
         List<RichTermEntry> entries = List.of(rich("云计算", "Cloud", "d1", null));
         List<TermbaseConverter.DroppedField> drops =
