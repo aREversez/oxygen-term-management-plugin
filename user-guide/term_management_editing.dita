@@ -34,10 +34,10 @@
         </section>
         <section>
             <title>导出与格式转换</title>
-            <p>点击 <uicontrol>导出…</uicontrol>，可将当前术语库另存为另一种格式（<b>CSV ⇄ XLSX ⇄ TBX</b>），或导出为 <b>DITA 术语表</b>（生成一个 <codeph>glossgroup</codeph>，可被 Oxygen 打开并并入 ditamap）。</p>
+            <p>点击 <uicontrol>导出…</uicontrol>，可将当前术语库另存为另一种格式（<b>CSV ⇄ XLSX ⇄ TBX</b>），或导出为 <b>DITA 术语表</b>（生成一个 <codeph>glossgroup</codeph>，可被 Oxygen 打开并并入 ditamap）。译语不会丢：DITA 没有“译文”元素，所以每条术语的译语写在同一个 <codeph>glossentry</codeph> 里的 <codeph>glossBody/glossAlt/glossSynonym</codeph> 中，并用 <codeph>xml:lang</codeph> 标明目标语言（源语与目标语相同或译语为空时不写，并会在导出报告里列出）。</p>
             <ul>
                 <li><b>状态随格式互转</b>：CSV/XLSX 的 <codeph>status</codeph> 列与 TBX 的 <codeph>termNote type="administrativeStatus"</codeph> 双向转换；导出为 TBX 时，定义、备注等两列装不下的内容会写成 <codeph>termNote</codeph>，因此 TBX→TBX 不会再把整份文档重建成只剩源语/译语两列。</li>
-                <li><b>导出报告会列出丢失的内容</b>：若目标格式容纳不下某些字段（状态、备注、其他语言等），导出后会弹出“导出报告”列出被丢弃的字段；确实没有丢失时显示“没有字段被丢弃”。读入的 TBX 若格式错误会直接报错，而不是悄悄导出一份空结果。</li>
+                <li><b>导出报告会列出丢失的内容</b>：若目标格式容纳不下某些字段（状态、备注、第三种及以上的语言等），导出后会弹出“导出报告”列出被丢弃的字段；确实没有丢失时显示“没有字段被丢弃”。读入的 TBX 若格式错误会直接报错，而不是悄悄导出一份空结果。</li>
                 <li><b>不会覆盖源文件或正在使用的术语库</b>：若导出目标就是当前术语库文件本身或任一已启用的术语库，插件会拒绝并提示。若源格式与目标格式相同，默认建议的文件名会带 <codeph>_export</codeph> 后缀，而不是指回原文件。</li>
             </ul>
         </section>
