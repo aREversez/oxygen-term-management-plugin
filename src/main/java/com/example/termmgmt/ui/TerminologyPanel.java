@@ -9,6 +9,7 @@ import com.example.termmgmt.service.HttpTransport;
 import com.example.termmgmt.service.OpenAiHttpTransport;
 import com.example.termmgmt.service.SuggestionRun;
 import com.example.termmgmt.service.TranslationSuggester;
+import com.example.termmgmt.util.DropFieldLabels;
 import com.example.termmgmt.util.FileAccessUtils;
 import com.example.termmgmt.util.I18N;
 import com.example.termmgmt.util.IconUtils;
@@ -1397,6 +1398,17 @@ public class TerminologyPanel extends JPanel {
         return notice.toString();
     }
 
+    /** An export-report field name in the user's language; unknown names are shown as they are. */
+    private static String dropFieldLabel(String fieldName) {
+        String key = DropFieldLabels.keyOf(fieldName);
+        if (key == null) {
+            return fieldName;
+        }
+        String detail = DropFieldLabels.detailOf(fieldName);
+        String label = I18N.getString(key);
+        return detail == null || detail.isEmpty() ? label : label + " (" + detail + ")";
+    }
+
     /**
      * A failure reason in the UI language. The service layer reports stable codes
      * ({@code code:ai.fail.<name>[|<detail>]}, see SuggestionFailures) instead of English
@@ -1557,8 +1569,8 @@ public class TerminologyPanel extends JPanel {
                     if (report.hasLoss()) {
                         msg.append("\n\n").append(I18N.getString("btn.export.report.dropped")).append("\n");
                         for (TermbaseConverter.DroppedField df : report.droppedFields()) {
-                            msg.append("  - ").append(df.fieldName())
-                               .append(": ").append(df.affectedEntries()).append(" entries\n");
+                            msg.append("  - ").append(I18N.getString("btn.export.report.line",
+                                dropFieldLabel(df.fieldName()), df.affectedEntries())).append('\n');
                         }
                     } else {
                         msg.append("\n").append(I18N.getString("btn.export.report.none"));
