@@ -108,8 +108,11 @@ public final class TermbaseConverter {
         List<RichTermEntry> richEntries = readRich(config);
         DitaGlossaryExporter.export(richEntries, config.getSourceLang(),
             config.getTargetLang(), targetPath);
-        // A glossary carries only the term and a definition; report the rest.
-        return new ConversionReport(richEntries.size(), DitaGlossaryExporter.detectDrops(richEntries));
+        // A glossary carries the source term, a definition, and - for a distinct target
+        // language - the translation as a linked glossentry; report the rest.
+        return new ConversionReport(richEntries.size(),
+            DitaGlossaryExporter.detectDrops(richEntries, config.getSourceLang(),
+                config.getTargetLang()));
     }
 
     /**

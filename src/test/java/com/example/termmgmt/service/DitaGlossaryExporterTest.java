@@ -53,6 +53,16 @@ class DitaGlossaryExporterTest {
         return builder.parse(file.toFile());
     }
 
+    private Element entryById(Document doc, String id) {
+        NodeList glossentries = doc.getElementsByTagName("glossentry");
+        for (int i = 0; i < glossentries.getLength(); i++) {
+            Element ge = (Element) glossentries.item(i);
+            if (id.equals(ge.getAttribute("id"))) return ge;
+        }
+        fail("No glossentry with id=" + id);
+        return null;
+    }
+
     // ------------------------------------------------------------------ Well-formedness
 
     @Test
@@ -82,6 +92,7 @@ class DitaGlossaryExporterTest {
 
         Document doc = parseOutput(out);
         NodeList glossentries = doc.getElementsByTagName("glossentry");
+        // one glossentry per term; the translation rides inside it as glossSynonym
         assertEquals(1, glossentries.getLength());
         Element ge = (Element) glossentries.item(0);
         assertEquals("myCustomId", ge.getAttribute("id"));
@@ -99,7 +110,7 @@ class DitaGlossaryExporterTest {
 
         Document doc = parseOutput(out);
         NodeList glossentries = doc.getElementsByTagName("glossentry");
-        assertEquals(3, glossentries.getLength());
+        assertEquals(3, glossentries.getLength(), "one glossentry per term");
 
         Set<String> ids = new HashSet<>();
         for (int i = 0; i < glossentries.getLength(); i++) {
@@ -203,6 +214,82 @@ class DitaGlossaryExporterTest {
         String content = Files.readString(out, StandardCharsets.UTF_8);
         assertTrue(content.contains("<!DOCTYPE glossgroup"), "Should contain DOCTYPE");
         assertTrue(content.contains("-//OASIS//DTD DITA Glossary Group//EN"), "Should contain PUBLIC identifier");
+    }
+
+    // ------------------------------------------------------------------ Target translation
+
+    @Test
+    void targetTranslation_exportedAsGlossSynonym() throws Exception {
+        List<RichTermEntry> entries = List.of(
+            rich("云计算", "Cloud Computing", "c1", "一种计算模式")
+        );
+        Path out = tempDir.resolve("gloss.dita");
+        DitaGlossaryExporter.export(entries, "zh-CN", "en-US", out);
+
+        Document doc = parseOutput(out);
+        // a single glossentry per term now carries both languages
+        assertEquals(1, doc.getElementsByTagName("glossentry").getLength());
+
+        Element source = entryById(doc, "c1");
+        assertEquals("zh-CN", source.getAttribute("xml:lang"), "source entry tagged with its language");
+        assertEquals("云计算", source.getElementsByTagName("glossterm").item(0).getTextContent());
+
+        NodeList syns = source.getElementsByTagName("glossSynonym");
+        assertEquals(1, syns.getLength(), "translation carried as glossSynonym");
+        Element syn = (Element) syns.item(0);
+        assertEquals("Cloud Computing", syn.getTextContent());
+        assertEquals("en-US", syn.getAttribute("xml:lang"), "synonym tagged with the target language");
+        // wrapped in glossBody > glossAlt
+        assertEquals("glossAlt", syn.getParentNode().getNodeName());
+        assertEquals("glossBody", syn.getParentNode().getParentNode().getNodeName());
+    }
+
+    @Test
+    void sameSourceAndTargetLang_noTranslationSynonym() throws Exception {
+        List<RichTermEntry> entries = List.of(
+            rich("cloud", "Cloud Computing", "s1", null)
+        );
+        Path out = tempDir.resolve("gloss.dita");
+        DitaGlossaryExporter.export(entries, "en-US", "en-US", out);
+
+        Document doc = parseOutput(out);
+        assertEquals(1, doc.getElementsByTagName("glossentry").getLength());
+        assertEquals(0, doc.getElementsByTagName("glossSynonym").getLength(),
+            "a translation in the source language would only duplicate the term");
+    }
+
+    @Test
+    void blankTargetTerm_noTranslationSynonym() throws Exception {
+        List<RichTermEntry> entries = List.of(
+            rich("云计算", null, "b1", null),
+            rich("微服务", "", "b2", null)
+        );
+        Path out = tempDir.resolve("gloss.dita");
+        DitaGlossaryExporter.export(entries, "zh-CN", "en-US", out);
+
+        Document doc = parseOutput(out);
+        assertEquals(2, doc.getElementsByTagName("glossentry").getLength());
+        assertEquals(2, doc.getElementsByTagName("glossterm").getLength());
+        assertEquals(0, doc.getElementsByTagName("glossSynonym").getLength());
+    }
+
+    @Test
+    void detectDrops_targetCarried_whenLanguagesDiffer() {
+        List<RichTermEntry> entries = List.of(rich("云计算", "Cloud", "d1", null));
+        List<TermbaseConverter.DroppedField> drops =
+            DitaGlossaryExporter.detectDrops(entries, "zh-CN", "en-US");
+        assertFalse(drops.stream().anyMatch(df -> "target language terms".equals(df.fieldName())),
+            "the translation is exported, not dropped: " + drops);
+    }
+
+    @Test
+    void detectDrops_targetReported_whenLanguagesAreEqual() {
+        List<RichTermEntry> entries = List.of(rich("cloud", "Cloud Computing", "d2", null));
+        List<TermbaseConverter.DroppedField> drops =
+            DitaGlossaryExporter.detectDrops(entries, "en-US", "en-US");
+        assertTrue(drops.stream().anyMatch(df ->
+                "target language terms".equals(df.fieldName()) && df.affectedEntries() == 1),
+            "a translation that cannot be exported must be reported: " + drops);
     }
 
     // ------------------------------------------------------------------ ID validity

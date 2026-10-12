@@ -606,6 +606,8 @@ class TermbaseConverterTest {
         String content = Files.readString(ditaOut, StandardCharsets.UTF_8);
         assertTrue(content.contains("<glossgroup"), "Output must be a DITA glossary group");
         assertTrue(content.contains("a model"), "The definition column belongs in glossdef");
+        assertTrue(content.contains("glossSynonym"), "The translation must be exported as glossSynonym");
+        assertTrue(content.contains("Cloud Computing"), "The target term must appear in the glossary");
         assertTrue(report.hasLoss(), "The domain column has nowhere to go: " + report.droppedFields());
     }
 

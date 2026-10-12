@@ -31,6 +31,10 @@ import java.util.Set;
  *   <li>Top-level: {@code <glossgroup>} with required {@code id} and {@code <title>} child.</li>
  *   <li>Per entry: {@code <glossentry id="...">} containing {@code <glossterm>} (required)
  *       and {@code <glossdef>} (optional; omitted when no definition is available).</li>
+ *   <li>DITA has no dedicated translation element, so a target-language translation is
+ *       carried inside the same {@code glossentry} as {@code <glossBody><glossAlt>
+ *       <glossSynonym xml:lang="...">}. The spec notes {@code glossAlt}/{@code glossSynonym}
+ *       are language-scoped, hence the {@code xml:lang} tag marking the target language.</li>
  *   <li>DOCTYPE: {@code <!DOCTYPE glossgroup PUBLIC "-//OASIS//DTD DITA Glossary Group//EN"
  *       "glossgroup.dtd">}</li>
  *   <li>Class attributes (DTD-based documents do not require class attributes in content,
@@ -45,21 +49,51 @@ public final class DitaGlossaryExporter {
 
     private DitaGlossaryExporter() {}
 
+    /** The XML namespace, whose {@code xml} prefix is predefined and always bound. */
+    private static final String XML_NS = "http://www.w3.org/XML/1998/namespace";
+
+    /** Set the standard {@code xml:lang} attribute on an element when the tag is known. */
+    static void setLang(Element e, String lang) {
+        if (lang != null && !lang.isEmpty()) {
+            e.setAttributeNS(XML_NS, "xml:lang", lang);
+        }
+    }
+
     /**
-     * The fields a DITA glossary export cannot carry: only the source term and a definition
-     * survive as {@code glossterm}/{@code glossdef}, everything else (status, notes, other
-     * languages, unmodelled termNotes) is dropped and must be reported to the user.
+     * The fields a DITA glossary export cannot carry: the source term survives as
+     * {@code glossterm}, the definition as {@code glossdef}, and the target translation as a
+     * {@code glossSynonym} inside {@code glossBody}/{@code glossAlt} (only when it is in a
+     * language distinct from the source); everything else (status, notes, third languages,
+     * unmodelled termNotes) is dropped and must be reported to the user.
+     *
+     * <p>Without the language pair the target language is treated as unknown, so target
+     * translations are conservatively reported as dropped; {@link #detectDrops(List, String,
+     * String)} is the accurate form used by the real export.
      */
     public static List<DroppedField> detectDrops(List<RichTermEntry> entries) {
+        return detectDrops(entries, null, null);
+    }
+
+    /**
+     * As {@link #detectDrops(List)}, knowing the language pair of the export so that target
+     * translations which will in fact be written as linked {@code glossentry} elements are
+     * not reported as dropped.
+     */
+    public static List<DroppedField> detectDrops(List<RichTermEntry> entries,
+                                                 String sourceLang, String targetLang) {
         List<DroppedField> dropped = new ArrayList<>();
         if (entries == null || entries.isEmpty()) return dropped;
-        int statusCount = 0, noteCount = 0, extraCount = 0, termNoteCount = 0, extraColumnCount = 0;
+        int statusCount = 0, noteCount = 0, extraCount = 0, termNoteCount = 0, extraColumnCount = 0, targetCount = 0;
         Set<String> termNoteTypes = new LinkedHashSet<>();
         for (RichTermEntry r : entries) {
             String status = r.entry.getStoredStatusValue();
             if (status != null && !status.isEmpty()) statusCount++;
             if (r.note != null && !r.note.isEmpty()) noteCount++;
             if (!r.extraLangTerms.isEmpty()) extraCount++;
+            if (!canExportTarget(r, sourceLang, targetLang)) {
+                String target = r.entry.getTargetTerm();
+                if (target != null && !target.isEmpty()) targetCount++;
+            }
             boolean anyTermNote = r.termNotes.values().stream().mapToInt(Map::size).sum() > 0;
             if (anyTermNote) {
                 termNoteCount++;
@@ -82,6 +116,7 @@ public final class DitaGlossaryExporter {
         }
         if (statusCount > 0) dropped.add(new DroppedField("status", statusCount));
         if (noteCount > 0) dropped.add(new DroppedField("note", noteCount));
+        if (targetCount > 0) dropped.add(new DroppedField("target language terms", targetCount));
         if (extraCount > 0) dropped.add(new DroppedField("extra language terms", extraCount));
         if (termNoteCount > 0)
             dropped.add(new DroppedField(TermbaseConverter.termNotesLabel(termNoteTypes), termNoteCount));
@@ -93,8 +128,10 @@ public final class DitaGlossaryExporter {
      * Export the given entries as a DITA glossary group file.
      *
      * @param richEntries entries with optional definitions (from TBX) or plain terms (CSV/XLSX)
-     * @param sourceLang  language tag for the glossterm
-     * @param targetLang  language tag (reserved for future multi-language glossdef)
+     * @param sourceLang  language tag for the source glossterm
+     * @param targetLang  language tag for the target translation, written as a
+     *                    {@code glossSynonym}; carried only when it differs from
+     *                    {@code sourceLang}
      * @param targetPath  output file path
      */
     public static void export(List<RichTermEntry> richEntries,
@@ -126,6 +163,7 @@ public final class DitaGlossaryExporter {
                 String id = resolveId(r.entry, seqCounter, usedIds);
                 entry.setAttribute("id", id);
                 entry.setAttribute("class", "- topic/topic concept/concept glossentry/glossentry ");
+                setLang(entry, sourceLang);
                 usedIds.add(id);
                 seqCounter++;
 
@@ -149,6 +187,32 @@ public final class DitaGlossaryExporter {
                         "- topic/abstract concept/abstract glossentry/glossdef ");
                     glossdef.setTextContent(defText);
                     entry.appendChild(glossdef);
+                }
+
+                // Target translation: DITA has no dedicated "translation" element, so the
+                // translation is carried inside glossBody > glossAlt > glossSynonym. The
+                // spec notes glossAlt/glossSynonym are language-scoped, so xml:lang marks
+                // the synonym as being in the target language.
+                if (canExportTarget(r, sourceLang, targetLang)) {
+                    Element glossBody = doc.createElement("glossBody");
+                    glossBody.setAttribute("class",
+                        "- topic/body concept/conbody glossentry/glossBody ");
+
+                    Element glossAlt = doc.createElement("glossAlt");
+                    glossAlt.setAttribute("class",
+                        "- topic/section concept/section glossentry/glossAlt ");
+
+                    Element glossSynonym = doc.createElement("glossSynonym");
+                    glossSynonym.setAttribute("class",
+                        "- topic/title concept/title glossentry/glossSynonym ");
+                    setLang(glossSynonym, targetLang);
+                    String targetText = r.entry.getTargetTerm();
+                    if (targetText == null) targetText = "";
+                    glossSynonym.setTextContent(targetText);
+
+                    glossAlt.appendChild(glossSynonym);
+                    glossBody.appendChild(glossAlt);
+                    entry.appendChild(glossBody);
                 }
 
                 glossgroup.appendChild(entry);
@@ -175,6 +239,25 @@ public final class DitaGlossaryExporter {
         } catch (Exception e) {
             throw new IOException("Failed to write DITA glossary: " + targetPath, e);
         }
+    }
+
+    /**
+     * Whether the entry's target translation can be exported: it needs a non-empty target
+     * term and a target language distinct from the source one (otherwise the translation
+     * would be a duplicate {@code glossentry} of the source term).
+     */
+    static boolean canExportTarget(RichTermEntry r, String sourceLang, String targetLang) {
+        if (r == null || r.entry == null) return false;
+        String target = r.entry.getTargetTerm();
+        if (target == null || target.isEmpty()) return false;
+        return isDistinctLang(sourceLang, targetLang);
+    }
+
+    /** True when both tags are known and denote different languages (case-insensitive). */
+    static boolean isDistinctLang(String sourceLang, String targetLang) {
+        if (sourceLang == null || sourceLang.isEmpty()) return false;
+        if (targetLang == null || targetLang.isEmpty()) return false;
+        return !sourceLang.equalsIgnoreCase(targetLang);
     }
 
     /**
