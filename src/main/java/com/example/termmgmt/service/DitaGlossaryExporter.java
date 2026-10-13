@@ -22,6 +22,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Exports a termbase as a DITA 1.3 Glossary Group document.
@@ -53,13 +54,26 @@ public final class DitaGlossaryExporter {
     private static final String XML_NS = "http://www.w3.org/XML/1998/namespace";
 
     /**
+     * Rough BCP 47 shape: a 2-3 letter primary subtag (ISO 639) followed by optional 2-8
+     * character subtags ({@code en}, {@code zh-CN}, {@code zh-Hans-CN}, {@code de-DE-1901}).
+     * Deliberately narrow so legacy headers like {@code English} or {@code Remark} - which are
+     * neither registered tags nor plausible language codes - are rejected rather than written.
+     */
+    private static final Pattern LANG_TAG = Pattern.compile("(?i)[a-z]{2,3}(-[a-z0-9]{2,8})*");
+
+    /**
      * A language tag as BCP 47 writes it: trimmed, with the underscore some locale APIs use
-     * ({@code zh_CN}) turned into the hyphen {@code xml:lang} requires. Null when unknown.
+     * ({@code zh_CN}) turned into the hyphen {@code xml:lang} requires. Null when unknown or
+     * when the value is not shaped like a tag at all: legacy CSV/XLSX headers are carried
+     * verbatim as the "language" ({@code English}, {@code Chinese}) but are not BCP 47 tags,
+     * so they must neither become an {@code xml:lang} attribute nor be treated as a distinct
+     * language - {@code setLang} skips them and {@code isDistinctLang} reports them as equal.
      */
     static String normalizeLang(String lang) {
         if (lang == null) return null;
         String t = lang.trim().replace('_', '-');
-        return t.isEmpty() ? null : t;
+        if (t.isEmpty() || !LANG_TAG.matcher(t).matches()) return null;
+        return t;
     }
 
     /** Set the standard {@code xml:lang} attribute on an element when the tag is known. */

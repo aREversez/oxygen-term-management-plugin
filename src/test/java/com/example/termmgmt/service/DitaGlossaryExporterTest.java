@@ -296,6 +296,47 @@ class DitaGlossaryExporterTest {
     }
 
     @Test
+    void normalizeLang_rejectsValuesThatAreNotTags() {
+        // Real BCP 47 tags survive (after underscore-to-hyphen folding).
+        assertEquals("zh-CN", DitaGlossaryExporter.normalizeLang("zh_CN"));
+        assertEquals("en", DitaGlossaryExporter.normalizeLang(" en "));
+        assertEquals("zh-Hans-CN", DitaGlossaryExporter.normalizeLang("zh-Hans-CN"));
+        assertEquals("de-DE-1901", DitaGlossaryExporter.normalizeLang("de-DE-1901"));
+        // Legacy CSV/XLSX headers are not language tags: they must be rejected, not written.
+        assertNull(DitaGlossaryExporter.normalizeLang("English"));
+        assertNull(DitaGlossaryExporter.normalizeLang("Chinese"));
+        assertNull(DitaGlossaryExporter.normalizeLang("Remark"));
+        assertNull(DitaGlossaryExporter.normalizeLang(""));
+        assertNull(DitaGlossaryExporter.normalizeLang(null));
+    }
+
+    @Test
+    void isDistinctLang_nonTagHeaderIsNotDistinct() {
+        // "English" vs "Chinese" looks like two languages to a naive string compare, but neither
+        // is a tag, so the pair is unknown and the translation cannot be attributed a language.
+        assertFalse(DitaGlossaryExporter.isDistinctLang("Chinese", "English"),
+            "non-tag headers are not a distinct language pair");
+    }
+
+    @Test
+    void export_nonTagHeaderLangs_omitXmlLangAndDropTarget() throws Exception {
+        List<RichTermEntry> entries = List.of(rich("\u4e91\u8ba1\u7b97", "Cloud Computing", "h1", null));
+        Path out = tempDir.resolve("legacy.dita");
+        DitaGlossaryExporter.export(entries, "Chinese", "English", out);
+
+        Element source = entryById(parseOutput(out), "h1");
+        assertEquals("", source.getAttribute("xml:lang"),
+            "a header word is not a valid xml:lang and must be omitted");
+        assertEquals(0, source.getElementsByTagName("glossSynonym").getLength(),
+            "the language pair is unknown, so the translation is not exported");
+
+        List<TermbaseConverter.DroppedField> drops =
+            DitaGlossaryExporter.detectDrops(entries, "Chinese", "English");
+        assertTrue(drops.stream().anyMatch(df -> "target language terms".equals(df.fieldName())),
+            "the un-exportable translation must be reported as dropped: " + drops);
+    }
+
+    @Test
     void detectDrops_targetCarried_whenLanguagesDiffer() {
         List<RichTermEntry> entries = List.of(rich("云计算", "Cloud", "d1", null));
         List<TermbaseConverter.DroppedField> drops =

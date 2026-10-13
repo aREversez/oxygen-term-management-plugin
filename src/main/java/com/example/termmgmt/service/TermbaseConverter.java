@@ -650,6 +650,18 @@ public final class TermbaseConverter {
 
     // ------------------------------------------------------------------ TBX writing
 
+    /**
+     * The value to write as a TBX {@code xml:lang}: a configured tag spelled with an underscore
+     * ({@code zh_CN}) is folded to BCP 47, but a value that is not a tag at all - a legacy CSV/XLSX
+     * header such as {@code English} - is kept verbatim rather than dropped, because a TBX
+     * {@code langSet} has to carry a language identifier to survive a round-trip. The raw value is
+     * still used for term-note lookups; only the written attribute is normalized.
+     */
+    private static String tbxLang(String raw) {
+        String tag = DitaGlossaryExporter.normalizeLang(raw);
+        return tag != null ? tag : raw;
+    }
+
     private static void writeTbx(TermbaseConfig config, List<TermEntry> entries,
                                  List<RichTermEntry> richEntries) throws IOException {
         String sourceLang = config.getSourceLang() != null ? config.getSourceLang() : "zh-CN";
@@ -664,7 +676,7 @@ public final class TermbaseConverter {
             // Root: martif
             Element martif = doc.createElement("martif");
             martif.setAttribute("type", "TBX");
-            martif.setAttribute("xml:lang", sourceLang);
+            martif.setAttribute("xml:lang", tbxLang(sourceLang));
             doc.appendChild(martif);
 
             // martifHeader
@@ -791,7 +803,7 @@ public final class TermbaseConverter {
     private static Element appendTbxLangSet(Document doc, Element termEntry, String lang,
                                             String termText, Map<String, String> termNotes) {
         Element langSet = doc.createElement("langSet");
-        langSet.setAttribute("xml:lang", lang);
+        langSet.setAttribute("xml:lang", tbxLang(lang));
         Element tig = doc.createElement("tig");
         Element term = doc.createElement("term");
         term.setTextContent(termText != null ? termText : "");
