@@ -189,7 +189,16 @@ public class TermManagementPreferencePage extends OptionPagePluginExtension {
             I18N.getString("prefs.col.termcount"),
             I18N.getString("prefs.col.langs")
         };
-        tableModel = new DefaultTableModel(columns, 0);
+        // Every column is derived from a TermbaseConfig (or from the file on disk), never typed by
+        // the user. A default DefaultTableModel lets a double-click overwrite any cell, and the
+        // Edit / Reload actions read the file path back out of the table, so editing a cell
+        // would break them. Rows change only through the buttons; setValueAt() from code still works.
+        tableModel = new DefaultTableModel(columns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
         termbaseTable = new JTable(tableModel);
         termbaseTable.setFillsViewportHeight(true);
         // Header dragging must not reorder columns (defect H). Columns start at the readable
