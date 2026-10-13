@@ -55,4 +55,22 @@ public final class DropFieldLabels {
         }
         return fieldName.substring(TERM_NOTES.length() + 2, fieldName.length() - 1);
     }
+
+    /**
+     * A dropped-field name rendered in the user's language: the bundle label resolved through
+     * {@code messageResolver}, with a dynamic {@code "term notes (types)"} detail preserved in
+     * parentheses after it. Unknown names are returned verbatim so they reach the dialog as they
+     * are rather than being lost. The resolver turns a key into text, which keeps this class free
+     * of the resource bundles and its combining logic testable without the UI.
+     */
+    public static String localizedLabel(String fieldName,
+                                        java.util.function.Function<String, String> messageResolver) {
+        String key = keyOf(fieldName);
+        if (key == null) {
+            return fieldName;
+        }
+        String detail = detailOf(fieldName);
+        String label = messageResolver.apply(key);
+        return detail == null || detail.isEmpty() ? label : label + " (" + detail + ")";
+    }
 }

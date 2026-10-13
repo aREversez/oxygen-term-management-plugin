@@ -94,4 +94,19 @@ class DropFieldLabelsTest {
         assertNull(DropFieldLabels.keyOf(null));
         assertNull(DropFieldLabels.detailOf(null));
     }
+
+    @Test
+    void localizedLabelResolvesThroughBundleAndKeepsDetail() {
+        // Resolver stands in for the bundles: it echoes the key so the wiring is observable.
+        java.util.function.Function<String, String> resolver = key -> "<" + key + ">";
+        // Unknown names pass through verbatim rather than being dropped.
+        assertEquals("something new", DropFieldLabels.localizedLabel("something new", resolver));
+        // A known name becomes its bundle label, no detail.
+        assertEquals("<export.field.status>", DropFieldLabels.localizedLabel("status", resolver));
+        // The dynamic term-notes name keeps its type list as a trailing detail.
+        assertEquals("<export.field.termnotes> (usage, grammar)",
+            DropFieldLabels.localizedLabel("term notes (usage, grammar)", resolver));
+        // Null resolver result must not throw - a missing label still shows the raw name path.
+        assertEquals("<export.field.termnotes>", DropFieldLabels.localizedLabel("term notes", resolver));
+    }
 }

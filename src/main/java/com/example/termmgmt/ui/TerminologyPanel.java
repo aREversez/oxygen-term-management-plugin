@@ -1400,13 +1400,7 @@ public class TerminologyPanel extends JPanel {
 
     /** An export-report field name in the user's language; unknown names are shown as they are. */
     private static String dropFieldLabel(String fieldName) {
-        String key = DropFieldLabels.keyOf(fieldName);
-        if (key == null) {
-            return fieldName;
-        }
-        String detail = DropFieldLabels.detailOf(fieldName);
-        String label = I18N.getString(key);
-        return detail == null || detail.isEmpty() ? label : label + " (" + detail + ")";
+        return DropFieldLabels.localizedLabel(fieldName, key -> I18N.getString(key));
     }
 
     /**
